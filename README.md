@@ -1,6 +1,7 @@
 # InitfsTools
 Dedicated GUI toolkit for modding and researching InitFS files across Frostbite Engine games, 
 featuring multi-format decryption support, a command dictionary, type extractor, diff checker, and more.
+
 **SOURCE WILL BE RELEASED AS SOON AS I FINISH UP POLISHING A FEW MORE FEATURES**
 
 ## Features
