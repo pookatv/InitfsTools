@@ -4,6 +4,8 @@ featuring multi-format decryption support, a command dictionary, type extractor,
 
 **SOURCE WILL BE RELEASED AS SOON AS I FINISH UP POLISHING A FEW MORE FEATURES**
 
+Massive credit to the original FrostyToolsuite team, you can check them here: https://github.com/CadeEvs/FrostyToolsuite
+
 ## Features
 - **InitFS Modding** — Load, modify, and save InitFS files across a wide range of Frostbite Engine games
 - **Type Extractor** — Extract all types and commands from a game executable or Frosty SDK DLL (coming soon)
