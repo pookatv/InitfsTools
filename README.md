@@ -10,3 +10,6 @@ featuring multi-format decryption support, a command dictionary, type extractor,
 - **Diff Check** — Compare differences between two InitFS files, with export support
 - **Reference Library** — Browse and view base and custom payloads from various Frostbite titles
 - **Command Dictionary** — Generate and browse a full list of console commands extracted from raw InitFS files
+
+## License
+The Content, Name, Code, and all assets are licensed under a Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
