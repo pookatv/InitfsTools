@@ -1,4 +1,4 @@
-# InitfsTools
+# Frostbite InitFS Tools
 Dedicated GUI toolkit for modding and researching InitFS files across Frostbite Engine games, 
 featuring multi-format decryption support, a command dictionary, type extractor, diff checker, and more.
 
@@ -6,7 +6,7 @@ featuring multi-format decryption support, a command dictionary, type extractor,
 
 ## Features
 - **InitFS Modding** — Load, modify, and save InitFS files across a wide range of Frostbite Engine games
-- **Type Extractor** — Extract all types and commands from a game executable or Frosty SDK DLL
+- **Type Extractor** — Extract all types and commands from a game executable or Frosty SDK DLL (coming soon)
 - **Diff Check** — Compare differences between two InitFS files, with export support
 - **Reference Library** — Browse and view base and custom payloads from various Frostbite titles
 - **Command Dictionary** — Generate and browse a full list of console commands extracted from raw InitFS files
