@@ -9,8 +9,8 @@ Massive credit to the original FrostyToolsuite team, you can check them here: ht
 ## Features
 - **InitFS Modding** — Load, modify, and save InitFS files across a wide range of Frostbite Engine games
 - **Type Extractor** — Extract all types and commands from a game executable or Frosty SDK DLL (coming soon)
-- **Diff Check** — Compare differences between two InitFS files, with export support
-- **Reference Library** — Browse and view base and custom payloads from various Frostbite titles
+- **Diff Check** — Compare differences between two InitFS files, with export support [IN BETA RELEASE]
+- **Reference Library** — Browse and view base and custom payloads from various Frostbite titles [IN BETA RELEASE]
 - **Command Dictionary** — Generate and browse a full list of console commands extracted from raw InitFS files
 
 ## License
