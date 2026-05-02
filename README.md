@@ -23,6 +23,7 @@ Massive thank you to the original FrostyToolsuite team, you can check them here:
 - Fix an issue where the green highlight may disappear when deleting spaces
 - Finish DictionaryWindow logic to support more dev commands
 - Finish InitfsTools Wiki (help wanted!)
+- Implement localization support for the UI
 
 ## License
 The Content, Name, Code, and all assets are licensed under a Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
