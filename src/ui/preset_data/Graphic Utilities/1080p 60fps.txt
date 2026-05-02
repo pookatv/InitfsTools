@@ -1,0 +1,11 @@
+[notes]
+Sets the internal rendering resolution to 1080p and caps the framerate to 60fps.
+[/notes]
+
+Render.ResolutionScale 1.0
+Client.VSyncEnable 0
+GameTime.MaxVariableFps 60
+
+# For newer games only:
+SimulationTime.MaxSimFps 60
+SimulationTime.ForceSimRate 60

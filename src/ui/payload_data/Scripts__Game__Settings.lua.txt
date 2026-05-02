@@ -1,0 +1,947 @@
+[description]
+Core settings initialization - defines fundamental game configuration tables loaded before everything else.
+
+[version]
+2011-2016 (Battlefield 3 (Alpha), NFS, Battlefront 1, Garden Warfare 1/2, Mirror's Edge)
+[notes]
+Original comprehensive settings structure.
+
+Features:
+- Game.LogFileEnable = true
+- GameMode.disablePreRound = true
+- Client, Server, ShaderSystem tables
+- NetworkSettings with full configuration
+- Core table (empty, placeholder for future expansion)
+
+This was the most feature-rich early version, establishing patterns used throughout Frostbite's history.
+[content]
+--
+-- Define basic settings tables
+--
+
+Game = {
+	LogFileEnable = true,
+}
+
+GameMode = {
+	disablePreRound = true,
+}
+
+Client = {
+}
+
+Server = {
+}
+
+ShaderSystem = {
+	DebugNonFiniteColor = { x=0, y=0, z=0 },
+}
+
+NetworkSettings = {
+	Version = "V0.0",
+	ProtocolVersion = 0,
+	TitleId = 4,
+	ClientPort = 1001,
+	ServerPort = 1003,
+	MaxGhostCount = 1024,
+	MaxClientCount = 64,
+}
+
+Core = {
+}
+[/version]
+
+[version]
+2011 (Battlefield 3/4/Hardline, Army of Two, Medal of Honor)
+[notes]
+Alternative baseline version.
+
+Changes from Alpha:
+- Removed GameMode table entirely
+- All other tables identical
+
+Why: Pre-round functionality wasn't needed for these military shooters.
+[content]
+--
+-- Define basic settings tables
+--
+
+Game = {
+	LogFileEnable = true,
+}
+
+Client = {
+}
+
+Server = {
+}
+
+ShaderSystem = {
+	DebugNonFiniteColor = { x=0, y=0, z=0 },
+}
+
+NetworkSettings = {
+	Version = "V0.0",
+	ProtocolVersion = 0,
+	TitleId = 4,
+	ClientPort = 1001,
+	ServerPort = 1003,
+	MaxGhostCount = 1024,
+	MaxClientCount = 64,
+}
+
+Core = {
+}
+[/version]
+
+[version]
+2016 (Battlefield 1)
+[notes]
+GPU vendor detection era.
+
+New Features:
+- Vendors table with GPU manufacturer PCI IDs:
+  - AMD: 0x1002
+  - NVIDIA: 0x10DE
+  - INTEL: 0x8086
+
+Why: BF1 needed hardware-specific optimizations and compatibility fixes for WWI setting's visual demands.
+[content]
+--
+-- Define basic settings tables
+--
+
+Game = {
+	LogFileEnable = true,
+}
+
+GameMode = {
+	disablePreRound = true,
+}
+
+Client = {
+}
+
+Server = {
+}
+
+ShaderSystem = {
+	DebugNonFiniteColor = { x=0, y=0, z=0 },
+}
+
+NetworkSettings = {
+	Version = "V0.0",
+	ProtocolVersion = 0,
+	TitleId = 4,
+	ClientPort = 1001,
+	ServerPort = 1003,
+	MaxGhostCount = 1024,
+	MaxClientCount = 64,
+}
+
+Vendors = {
+	["AMD"] = 0x1002,
+	["NVIDIA"] = 0x10DE,
+	["INTEL"] = 0x8086
+}
+
+Core = {
+}
+[/version]
+
+[version]
+2017 (Mass Effect, FIFA 18/19, Anthem, Battle for Neighborville, Squadrons)
+[notes]
+Telemetry subnet configuration removed.
+
+Changes from BF1:
+- Vendors table removed
+- Commented-out Juice Subnet configuration with MEC_START/MEC_END tags (commented out only on Mass Effect/Anthem)
+
+Juice Subnet Purpose:
+- EA's internal telemetry/analytics system
+- Subnet detection for automatic server configuration
+- Sample configuration shows three EA locations: EAC, EARO_QA1, EARO_QA2
+
+Why: BioWare/EA Sports games didn't need GPU vendor detection but kept telemetry infrastructure for future use.
+[content]
+--
+-- Define basic settings tables
+--
+
+Game = {
+	LogFileEnable = true,
+}
+
+GameMode = {
+	disablePreRound = true,
+}
+
+Client = {
+}
+
+Server = {
+}
+
+ShaderSystem = {
+	DebugNonFiniteColor = { x=0, y=0, z=0 },
+}
+
+NetworkSettings = {
+	Version = "V0.0",
+	ProtocolVersion = 0,
+	TitleId = 4,
+	ClientPort = 1001,
+	ServerPort = 1003,
+	MaxGhostCount = 1024,
+	MaxClientCount = 64,
+}
+
+Core = {
+}
+
+-- MEC_START - 2016-10-12 - skylerd - [DIVERGENCE] Remove sample settings for juice
+-- Juice Subnet setting information
+-- Below mentioned subnet information is a sample
+-- Game team need to fill up in the same format as shown below
+
+-- SubnetSettingCollection =
+-- {
+-- 	SubnetSettingList =
+-- 	{
+-- 		{
+-- 			Location = "EAC",
+-- 			Subnet = "10.9.",
+-- 			ServerIP = "10.10.16.36",
+-- 			ServerPort = "31001",
+-- 		},
+-- 		{
+-- 			Location = "EARO_QA1",
+-- 			Subnet = "10.45.0.",
+-- 			ServerIP = "10.45.0.15",
+-- 			ServerPort = "31001",
+-- 		},
+-- 		{
+-- 			Location = "EARO_QA2",
+-- 			Subnet = "10.45.1.",
+-- 			ServerIP = "10.45.0.15",
+-- 			ServerPort = "31001",
+-- 		}
+-- 	}
+-- }
+-- MEC_END
+[/version]
+
+[version]
+2017 (Star Wars Battlefront II)
+[notes]
+Active telemetry with module tracking.
+
+New Features:
+- Core.OperationalContextDataKeys = { "ModuleInfo", "MachineUniqueId" }
+- Active SubnetSettingCollection (uncommented)
+- DICE-specific subnet configuration: 10.46.16.99
+
+Why: SWBF2's live service model required robust telemetry tracking for DLC content and unique machine identification for anti-cheat.
+[content]
+--
+-- Define basic settings tables
+--
+
+Game = {
+	LogFileEnable = true,
+}
+
+GameMode = {
+	disablePreRound = true,
+}
+
+Client = {
+}
+
+Server = {
+}
+
+ShaderSystem = {
+	DebugNonFiniteColor = { x=0, y=0, z=0 },
+}
+
+NetworkSettings = {
+	Version = "V0.0",
+	ProtocolVersion = 0,
+	TitleId = 4,
+	ClientPort = 1001,
+	ServerPort = 1003,
+	MaxGhostCount = 1024,
+	MaxClientCount = 64,
+}
+
+Core = {
+	OperationalContextDataKeys = { "ModuleInfo", "MachineUniqueId" },
+}
+
+-- Juice Subnet setting information
+-- Below mentioned subnet information is a sample
+-- Game team need to fill up in the same format as shown below
+
+SubnetSettingCollection =
+{
+	SubnetSettingList =
+	{	 
+		{
+	 		Location = "dice",
+	 		Subnet = "10.",
+	 		ServerIP = "10.46.16.99",
+	 		ServerPort = "31001",
+	 	}
+	}
+}
+[/version]
+
+[version]
+2018 (Battlefield V)
+[notes]
+Hardware tracking + simplified telemetry.
+
+Changes from SWBF2:
+- Vendors table restored (from BF1)
+- Core.OperationalContextDataKeys simplified: removed "MachineUniqueId", kept only "ModuleInfo"
+- SubnetSettingCollection commented out
+
+Why: BFV needed GPU vendor detection but reduced telemetry granularity after SWBF2's privacy concerns.
+[content]
+--
+-- Define basic settings tables
+--
+
+Game = {
+	LogFileEnable = true,
+}
+
+GameMode = {
+	disablePreRound = true,
+}
+
+Client = {
+}
+
+Server = {
+}
+
+ShaderSystem = {
+	DebugNonFiniteColor = { x=0, y=0, z=0 },
+}
+
+NetworkSettings = {
+	Version = "V0.0",
+	ProtocolVersion = 0,
+	TitleId = 4,
+	ClientPort = 1001,
+	ServerPort = 1003,
+	MaxGhostCount = 1024,
+	MaxClientCount = 64,
+}
+
+Vendors = {
+	["AMD"] = 0x1002,
+	["NVIDIA"] = 0x10DE,
+	["INTEL"] = 0x8086
+}
+
+Core = {
+	OperationalContextDataKeys = { "ModuleInfo" },
+}
+[/version]
+
+[version]
+2019 (FIFA 20+, NHL 22)
+[notes]
+Permissive error handling for sports titles.
+
+New Features:
+- Core.AllowSettingsParseErrors = true
+- Active SubnetSettingCollection with three EA locations:
+  - EAC: 10.10.16.60
+  - EARO: 10.45.68.66
+  - EASP: 10.20.129.142
+
+Changes from BFV:
+- Vendors table removed
+- OperationalContextDataKeys removed
+
+Why: Sports titles prioritized stability over strict configuration enforcement, allowing games to continue even with malformed config files.
+[content]
+--
+-- Define basic settings tables
+--
+
+Game = {
+	LogFileEnable = true,
+}
+
+GameMode = {
+	disablePreRound = true,
+}
+
+Client = {
+}
+
+Server = {
+}
+
+ShaderSystem = {
+	DebugNonFiniteColor = { x=0, y=0, z=0 },
+}
+
+NetworkSettings = {
+	Version = "V0.0",
+	ProtocolVersion = 0,
+	TitleId = 4,
+	ClientPort = 1001,
+	ServerPort = 1003,
+	MaxGhostCount = 1024,
+	MaxClientCount = 64,
+}
+
+Core = {
+	AllowSettingsParseErrors = true,
+}
+
+-- Juice Subnet setting information
+-- Below mentioned subnet information is a sample
+-- Game team need to fill up in the same format as shown below
+
+SubnetSettingCollection =
+{
+	SubnetSettingList =
+	{
+		{
+			Location = "EAC",
+			Subnet = "10.10.",
+			ServerIP = "10.10.16.60",
+			ServerPort = "31001",
+		},
+		{
+			Location = "EARO",
+			Subnet = "10.45.",
+			ServerIP = "10.45.68.66",
+			ServerPort = "31001",
+		},
+		{
+			Location = "EASP",
+			Subnet = "10.20.",
+			ServerIP = "10.20.129.142",
+			ServerPort = "31001",
+		}
+	}
+}
+[/version]
+
+[version]
+2019 (Need For Speed Heat)
+[notes]
+Minimalist racing game configuration.
+
+Changes from FIFA:
+- ShaderSystem table completely empty (no DebugNonFiniteColor)
+- Core.AllowSettingsParseErrors = false (strict parsing)
+- SubnetSettingCollection commented out
+- GameMode.disablePreRound retained
+
+Why: Ghost Games prioritized performance and strict configuration control for their open-world racing game.
+[content]
+--
+-- Define basic settings tables
+--
+
+Game = {
+	LogFileEnable = true,
+}
+
+GameMode = {
+	disablePreRound = true,
+}
+
+Client = {
+}
+
+Server = {
+}
+
+ShaderSystem = {
+}
+
+NetworkSettings = {
+	Version = "V0.0",
+	ProtocolVersion = 0,
+	TitleId = 4,
+	ClientPort = 1001,
+	ServerPort = 1003,
+	MaxGhostCount = 1024,
+	MaxClientCount = 64,
+}
+
+Core = {
+	AllowSettingsParseErrors = false,
+}
+[/version]
+
+[version]
+2021 (Battlefield 2042)
+[notes]
+Technical debt acknowledgment era.
+
+New Features:
+- Core.AllowAssignVarsFromLua = true
+- Core.AllowSettingsParseErrors = true
+- Vendors table restored
+- ShaderSystem empty
+- Comment: 'disable these once cfg files have been cleaned up'
+
+Commented SubnetSettings:
+- Shows three studios: Criterion, Romania, Shanghai
+- 10.46.30.126 / 10.46.16.208 servers
+
+Why: BF2042 launched with known configuration technical debt - loose restrictions were temporary workarounds for rushed development. The comment reveals intention to clean up config files post-launch.
+[content]
+--
+-- Define basic settings tables
+--
+
+Game = {
+	LogFileEnable = true,
+}
+
+GameMode = {
+	disablePreRound = true,
+}
+
+Client = {
+}
+
+Server = {
+}
+
+ShaderSystem = {
+}
+
+NetworkSettings = {
+	Version = "V0.0",
+	ProtocolVersion = 0,
+	TitleId = 4,
+	ClientPort = 1001,
+	ServerPort = 1003,
+	MaxGhostCount = 1024,
+	MaxClientCount = 64,
+}
+
+Vendors = {
+	["AMD"] = 0x1002,
+	["NVIDIA"] = 0x10DE,
+	["INTEL"] = 0x8086
+}
+
+Core = {
+	-- disable these once cfg files have been cleaned up
+	AllowAssignVarsFromLua = true,
+	AllowSettingsParseErrors = true,
+}
+
+-- Juice Subnet setting information
+-- Below mentioned subnet information is a sample
+-- Game team need to fill up in the same format as shown below
+
+-- SubnetSettingCollection =
+-- {
+--	SubnetSettingList =
+--	{
+--		{
+--			Location = "criterion",
+--			Subnet = "10.21",
+--			ServerIP = "10.46.30.126",
+--			ServerPort = "31001",
+--		},
+--		{
+--			Location = "romania",
+--			Subnet = "10.45",
+--			ServerIP = "10.46.16.208",
+--			ServerPort = "31001",
+--		},
+--		{
+--			Location = "shanghai",
+--			Subnet = "10.86",
+--			ServerIP = "10.46.16.208",
+--			ServerPort = "31001",
+--		}
+--	}
+-- }
+[/version]
+
+[version]
+2022 (Need For Speed Unbound)
+[notes]
+Multi-line comment syntax standardization.
+
+Changes from BF2042:
+- Uses --[==[ ... --]==] multi-line comment syntax
+- Vendors table added (not in Heat)
+- Core.AllowSettingsParseErrors = false (strict)
+- SubnetSettingCollection with sample EA locations
+
+Comment Syntax Evolution:
+- 2017-2021: -- single-line comments for each line
+- 2022+: --[==[ multi-line block comments --]==]
+
+Why: Lua 5.1's multi-line comment syntax improved readability for large commented blocks.
+[content]
+--
+-- Define basic settings tables
+--
+
+Game = {
+	LogFileEnable = true,
+}
+
+GameMode = {
+	disablePreRound = true,
+}
+
+Client = {
+}
+
+Server = {
+}
+
+ShaderSystem = {
+}
+
+NetworkSettings = {
+	Version = "V0.0",
+	ProtocolVersion = 0,
+	TitleId = 4,
+	ClientPort = 1001,
+	ServerPort = 1003,
+	MaxGhostCount = 1024,
+	MaxClientCount = 64,
+}
+
+Vendors = {
+	["AMD"] = 0x1002,
+	["NVIDIA"] = 0x10DE,
+	["INTEL"] = 0x8086
+}
+
+Core = {
+	AllowSettingsParseErrors = false,
+}
+
+-- Juice Subnet setting information
+-- Below mentioned subnet information is a sample
+-- Game team need to fill up in the same format as shown below
+
+--[==[
+SubnetSettingCollection =
+{
+	SubnetSettingList =
+	{
+		{
+			Location = "EAC",
+			Subnet = "10.9.",
+			ServerIP = "10.10.16.36",
+			ServerPort = "31001",
+		},
+		{
+			Location = "EARO_QA1",
+			Subnet = "10.45.0.",
+			ServerIP = "10.45.0.15",
+			ServerPort = "31001",
+		},
+		{
+			Location = "EARO_QA2",
+			Subnet = "10.45.1.",
+			ServerIP = "10.45.0.15",
+			ServerPort = "31001",
+		}
+	}
+}
+--]==]
+[/version]
+
+[version]
+2023 (PGA Tour)
+[notes]
+Golf game minimalist approach.
+
+Changes from NFS Unbound:
+- Removed GameMode table (no pre-round needed)
+- Removed Vendors table
+- ShaderSystem empty
+- Core.AllowSettingsParseErrors = false
+
+Why: Golf games have the simplest technical requirements - no vehicles, no combat, minimal multiplayer complexity.
+[content]
+--
+-- Define basic settings tables
+--
+
+Game = {
+	LogFileEnable = true,
+}
+
+Client = {
+}
+
+Server = {
+}
+
+ShaderSystem = {
+}
+
+NetworkSettings = {
+	Version = "V0.0",
+	ProtocolVersion = 0,
+	TitleId = 4,
+	ClientPort = 1001,
+	ServerPort = 1003,
+	MaxGhostCount = 1024,
+	MaxClientCount = 64,
+}
+
+Core = {
+	AllowSettingsParseErrors = false,
+}
+
+-- Juice Subnet setting information
+-- Below mentioned subnet information is a sample
+-- Game team need to fill up in the same format as shown below
+
+--[==[
+SubnetSettingCollection =
+{
+	SubnetSettingList =
+	{
+		{
+			Location = "EAC",
+			Subnet = "10.9.",
+			ServerIP = "10.10.16.36",
+			ServerPort = "31001",
+		},
+		{
+			Location = "EARO_QA1",
+			Subnet = "10.45.0.",
+			ServerIP = "10.45.0.15",
+			ServerPort = "31001",
+		},
+		{
+			Location = "EARO_QA2",
+			Subnet = "10.45.1.",
+			ServerIP = "10.45.0.15",
+			ServerPort = "31001",
+		}
+	}
+}
+--]==]
+[/version]
+
+[version]
+2023-2024 (Dead Space, Skate CPT, Dragon Age)
+[notes]
+Standardized modern template.
+
+Features:
+- GameMode.disablePreRound restored
+- ShaderSystem empty
+- Core.AllowSettingsParseErrors = false
+- Commented SubnetSettingCollection with multi-line syntax
+
+This became the refined template for modern single-player and live-service games, balancing structure with simplicity.
+[content]
+--
+-- Define basic settings tables
+--
+
+Game = {
+	LogFileEnable = true,
+}
+
+GameMode = {
+	disablePreRound = true,
+}
+
+Client = {
+}
+
+Server = {
+}
+
+ShaderSystem = {
+}
+
+NetworkSettings = {
+	Version = "V0.0",
+	ProtocolVersion = 0,
+	TitleId = 4,
+	ClientPort = 1001,
+	ServerPort = 1003,
+	MaxGhostCount = 1024,
+	MaxClientCount = 64,
+}
+
+Core = {
+	AllowSettingsParseErrors = false,
+}
+
+-- Juice Subnet setting information
+-- Below mentioned subnet information is a sample
+-- Game team need to fill up in the same format as shown below
+
+--[==[
+SubnetSettingCollection =
+{
+	SubnetSettingList =
+	{
+		{
+			Location = "EAC",
+			Subnet = "10.9.",
+			ServerIP = "10.10.16.36",
+			ServerPort = "31001",
+		},
+		{
+			Location = "EARO_QA1",
+			Subnet = "10.45.0.",
+			ServerIP = "10.45.0.15",
+			ServerPort = "31001",
+		},
+		{
+			Location = "EARO_QA2",
+			Subnet = "10.45.1.",
+			ServerIP = "10.45.0.15",
+			ServerPort = "31001",
+		}
+	}
+}
+--]==]
+[/version]
+
+[version]
+2024 (Madden NFL 25)
+[notes]
+Local multiplayer support for sports.
+
+New Features:
+- NetworkSettings.ValidLocalPlayersMask = 0xF (bitmask for 4 local players)
+- Active SubnetSettingCollection with updated EA Sports infrastructure:
+  - EAC: 10.10.16.58
+  - EARO: 10.45.68.66
+  - EASP: 10.20.129.142
+- Core.AllowSettingsParseErrors = true (permissive for sports)
+
+Why: Madden needed proper 4-player local multiplayer configuration for couch co-op gameplay.
+[content]
+--
+-- Define basic settings tables
+--
+
+Game = {
+	LogFileEnable = true,
+}
+
+GameMode = {
+	disablePreRound = true,
+}
+
+Client = {
+}
+
+Server = {
+}
+
+NetworkSettings = {
+	Version = "V0.0",
+	ProtocolVersion = 0,
+	TitleId = 4,
+	ClientPort = 1001,
+	ServerPort = 1003,
+	MaxGhostCount = 1024,
+	MaxClientCount = 64,
+    ValidLocalPlayersMask = 0xF,
+}
+
+Core = {
+	AllowSettingsParseErrors = true,
+}
+
+-- Juice Subnet setting information
+-- Below mentioned subnet information is a sample
+-- Game team need to fill up in the same format as shown below
+
+SubnetSettingCollection =
+{
+	SubnetSettingList =
+	{
+		{
+			Location = "EAC",
+			Subnet = "10.10.",
+			ServerIP = "10.10.16.58",
+			ServerPort = "31001",
+		},
+		{
+			Location = "EARO",
+			Subnet = "10.45.",
+			ServerIP = "10.45.68.66",
+			ServerPort = "31001",
+		},
+		{
+			Location = "EASP",
+			Subnet = "10.20.",
+			ServerIP = "10.20.129.142",
+			ServerPort = "31001",
+		}
+	}
+}
+[/version]
+
+[version]
+2025+ (Battlefield 6, NFL 26, Skate)
+[notes]
+REVOLUTIONARY ARCHITECTURAL CHANGE: String-based configuration.
+
+This represents the most significant Settings.lua change in Frostbite history - a complete paradigm shift from Lua tables to declarative string-based configuration.
+
+Major Changes:
+- core = require 'Frost.Core' - Module import
+- applySettings() function wrapper
+- Configuration as multi-line string: applySettings [=[ ... ]=]
+- Single setting: Core.AllowSettingsParseErrors false
+- parseKeyValueCfgString() with location parameter: 'Settings.lua'
+
+Architectural Philosophy:
+- Declarative over imperative
+- Text-based over table-based
+- Easier to parse, validate, and generate
+- Better separation between code and data
+- Consistent format with other .cfg files
+
+Why This Changed Everything:
+1. Easier tooling - can generate configs without Lua knowledge
+2. Better validation - parseKeyValueCfgString enforces format
+3. Version control friendly - clear text diffs
+4. Cross-language compatible - any language can generate these strings
+5. Unified format - Settings.lua now matches Game.cfg, local.cfg, etc.
+
+This is the future of Frostbite configuration - a complete rewrite that fundamentally changes how game settings are defined.
+[content]
+--
+-- Define basic settings tables
+--
+
+core = require "Frost.Core"
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString("Settings.lua", settings, _G)
+end
+
+applySettings [=[
+Core.AllowSettingsParseErrors false
+]=]
+[/version]

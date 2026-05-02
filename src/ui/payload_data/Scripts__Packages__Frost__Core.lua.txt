@@ -1,0 +1,3390 @@
+[description]
+Core utility module - provides file I/O, config parsing, and script importing
+
+[version]
+2011-2012 (Battlefield 3, Need For Speed The Run, Army Of Two)
+[notes]
+Original implementation with basic config file parsing.
+
+Features:
+- import() - Execute scripts with error handling
+- readKeyValueCfg() - Parse old-style config files
+- parseKeyValueCfgLine() - Handle individual config lines (supports ONE level of dotting: container.field)
+- parseKeyValueCfgString() - Parse config strings
+
+Comment removal: Strips both # and // style comments
+
+Why it was simple: Early Battlefield games had simple config needs.
+[content]
+--
+-- Various bits of Lua scaffolding
+--
+
+require "os"
+require "vfs"
+
+module("Frost.Core", package.seeall);
+
+-- Execute a script
+--
+--   If flags contains a "silent=true" flag, then no message
+--   will be emitted if the script can't be found
+--
+
+-- Execute a script, optionally returning an error message if it fails
+
+function import(script, friendlyName, flags)
+	local name = friendlyName or script
+
+	local success, err = pcall(dofile,script)
+	
+	if not success and not (flags and flags.silent) then
+		error("Could not import script: " .. name .. " error: " .. err)
+	end
+end
+
+-- Execute a new-style config file
+
+local function executeCfg(file)
+	if log then
+		log:debug("  Executing new style (lua) config file")
+	end
+
+	local script = file:read("*all")
+
+	local func, err = loadstring(script)
+
+	if func then 
+		func() 
+	else 
+		error(err) 
+	end
+end
+
+-- Parse a single line containing a key-value pair (and possibly some comments)
+
+function parseKeyValueCfgLine(line, targetTable)
+	-- Remove comments
+	line = string.gsub(line, "#.*", ")
+	line = string.gsub(line, "//.*", ")
+	
+	-- Split into key, value pairs
+	local key, value = string.match(line, "(%S+)%s+(.+)%s*");
+	
+	if key and value then
+		-- Handle dotted key names
+		local container, field = string.match(key, "(%w+)%.(%w+)");
+		
+		if container and field then
+			if not targetTable[container] then
+				targetTable[container] = {}
+			end
+			
+			targetTable[container][field] = value;
+
+			if log then
+				log:debug(string.format("set %s.%s = %s (from key-value cfg line)", container, field, value))
+			end
+		else
+			targetTable[key] = value;
+
+			if log then
+				log:debug(string.format("set %s = %s (from key-value cfg line)", key, value))
+			end	
+		end
+	end
+end		
+
+-- Parse a string of key-value config entries
+
+function parseKeyValueCfgString(str, targetTable)
+	for line in string.gmatch(str, "[^\n]*") do
+		parseKeyValueCfgLine(line, targetTable)
+	end
+end
+
+-- Parse an old-style key-value CFG file
+
+function readKeyValueCfg(file, targetTable)
+	if log then
+		log:debug("Reading cfg '" .. file .. "'")
+	end
+
+	local f = vfs.open(file, "r")
+	
+	if not f then
+		-- File not found
+		if log then
+			log:debug("Failed to find file '" .. file .. "'")
+		end
+			
+		return
+	end
+
+	local firstLine = true
+
+	while true do
+		local line = f:read("*line")
+		
+		if not line then 
+			break 
+		end
+
+		if firstLine and line == "#!/bin/lua" then
+			executeCfg(f)
+		end
+		
+		parseKeyValueCfgLine(line, targetTable)
+	end
+	
+	f:close();
+end
+[/version]
+
+[version]
+2013 (Command & Conquer: Generals 2)
+[notes]
+First URL protection implementation.
+
+New Features:
+- URL protection: :// → :__SLASHES__ → :// transformation
+- Prevents URLs (like https://example.com) from being treated as comments
+
+Why: C&C likely had online services with URLs in config files.
+
+Technical: Replaces :// temporarily before stripping //, then restores it.
+[content]
+--
+-- Various bits of Lua scaffolding
+--
+
+require "os"
+require "vfs"
+
+module("Frost.Core", package.seeall);
+
+-- Execute a script
+--
+--   If flags contains a "silent=true" flag, then no message
+--   will be emitted if the script can't be found
+--
+
+-- Execute a script, optionally returning an error message if it fails
+
+function import(script, friendlyName, flags)
+	local name = friendlyName or script
+
+	local success, err = pcall(dofile,script)
+	
+	if not success and not (flags and flags.silent) then
+		error("Could not import script: " .. name .. " error: " .. err)
+	end
+end
+
+-- Execute a new-style config file
+
+local function executeCfg(file)
+	if log then
+		log:debug("  Executing new style (lua) config file")
+	end
+
+	local script = file:read("*all")
+
+	local func, err = loadstring(script)
+
+	if func then 
+		func() 
+	else 
+		error(err) 
+	end
+end
+
+-- Parse a single line containing a key-value pair (and possibly some comments)
+
+function parseKeyValueCfgLine(line, targetTable)
+	-- Make sure that urls are not broken by the comment removal code below.
+	line = string.gsub(line, "\://", "\:__SLASHES__")
+	-- Remove comments
+	line = string.gsub(line, "#.*", ")
+	line = string.gsub(line, "//.*", ")
+	-- Now make sure that the // in Url's are fixed back up.
+	line = string.gsub(line, "__SLASHES__", "//")
+	
+	-- Split into key, value pairs
+	local key, value = string.match(line, "(%S+)%s+(.+)%s*");
+	
+	if key and value then
+		-- Handle dotted key names
+		local container, field = string.match(key, "(%w+)%.(%w+)");
+		
+		if container and field then
+			if not targetTable[container] then
+				targetTable[container] = {}
+			end
+			
+			targetTable[container][field] = value;
+
+			if log then
+				log:debug(string.format("set %s.%s = %s (from key-value cfg line)", container, field, value))
+			end
+		else
+			targetTable[key] = value;
+
+			if log then
+				log:debug(string.format("set %s = %s (from key-value cfg line)", key, value))
+			end	
+		end
+	end
+end		
+
+-- Parse a string of key-value config entries
+
+function parseKeyValueCfgString(str, targetTable)
+	for line in string.gmatch(str, "[^\n]*") do
+		parseKeyValueCfgLine(line, targetTable)
+	end
+end
+
+-- Parse an old-style key-value CFG file
+
+function readKeyValueCfg(file, targetTable)
+	if log then
+		log:debug("Reading cfg '" .. file .. "'")
+	end
+
+	local f = vfs.open(file, "r")
+	
+	if not f then
+		-- File not found
+		if log then
+			log:debug("Failed to find file '" .. file .. "'")
+		end
+			
+		return
+	end
+
+	local firstLine = true
+
+	while true do
+		local line = f:read("*line")
+		
+		if not line then 
+			break 
+		end
+
+		if firstLine and line == "#!/bin/lua" then
+			executeCfg(f)
+		end
+		
+		parseKeyValueCfgLine(line, targetTable)
+	end
+	
+	f:close();
+end
+[/version]
+
+[version]
+2013-2014 (Battlefield 4/Hardline, Garden Warfare, Need For Speed Rivals)
+[notes]
+MAJOR REWRITE: Deep nested key support.
+
+New Features:
+- parseKeyValueCfgLine() completely rewritten
+- Now supports UNLIMITED nesting depth (e.g., a.b.c.d.e.f.g)
+- Iterative parsing with repeat-until loop
+
+Why: Complex games needed hierarchical config structures.
+
+Technical: Uses pattern matching with ([^%.]+)%.?(.*) to iteratively split on dots.
+[content]
+--
+-- Various bits of Lua scaffolding
+--
+
+require "os"
+require "vfs"
+
+module("Frost.Core", package.seeall);
+
+-- Execute a script
+--
+--   If flags contains a "silent=true" flag, then no message
+--   will be emitted if the script can't be found
+--
+
+-- Execute a script, optionally returning an error message if it fails
+
+function import(script, friendlyName, flags)
+	local name = friendlyName or script
+
+	local success, err = pcall(dofile,script)
+	
+	if not success and not (flags and flags.silent) then
+		error("Could not import script: " .. name .. " error: " .. err)
+	end
+end
+
+-- Execute a new-style config file
+
+local function executeCfg(file)
+	if log then
+		log:debug("  Executing new style (lua) config file")
+	end
+
+	local script = file:read("*all")
+
+	local func, err = loadstring(script)
+
+	if func then 
+		func() 
+	else 
+		error(err) 
+	end
+end
+
+-- Parse a single line containing a key-value pair (and possibly some comments)
+
+function parseKeyValueCfgLine(line, targetTable)
+	-- Remove comments
+
+	line = string.gsub(line, "#.*", ")
+	line = string.gsub(line, "//.*", ")
+
+	-- Split into key, value pairs
+	local key, value = string.match(line, "(%S+)%s+(.+)%s*")
+
+	if key and value then
+		-- Handle dotted key names
+
+		local currentTable = targetTable
+		local first, second
+		second = key
+		repeat
+			first, second = string.match(second, "([^%.]+)%.?(.*)")
+
+			if first and second then
+				if second:len() == 0 then
+					currentTable[first] = value
+					if log then
+						log:debug(string.format("set %s = %s (from key-value cfg line)", key ,value))
+					end
+				else
+					if not currentTable[first] then
+						currentTable[first] = {}
+					end
+					currentTable = currentTable[first]
+				end
+			end
+
+		until not second or second:len() == 0
+	end
+end
+
+-- Parse a string of key-value config entries
+
+function parseKeyValueCfgString(str, targetTable)
+	for line in string.gmatch(str, "[^\n]*") do
+		parseKeyValueCfgLine(line, targetTable)
+	end
+end
+
+-- Parse an old-style key-value CFG file
+
+function readKeyValueCfg(file, targetTable)
+	if log then
+		log:debug("Reading cfg '" .. file .. "'")
+	end
+
+	local f = vfs.open(file, "r")
+	
+	if not f then
+		-- File not found
+		if log then
+			log:debug("Failed to find file '" .. file .. "'")
+		end
+			
+		return
+	end
+
+	local firstLine = true
+
+	while true do
+		local line = f:read("*line")
+		
+		if not line then 
+			break 
+		end
+
+		if firstLine and line == "#!/bin/lua" then
+			executeCfg(f)
+		end
+		
+		parseKeyValueCfgLine(line, targetTable)
+	end
+	
+	f:close();
+end
+[/version]
+
+[version]
+2014 (Dragon Age: Inquisition)
+[notes]
+BioWare's advanced configuration parser with struct and array support.
+
+Major New Features:
+- parseKeyValueCfgValue() - Recursive value parsing for complex types
+- Struct parsing: { key = value, key2 = value2 } syntax
+- Array support with .append command
+- Command system: .set, .append
+- varequals() / vartostring() - Unit testing framework
+- testparseKeyValueCfgLine() - Comprehensive test suite
+- Empty struct culling (game asserts on {})
+
+Struct Syntax Examples:
+- Simple: alpha { a = vala, b = valb }
+- Arrays of structs: .append alpha { a = vala, b = valb }
+- Nested: Core.ChannelSettings { Channel = CSM, WarningResponse = CllTelemetry }
+
+Command System:
+- .set alpha beta - Explicit set (default behavior)
+- .append alpha value - Append to array
+- Invalid commands ignored for safety
+
+Breaking Changes:
+- parseKeyValueCfgLine() signature changed (more complex logic)
+- Comment syntax unchanged but parsing order matters
+- trim() function added (moved from later versions)
+
+Why: Dragon Age: Inquisition needed complex hierarchical data structures for RPG systems (character builds, skill trees, inventory configurations). BioWare's RPG background meant they needed more sophisticated configuration than DICE's FPS games.
+
+Technical: Uses recursive descent parser for struct values. Pattern matching: ^%s*{(%s*.-%s*)}%s*$ for struct detection, then [^,]+ for element parsing.
+
+Comment: BWDA_START/BWDA_END tags show BioWare Dragon Age divergence from mainline Frostbite. Developer credit: Peters, Matt - June 10, 2012.
+[content]
+--
+-- Various bits of Lua scaffolding
+--
+
+require "os"
+require "vfs"
+
+module("Frost.Core", package.seeall);
+
+-- Execute a script
+--
+--   If flags contains a "silent=true" flag, then no message
+--   will be emitted if the script can't be found
+--
+
+-- Execute a script, optionally returning an error message if it fails
+
+function import(script, friendlyName, flags)
+	local name = friendlyName or script
+
+	local success, err = pcall(dofile,script)
+	
+	if not success and not (flags and flags.silent) then
+		error("Could not import script: " .. name .. " error: " .. err)
+	end
+end
+
+-- Execute a new-style config file
+
+local function executeCfg(file)
+	if log then
+		log:debug("  Executing new style (lua) config file")
+	end
+
+	local script = file:read("*all")
+
+	local func, err = loadstring(script)
+
+	if func then 
+		func() 
+	else 
+		error(err) 
+	end
+end
+
+function trim(s)
+  return s:match'^%s*(.*%S)' or ''
+end
+
+
+-- BWDA_START - June 10, 2012 - Peters, Matt - GameConfigurationParser_AddArrayAndStructParsing
+-- Parse the value of a key-value setting.  May call itself recursively to handle parsing of structs.
+
+local function parseKeyValueCfgValue(text)
+	-- TODO: implement context-free grammer so we can match structs of structs or structs of arrays
+	-- For now, only structs of primitive types are implemented
+	-- Arrays are not implemented
+
+	local innerText = string.match(text, "^%s*{(%s*.-%s*)}%s*$") -- Match { <blah blah text> }
+	if innerText then
+		local returnValue = {}
+		local elementCount = 0
+		for assignment in string.gmatch(innerText, "[^,]+") do		-- Match sections delimited by commas
+			local assignmentKey,assignmentValue = string.match(assignment, "^%s*(%S+)%s*=%s*(.-)%s*$")  -- Match "key = value" (without the quotes)
+			if assignmentKey and assignmentValue then
+				elementCount = elementCount + 1
+				returnValue[assignmentKey] = assignmentValue
+			end
+		end
+		-- Cull empty tables; the game asserts when parsing structs if it encounters {}		
+		if elementCount == 0 then
+			return "
+		end
+		
+		return returnValue
+	else
+		return text
+	end
+end
+
+
+-- Parse a single line containing a setting (and possibly some comments)
+
+function parseKeyValueCfgLine(line, targetTable)
+	local command -- The command to execute; default is "set", can be set to other values with .<commandname> syntax,
+	local fullFieldName -- The full fieldname, either <singlefield> or <category>.<leaffield>
+	local leafFieldName -- The last field in fullFieldName, the key that will be set in the parentContainer table
+	local value -- The value being set (e.g. "dooby" in the line Core.Data dooby)
+	local parentContainer -- The table that will be modified; parentContainer[leafFieldName] is the value being set
+	local text -- The remaining text of the line to parse; this function has several stages that each chop off text from the line
+	local restOfLine -- A temporary variable used in the regexes to assign the rest of the line
+	
+	text = line
+	
+	-- Remove comments
+	text = string.gsub(text, "#.*", ")
+	text = string.gsub(text, "//.*", ")
+		
+	-- recognize special commands identified by a leading . (e.g. .append for arrays)
+	command, restOfLine = string.match(text, "^%s*%.(%S+)%s+(..-)%s*$")
+	if command and restOfLine then
+		command = command:lower()
+		text = restOfLine
+		
+		-- exit if the command is not recognized
+		if command == "set" then
+			-- set command, same as the default syntax without a command
+		elseif command == "append" then
+			-- append work is done at the end of the function
+		else
+			return
+		end
+	else
+		command = "set"
+	end
+			
+	-- Split into key, value pairs
+	fullFieldName, restOfLine = string.match(text, "^%s*(%S+)%s+(..-)%s*$");
+	if not fullFieldName or not restOfLine then
+		-- check for setting equal to empty string
+		fullFieldName = string.match(text, "^%s*(%S+)%s*$")
+		if not fullFieldName then
+			return
+		end
+		restOfLine = "
+	end
+	text = restOfLine
+		
+	-- parse the value
+	value = parseKeyValueCfgValue(text)
+	if not value then
+		return
+	end
+	
+	-- Handle dotted key names
+	parentContainer = targetTable
+	leafFieldName = fullFieldName
+	repeat
+		local remainingFieldName
+		local containerName
+		
+		containerName, remainingFieldName = string.match(leafFieldName, "^([^%.]+)%.(.+)$");
+		if containerName then
+			if not parentContainer[containerName] then
+				parentContainer[containerName] = {}
+			end
+			parentContainer = parentContainer[containerName]
+			leafFieldName = remainingFieldName
+		end
+	until not containerName
+
+	-- Take action based on command, e.g. merely set the value, or append it to an array
+	if command == "set" then
+		parentContainer[leafFieldName] = value
+	elseif command == "append" then
+		if not parentContainer[leafFieldName] then
+			parentContainer[leafFieldName] = {}
+		elseif type(parentContainer[leafFieldName]) ~= "table" then
+			return
+		end
+		parentContainer[leafFieldName][#parentContainer[leafFieldName] + 1] = value
+	end
+
+	if log then
+		log:debug(string.format("%s %s = %s (from key-value cfg line)", command, fullFieldName, text))
+	end	
+end		
+-- BWDA_END
+
+-- Parse a string of key-value config entries
+
+function parseKeyValueCfgString(str, targetTable)
+	for line in string.gmatch(str, "[^\n]*") do
+		parseKeyValueCfgLine(line, targetTable)
+	end
+end
+
+-- Parse an old-style key-value CFG file
+
+function readKeyValueCfg(file, targetTable)
+	if log then
+		log:debug("Reading cfg '" .. file .. "'")
+	end
+
+	local f = vfs.open(file, "r")
+	
+	if not f then
+		-- File not found
+		if log then
+			log:debug("Failed to find file '" .. file .. "'")
+		end
+			
+		return
+	end
+
+	local firstLine = true
+
+	while true do
+		local line = f:read("*line")
+		
+		if not line then 
+			break 
+		end
+
+		if firstLine and line == "#!/bin/lua" then
+			executeCfg(f)
+		end
+		
+		parseKeyValueCfgLine(line, targetTable)
+	end
+	
+	f:close();
+end
+
+
+-- BWDA_START - June 10, 2012 - Peters, Matt - GameConfigurationParser_AddArrayAndStructParsing
+-- TESTCODE_TESTCODE_TESTCODE_START
+-- These are functions to do unit testing of parseKeyValueCfgString
+-- mrp: I copied the functions and test code to a separate file and authored it there, calling testparseKeyValueCfgLine from the lua interpreter command line
+local function varequals(a,b)
+	if type(a) ~= type(b) then
+		return false
+	end
+	
+	if type(a) == "table" then			
+		local lengthA = 0
+		local lengthB = 0
+		local aIsArray = false
+		local bIsArray = false
+		
+		for k,v in pairs(a) do
+			lengthA = lengthA + 1
+		end
+		for k,v in pairs(b) do
+			lengthB = lengthB + 1
+		end
+		aIsArray = lengthA == #a
+		bIsArray = lengthB == #b
+	
+		if lengthA ~= lengthB then
+			return false
+		end
+		if aIsArray ~= bIsArray then
+			return false
+		end
+		if aIsArray then
+			for i = 1, lengthA do
+				if not varequals(a[i],b[i]) then
+					return false
+				end
+			end
+		else
+			for k,v in pairs(a) do
+				if not varequals(b[k],v) then
+					return false
+				end
+			end
+		end
+		return true
+	else
+		return a == b
+	end
+end
+	
+local function vartostring(var)
+	if not var then
+		return "nil"
+	end
+	
+	if type(var) == "table" then
+		local isArray,numElements,text,first
+		
+		numElements = 0
+		for k,v in pairs(var) do
+			numElements = numElements + 1
+		end
+		if numElements == 0 then
+			return "{ }"
+		end
+		isArray = #var == numElements
+		
+		text = "{ "
+		first = true
+		for k,v in pairs(var) do
+			numElements = numElements + 1
+			if first then
+				first = false
+			else
+				text = text .. ", "
+			end
+			if isArray then
+				text = text .. vartostring(v)
+			else
+				text = text .. string.format("%s: %s", vartostring(k), vartostring(v))
+			end
+		end
+		if numElements == 0 then
+			return "{ }"
+		else
+			text = text .. " }"
+			return text
+		end
+	else
+		return tostring(var)
+	end
+end
+local function assertResults(text, expected)
+	local testTable = {}
+	for line in string.gmatch(text, "[^\n]+") do
+		parseKeyValueCfgLine(line, testTable)
+	end
+	if not varequals(testTable,expected) then
+		print("Expected: " .. vartostring(expected))
+		print("Actual:   " .. vartostring(testTable))
+		assert(false)
+	end
+end	
+local function testparseKeyValueCfgLine()
+	-- Handles key value
+	assertResults("alpha beta", { alpha = "beta" })
+	
+	-- Handles category.key value
+	assertResults("alpha.beta gamma", { alpha = { beta = "gamma" } })
+	
+	-- Handles variable names with arbitrary number of dots
+	assertResults("alpha.beta.gamma.delta epsilon", { alpha = { beta = { gamma = { delta = "epsilon" } } } })
+	
+	-- Handles key with an empty value
+	assertResults("alpha", { alpha = " })
+	
+	-- Handles whitespace everywhere (except around the . separating category from field name)
+	assertResults(" alpha.beta gamma", { alpha = { beta = "gamma" } })
+	
+	-- Handles comments
+	assertResults([[
+# alpha beta
+// gamma delta
+	# epsilon omicron?
+	// ran outofgreek
+	anyway This shows up
+	]], { anyway = "This shows up" })
+
+	-- Handles .append
+	assertResults([[
+.append alpha.beta gamma
+.append alpha.beta delta
+	.append alpha.beta whitespace is handled
+	.append another array
+	]], { alpha = { beta = { "gamma", "delta", "whitespace is handled" } }, another = { "array" } })
+	
+	-- Append is ignored if appending to a non-table
+	assertResults([[
+	overwrites ignored
+	.append overwrites deadbeef
+	]], { overwrites = "ignored" })
+	
+	-- Invalid commands are ignored
+	assertResults(".invalid alpha beta", {})
+	
+	-- .set works as default
+	assertResults(".set alpha beta", { alpha = "beta" })
+	
+	-- empty tables in the value are culled (the game engine asserts if encounters {} when parsing a struct)
+	assertResults([[
+	alpha {}
+	]], { alpha = " })
+	
+	-- Handles structs
+	assertResults("alpha { a = vala, b = valb }", {alpha = {a = "vala", b = "valb"} })
+	
+	-- Handles arrays of structs
+	assertResults([[
+	.append alpha { a = vala, b = valb }
+	.append alpha { a = vala2, b = valb2 }
+	]], {alpha = {{a ="vala", b = "valb"},{a="vala2", b="valb2"}} })
+	
+	-- historical interest, the very first use of .append - an array of LogChannelSettings
+	assertResults(".append Core.ChannelSettings {Channel=CSM, WarningResponse=CllTelemetry, InfoResponse=CllInfo}",
+		{ Core = { ChannelSettings = { { Channel = "CSM", WarningResponse = "CllTelemetry", InfoResponse = "CllInfo" } } } })
+		
+	print("All tests succeeded.")
+end
+-- BWDA_END
+[/version]
+
+[version]
+2015 (Plants vs Zombies: Garden Warfare 2)
+[notes]
+Refined URL handling + trim() function.
+
+New Features:
+- trim() function - Removes leading/trailing whitespace from values
+- Improved URL protection: :// → :\/\/ → :// (using escape sequences)
+
+Why: Values were getting stored with trailing spaces, causing bugs.
+
+Technical: trim() uses Lua pattern matching: ^%s*(.*%S) or ''
+[content]
+--
+-- Various bits of Lua scaffolding
+--
+
+require "os"
+require "vfs"
+
+module("Frost.Core", package.seeall);
+
+-- Execute a script
+--
+--   If flags contains a "silent=true" flag, then no message
+--   will be emitted if the script can't be found
+--
+
+-- Execute a script, optionally returning an error message if it fails
+
+function import(script, friendlyName, flags)
+	local name = friendlyName or script
+
+	local success, err = pcall(dofile,script)
+	
+	if not success and not (flags and flags.silent) then
+		error("Could not import script: " .. name " error: " .. err)
+	end
+end
+
+-- Execute a new-style config file
+
+local function executeCfg(file)
+	if log then
+		log:debug("  Executing new style (lua) config file")
+	end
+
+	local script = file:read("*all")
+
+	local func, err = loadstring(script)
+
+	if func then 
+		func() 
+	else 
+		error(err) 
+	end
+end
+
+function trim(s)
+  return s:match'^%s*(.*%S)' or ''
+end
+
+-- Parse a single line containing a key-value pair (and possibly some comments)
+
+function parseKeyValueCfgLine(line, targetTable)
+	-- Remove comments
+
+	line = string.gsub(line, "#.*", ")
+	line = string.gsub(line, "://", ":\\/\\/") -- Replace :// with :\/\/, e.g.: https://
+	line = string.gsub(line, "//.*", ")
+	line = string.gsub(line, ":\\/\\/", "://") -- Replace :\/\/ with ://
+
+	-- Split into key, value pairs
+	local key, value = string.match(line, "(%S+)%s+(.+)%s*")
+
+	if key and value then
+		-- Handle dotted key names
+
+		local currentTable = targetTable
+		local first, second
+		second = key
+		repeat
+			first, second = string.match(second, "([^%.]+)%.?(.*)")
+
+			if first and second then
+				if second:len() == 0 then
+					currentTable[first] = trim(value)
+					if log then
+						log:debug(string.format("set %s = %s (from key-value cfg line)", key ,value))
+					end
+				else
+					if not currentTable[first] then
+						currentTable[first] = {}
+					end
+					currentTable = currentTable[first]
+				end
+			end
+
+		until not second or second:len() == 0
+	end
+end
+
+-- Parse a string of key-value config entries
+
+function parseKeyValueCfgString(str, targetTable)
+	for line in string.gmatch(str, "[^\n]*") do
+		parseKeyValueCfgLine(line, targetTable)
+	end
+end
+
+-- Parse an old-style key-value CFG file
+
+function readKeyValueCfg(file, targetTable)
+	if log then
+		log:debug("Reading cfg '" .. file .. "'")
+	end
+
+	local f = vfs.open(file, "r")
+	
+	if not f then
+		-- File not found
+		if log then
+			log:debug("Failed to find file '" .. file .. "'")
+		end
+			
+		return
+	end
+
+	local firstLine = true
+
+	while true do
+		local line = f:read("*line")
+		
+		if not line then 
+			break 
+		end
+
+		if firstLine and line == "#!/bin/lua" then
+			executeCfg(f)
+		end
+		
+		parseKeyValueCfgLine(line, targetTable)
+	end
+	
+	f:close();
+end
+[/version]
+
+[version]
+2015-2018 (NFS, Battlefront, BF1/V, Mirror's Edge, FIFA, Mass Effect, NHL)
+[notes]
+Mainline version: URL protection REMOVED.
+
+Changes:
+- URL protection code completely removed
+- Comment removal simplified back to basic // stripping
+- trim() kept
+
+Why: After experimentation, EA decided the URL edge case wasn't worth the complexity.
+Most config files didn't have URLs anyway.
+
+This became the mainline Frostbite template for 2015-2018.
+[content]
+--
+-- Various bits of Lua scaffolding
+--
+
+require "os"
+require "vfs"
+
+module("Frost.Core", package.seeall);
+
+-- Execute a script
+--
+--   If flags contains a "silent=true" flag, then no message
+--   will be emitted if the script can't be found
+--
+
+-- Execute a script, optionally returning an error message if it fails
+
+function import(script, friendlyName, flags)
+	local name = friendlyName or script
+
+	local success, err = pcall(dofile,script)
+	
+	if not success and not (flags and flags.silent) then
+		error("Could not import script: " .. name .. " error: " .. err)
+	end
+end
+
+-- Execute a new-style config file
+
+local function executeCfg(file)
+	if log then
+		log:debug("  Executing new style (lua) config file")
+	end
+
+	local script = file:read("*all")
+
+	local func, err = loadstring(script)
+
+	if func then 
+		func() 
+	else 
+		error(err) 
+	end
+end
+
+function trim(s)
+  return s:match'^%s*(.*%S)' or ''
+end
+
+-- Parse a single line containing a key-value pair (and possibly some comments)
+
+function parseKeyValueCfgLine(line, targetTable)
+	-- Remove comments
+
+	line = string.gsub(line, "#.*", ")
+	line = string.gsub(line, "//.*", ")
+
+	-- Split into key, value pairs
+	local key, value = string.match(line, "(%S+)%s+(.+)%s*")
+
+	if key and value then
+		-- Handle dotted key names
+
+		local currentTable = targetTable
+		local first, second
+		second = key
+		repeat
+			first, second = string.match(second, "([^%.]+)%.?(.*)")
+
+			if first and second then
+				if second:len() == 0 then
+					currentTable[first] = trim(value)
+					if log then
+						log:debug(string.format("set %s = %s (from key-value cfg line)", key ,value))
+					end
+				else
+					if not currentTable[first] then
+						currentTable[first] = {}
+					end
+					currentTable = currentTable[first]
+				end
+			end
+
+		until not second or second:len() == 0
+	end
+end
+
+-- Parse a string of key-value config entries
+
+function parseKeyValueCfgString(str, targetTable)
+	for line in string.gmatch(str, "[^\n]*") do
+		parseKeyValueCfgLine(line, targetTable)
+	end
+end
+
+-- Parse an old-style key-value CFG file
+
+function readKeyValueCfg(file, targetTable)
+	if log then
+		log:debug("Reading cfg '" .. file .. "'")
+	end
+
+	local f = vfs.open(file, "r")
+	
+	if not f then
+		-- File not found
+		if log then
+			log:debug("Failed to find file '" .. file .. "'")
+		end
+			
+		return
+	end
+
+	local firstLine = true
+
+	while true do
+		local line = f:read("*line")
+		
+		if not line then 
+			break 
+		end
+
+		if firstLine and line == "#!/bin/lua" then
+			executeCfg(f)
+		end
+		
+		parseKeyValueCfgLine(line, targetTable)
+	end
+	
+	f:close();
+end
+[/version]
+
+[version]
+2019 (Anthem)
+[notes]
+SMART URL support - BioWare's solution.
+
+New Features:
+- Sophisticated URL-aware comment removal
+- ^//.*  - Only strips // at line beginning
+- ([^:])//.*  - Only strips // when NOT preceded by colon
+
+Why: BioWare needed URL support for online services (Anthem was heavily online).
+
+Comment: [JIRA:FB-73384] - Developer credit: Mike Howard, July 24, 2017
+DYLAN_START/DYLAN_END tags show this came from an internal 'Dylan' branch.
+[content]
+--
+-- Various bits of Lua scaffolding
+--
+
+require "os"
+require "vfs"
+
+module("Frost.Core", package.seeall);
+
+-- Execute a script
+--
+--   If flags contains a "silent=true" flag, then no message
+--   will be emitted if the script can't be found
+--
+
+-- Execute a script, optionally returning an error message if it fails
+
+function import(script, friendlyName, flags)
+	local name = friendlyName or script
+
+	local success, err = pcall(dofile,script)
+	
+	if not success and not (flags and flags.silent) then
+		error("Could not import script: " .. name .. " error: " .. err)
+	end
+end
+
+-- Execute a new-style config file
+
+local function executeCfg(file)
+	if log then
+		log:debug("  Executing new style (lua) config file")
+	end
+
+	local script = file:read("*all")
+
+	local func, err = loadstring(script)
+
+	if func then 
+		func() 
+	else 
+		error(err) 
+	end
+end
+
+function trim(s)
+  return s:match'^%s*(.*%S)' or ''
+end
+
+-- Parse a single line containing a key-value pair (and possibly some comments)
+
+function parseKeyValueCfgLine(line, targetTable)
+	-- Remove comments
+
+	line = string.gsub(line, "#.*", ")
+-- DYLAN_START - July 24, 2017 - Howard, Mike - [JIRA:FB-73384] Support URLs in Config Settings
+	line = string.gsub(line, "^//.*", ")         -- remove text with double slashes at the beginning
+	line = string.gsub(line, "([^:])//.*", "%1")  -- remove text with double slashes unless preceeded by a colon
+-- DYLAN_END
+
+	-- Split into key, value pairs
+	local key, value = string.match(line, "(%S+)%s+(.+)%s*")
+
+	if key and value then
+		-- Handle dotted key names
+
+		local currentTable = targetTable
+		local first, second
+		second = key
+		repeat
+			first, second = string.match(second, "([^%.]+)%.?(.*)")
+
+			if first and second then
+				if second:len() == 0 then
+					currentTable[first] = trim(value)
+					if log then
+						log:debug(string.format("set %s = %s (from key-value cfg line)", key ,value))
+					end
+				else
+					if not currentTable[first] then
+						currentTable[first] = {}
+					end
+					currentTable = currentTable[first]
+				end
+			end
+
+		until not second or second:len() == 0
+	end
+end
+
+-- Parse a string of key-value config entries
+
+function parseKeyValueCfgString(str, targetTable)
+	for line in string.gmatch(str, "[^\n]*") do
+		parseKeyValueCfgLine(line, targetTable)
+	end
+end
+
+-- Parse an old-style key-value CFG file
+
+function readKeyValueCfg(file, targetTable)
+	if log then
+		log:debug("Reading cfg '" .. file .. "'")
+	end
+
+	local f = vfs.open(file, "r")
+	
+	if not f then
+		-- File not found
+		if log then
+			log:debug("Failed to find file '" .. file .. "'")
+		end
+			
+		return
+	end
+
+	local firstLine = true
+
+	while true do
+		local line = f:read("*line")
+		
+		if not line then 
+			break 
+		end
+
+		if firstLine and line == "#!/bin/lua" then
+			executeCfg(f)
+		end
+		
+		parseKeyValueCfgLine(line, targetTable)
+	end
+	
+	f:close();
+end
+[/version]
+
+[version]
+2019-2020 (Battle for Neighborville, NFS Heat)
+[notes]
+Anthem's URL support adopted as mainline.
+
+Changes:
+- DYLAN tags removed (now mainline Frostbite code)
+- URL-aware comment stripping kept
+
+This became the standard going forward.
+[content]
+--
+-- Various bits of Lua scaffolding
+--
+
+require "os"
+require "vfs"
+
+module("Frost.Core", package.seeall);
+
+-- Execute a script
+--
+--   If flags contains a "silent=true" flag, then no message
+--   will be emitted if the script can't be found
+--
+
+-- Execute a script, optionally returning an error message if it fails
+
+function import(script, friendlyName, flags)
+	local name = friendlyName or script
+
+	local success, err = pcall(dofile,script)
+	
+	if not success and not (flags and flags.silent) then
+		error("Could not import script: " .. name .. " error: " .. err)
+	end
+end
+
+-- Execute a new-style config file
+
+local function executeCfg(file)
+	if log then
+		log:debug("  Executing new style (lua) config file")
+	end
+
+	local script = file:read("*all")
+
+	local func, err = loadstring(script)
+
+	if func then 
+		func() 
+	else 
+		error(err) 
+	end
+end
+
+function trim(s)
+  return s:match'^%s*(.*%S)' or ''
+end
+
+-- Parse a single line containing a key-value pair (and possibly some comments)
+
+function parseKeyValueCfgLine(line, targetTable)
+	-- Remove comments
+
+	line = string.gsub(line, "#.*", ")
+	line = string.gsub(line, "^//.*", ")         -- remove text with double slashes at the beginning
+	line = string.gsub(line, "([^:])//.*", "%1")  -- remove text with double slashes unless preceeded by a colon
+
+	-- Split into key, value pairs
+	local key, value = string.match(line, "(%S+)%s+(.+)%s*")
+
+	if key and value then
+		-- Handle dotted key names
+
+		local currentTable = targetTable
+		local first, second
+		second = key
+		repeat
+			first, second = string.match(second, "([^%.]+)%.?(.*)")
+
+			if first and second then
+				if second:len() == 0 then
+					currentTable[first] = trim(value)
+					if log then
+						log:debug(string.format("set %s = %s (from key-value cfg line)", key ,value))
+					end
+				else
+					if not currentTable[first] then
+						currentTable[first] = {}
+					end
+					currentTable = currentTable[first]
+				end
+			end
+
+		until not second or second:len() == 0
+	end
+end
+
+-- Parse a string of key-value config entries
+
+function parseKeyValueCfgString(str, targetTable)
+	for line in string.gmatch(str, "[^\n]*") do
+		parseKeyValueCfgLine(line, targetTable)
+	end
+end
+
+-- Parse an old-style key-value CFG file
+
+function readKeyValueCfg(file, targetTable)
+	if log then
+		log:debug("Reading cfg '" .. file .. "'")
+	end
+
+	local f = vfs.open(file, "r")
+	
+	if not f then
+		-- File not found
+		if log then
+			log:debug("Failed to find file '" .. file .. "'")
+		end
+			
+		return
+	end
+
+	local firstLine = true
+
+	while true do
+		local line = f:read("*line")
+		
+		if not line then 
+			break 
+		end
+
+		if firstLine and line == "#!/bin/lua" then
+			executeCfg(f)
+		end
+		
+		parseKeyValueCfgLine(line, targetTable)
+	end
+	
+	f:close();
+end
+[/version]
+
+[version]
+2021 (Battlefield 2042, Dead Space, PGA Tour, Dragon Age)
+[notes]
+Function signature changes for better debugging.
+
+New Features:
+- parseKeyValueCfgLine(file, line, targetTable) - Now takes 'file' parameter
+- parseKeyValueCfgString(location, str, targetTable) - Now takes 'location' parameter
+- Log messages now include file name: 'from key-value cfg <filename>'
+
+Why: Debugging config errors was hard - devs didn't know WHICH file had problems.
+
+This is a breaking change for any custom code calling these functions.
+[content]
+--
+-- Various bits of Lua scaffolding
+--
+
+require "os"
+require "vfs"
+
+module("Frost.Core", package.seeall);
+
+-- Execute a script
+--
+--   If flags contains a "silent=true" flag, then no message
+--   will be emitted if the script can't be found
+--
+
+-- Execute a script, optionally returning an error message if it fails
+
+function import(script, friendlyName, flags)
+	local name = friendlyName or script
+
+	local success, err = pcall(dofile,script)
+	
+	if not success and not (flags and flags.silent) then
+		error("Could not import script: " .. name .. " error: " .. err)
+	end
+end
+
+-- Execute a new-style config file
+
+local function executeCfg(file)
+	if log then
+		log:debug("  Executing new style (lua) config file")
+	end
+
+	local script = file:read("*all")
+
+	local func, err = loadstring(script)
+
+	if func then 
+		func() 
+	else 
+		error(err) 
+	end
+end
+
+function trim(s)
+  return s:match'^%s*(.*%S)' or ''
+end
+
+-- Parse a single line containing a key-value pair (and possibly some comments)
+
+function parseKeyValueCfgLine(file, line, targetTable)
+	-- Remove comments
+
+	line = string.gsub(line, "#.*", ")
+	line = string.gsub(line, "^//.*", ")         -- remove text with double slashes at the beginning
+	line = string.gsub(line, "([^:])//.*", "%1")  -- remove text with double slashes unless preceeded by a colon
+
+	-- Split into key, value pairs
+	local key, value = string.match(line, "(%S+)%s+(.+)%s*")
+
+	if key and value then
+		-- Handle dotted key names
+
+		local currentTable = targetTable
+		local first, second
+		second = key
+		repeat
+			first, second = string.match(second, "([^%.]+)%.?(.*)")
+
+			if first and second then
+				if second:len() == 0 then
+					currentTable[first] = trim(value)
+					if log then
+						log:debug(string.format("set %s = %s (from key-value cfg %s)", key, value, file))
+					end
+				else
+					if not currentTable[first] then
+						currentTable[first] = {}
+					end
+					currentTable = currentTable[first]
+				end
+			end
+
+		until not second or second:len() == 0
+	end
+end
+
+-- Parse a string of key-value config entries
+
+function parseKeyValueCfgString(location, str, targetTable)
+	for line in string.gmatch(str, "[^\n]*") do
+		parseKeyValueCfgLine(location, line, targetTable)
+	end
+end
+
+-- Parse an old-style key-value CFG file
+
+function readKeyValueCfg(file, targetTable)
+	if log then
+		log:debug("Reading cfg '" .. file .. "'")
+	end
+
+	local f = vfs.open(file, "r")
+	
+	if not f then
+		-- File not found
+		if log then
+			log:debug("Failed to find file '" .. file .. "'")
+		end
+			
+		return
+	end
+
+	local firstLine = true
+
+	while true do
+		local line = f:read("*line")
+		
+		if not line then 
+			break 
+		end
+
+		if firstLine and line == "#!/bin/lua" then
+			executeCfg(f)
+		end
+		
+		parseKeyValueCfgLine(file, line, targetTable)
+	end
+	
+	f:close();
+end
+[/version]
+
+[version]
+2022 (Need For Speed Unbound)
+[notes]
+Added applySettingsArray() for dynamic array manipulation.
+
+New Features:
+- applySettingsArray(settingName, append, value) - Apply/append array values to global settings
+- Supports both replace and append modes
+
+Why: NFS Unbound had dynamic car lists, track lists, etc. that needed runtime manipulation.
+
+Note: Function signature reverted (removed 'file' parameter from parseKeyValueCfgLine).
+This caused compatibility issues with existing code.
+[content]
+--
+-- Various bits of Lua scaffolding
+--
+
+require "os"
+require "vfs"
+
+module("Frost.Core", package.seeall);
+
+-- Execute a script
+--
+--   If flags contains a "silent=true" flag, then no message
+--   will be emitted if the script can't be found
+--
+
+-- Execute a script, optionally returning an error message if it fails
+
+function import(script, friendlyName, flags)
+	local name = friendlyName or script
+
+	local success, err = pcall(dofile,script)
+	
+	if not success and not (flags and flags.silent) then
+		error("Could not import script: " .. name .. " error: " .. err)
+	end
+end
+
+-- Execute a new-style config file
+
+local function executeCfg(file)
+	if log then
+		log:debug("  Executing new style (lua) config file")
+	end
+
+	local script = file:read("*all")
+
+	local func, err = loadstring(script)
+
+	if func then 
+		func() 
+	else 
+		error(err) 
+	end
+end
+
+function trim(s)
+  return s:match'^%s*(.*%S)' or ''
+end
+
+-- Parse a single line containing a key-value pair (and possibly some comments)
+
+function parseKeyValueCfgLine(line, targetTable)
+	-- Remove comments
+
+	line = string.gsub(line, "#.*", ")
+	line = string.gsub(line, "^//.*", ")         -- remove text with double slashes at the beginning
+	line = string.gsub(line, "([^:])//.*", "%1")  -- remove text with double slashes unless preceeded by a colon
+
+	-- Split into key, value pairs
+	local key, value = string.match(line, "(%S+)%s+(.+)%s*")
+
+	if key and value then
+		-- Handle dotted key names
+
+		local currentTable = targetTable
+		local first, second
+		second = key
+		repeat
+			first, second = string.match(second, "([^%.]+)%.?(.*)")
+
+			if first and second then
+				if second:len() == 0 then
+					currentTable[first] = trim(value)
+					if log then
+						log:debug(string.format("set %s = %s (from key-value cfg line)", key ,value))
+					end
+				else
+					if not currentTable[first] then
+						currentTable[first] = {}
+					end
+					currentTable = currentTable[first]
+				end
+			end
+
+		until not second or second:len() == 0
+	end
+end
+
+-- Parse a string of key-value config entries
+
+function parseKeyValueCfgString(str, targetTable)
+	for line in string.gmatch(str, "[^\n]*") do
+		parseKeyValueCfgLine(line, targetTable)
+	end
+end
+
+-- Parse an old-style key-value CFG file
+
+function readKeyValueCfg(file, targetTable)
+	if log then
+		log:debug("Reading cfg '" .. file .. "'")
+	end
+
+	local f = vfs.open(file, "r")
+	
+	if not f then
+		-- File not found
+		if log then
+			log:debug("Failed to find file '" .. file .. "'")
+		end
+			
+		return
+	end
+
+	local firstLine = true
+
+	while true do
+		local line = f:read("*line")
+		
+		if not line then 
+			break 
+		end
+
+		if firstLine and line == "#!/bin/lua" then
+			executeCfg(f)
+		end
+		
+		parseKeyValueCfgLine(line, targetTable)
+	end
+	
+	f:close();
+end
+
+function applySettingsArray(settingName, append, value)
+
+	settingName = string.gsub(settingName, "#.*", ")
+	settingName = string.gsub(settingName, "^//.*", ")         -- remove text with double slashes at the beginning
+	settingName = string.gsub(settingName, "([^:])//.*", "%1")  -- remove text with double slashes unless preceeded by a colon
+
+	local currentTable = _G
+	local first, second
+	second = settingName
+	repeat
+		first, second = string.match(second, "([^%.]+)%.?(.*)")
+
+		if first and second then
+			if second:len() == 0 then			
+				if append then		
+					if not currentTable[first] then
+						currentTable[first] = {}
+					end
+
+					for i=1,#value do
+						table.insert(currentTable[first], value[i])
+					end
+				else
+					currentTable[first] = value
+				end
+
+				-- currentTable[first] = value
+				if log then
+					log:debug(string.format("set %s = %s (from key-value cfg line)", key ,value))
+				end
+			else
+				if not currentTable[first] then
+					currentTable[first] = {}
+				end
+				currentTable = currentTable[first]
+			end
+		end
+	until not second or second:len() == 0
+	
+	return true
+end
+[/version]
+
+[version]
+2022 (Skate Closed Playtest - Early)
+[notes]
+Character encoding hardening + command-line parsing.
+
+New Features:
+- Non-breaking space (U+00A0) auto-replaced with regular space
+- ERROR thrown if non-ASCII characters detected ([\128-\255])
+- commandLine:lookup() - Command-line argument lookup with defaults
+- cmdLineOption() - Convenience wrapper
+- parseCmdLineSettings() - Parse command-line into global _G table
+- getSetting() / setSetting() - Global setting accessors
+- tableAsString() - Table serialization for debugging
+- mergeTableContentsTo() - Recursive table merging
+
+Why: 
+- Developers kept copy-pasting from Word/Slack with non-breaking spaces → silent bugs
+- Skate needed extensive command-line configuration for playtests
+- Better dev tools for debugging
+
+Function signatures restored (file parameter back).
+[content]
+--
+-- Various bits of Lua scaffolding
+--
+
+require "os"
+require "vfs"
+
+module("Frost.Core", package.seeall);
+
+-- Execute a script
+--
+--   If flags contains a "silent=true" flag, then no message
+--   will be emitted if the script can't be found
+--
+
+-- Execute a script, optionally returning an error message if it fails
+function import(script, friendlyName, flags)
+	local name = friendlyName or script
+
+	local success, err = pcall(dofile,script)
+	
+
+	if not success and not (flags and flags.silent) then
+		error("Could not import script: " .. name .. " error: " .. err)
+	end
+end
+
+-- Execute a new-style config file
+local function executeCfg(file)
+	if log then
+		log:debug("  Executing new style (lua) config file")
+	end
+
+	local script = file:read("*all")
+
+	local func, err = loadstring(script)
+
+	if func then 
+		func() 
+	else 
+		error(err) 
+	end
+end
+
+function trim(s)
+  return s:match'^%s*(.*%S)' or ''
+end
+
+-- Parse a single line containing a key-value pair (and possibly some comments)
+function parseKeyValueCfgLine(file, line, targetTable)
+	
+	-- Remove comments
+	line = string.gsub(line, "#.*", ")
+	line = string.gsub(line, "^//.*", ")         -- remove text with double slashes at the beginning
+	line = string.gsub(line, "([^:])//.*", "%1")  -- remove text with double slashes unless preceeded by a colon
+
+	-- Fix nonbreaking space which is commonly inadvertently inserted into cfg files
+	line = string.gsub(line, "\xc2\xa0", " ")		-- replace non-breaking space with regular space
+
+	if string.find(line, "[\128-\255]") then
+		error("Unsupported non-ascii characters found in " .. file .. " at line: " .. line)
+	end
+
+	-- Split into key, value pairs
+	local key, value = string.match(line, "(%S+)%s+(.+)%s*")
+
+	if key and value then
+		-- Handle dotted key names
+
+		local currentTable = targetTable
+		local first, second
+		second = key
+		repeat
+			first, second = string.match(second, "([^%.]+)%.?(.*)")
+
+			if first and second then
+				if second:len() == 0 then
+					currentTable[first] = trim(value)
+					if log then
+						log:debug(string.format("set %s = %s (from key-value cfg %s)", key, value, file))
+					end
+				else
+					if not currentTable[first] then
+						currentTable[first] = {}
+					end
+					currentTable = currentTable[first]
+				end
+			end
+
+		until not second or second:len() == 0
+	end
+end
+
+-- Parse a string of key-value config entries
+function parseKeyValueCfgString(location, str, targetTable)
+	for line in string.gmatch(str, "[^\n]*") do
+		parseKeyValueCfgLine(location, line, targetTable)
+	end
+end
+
+-- Parse an old-style key-value CFG file
+function readKeyValueCfg(file, targetTable)
+	if log then
+		log:debug("Reading cfg '" .. file .. "'")
+	end
+
+	local f = vfs.open(file, "r")
+	
+	if not f then
+		-- File not found
+		if log then
+			log:debug("Failed to find file '" .. file .. "'")
+		end
+			
+		return
+	end
+
+	local firstLine = true
+
+	while true do
+		local line = f:read("*line")
+		
+		if not line then 
+			break 
+		end
+
+		if firstLine and line == "#!/bin/lua" then
+			executeCfg(f)
+		end
+		
+		parseKeyValueCfgLine(file, line, targetTable)
+	end
+	
+	f:close();
+end
+
+-- Returns the cmdline arg value if found or returns the default passed in
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+	return value or default
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+-- Parses the commandline settings and sets them in a global table for easy access
+function parseCmdLineSettings()
+	if allowCommandlineSettings then
+		for _,option in ipairs(commandLine) do
+			local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+	
+			if table and member then
+				local value = commandLine[_ + 1] 
+				local cfgLine = table .. "." .. member .. " " .. value
+				core.parseKeyValueCfgString("Core.lua#commandLine", cfgLine, _G)
+			else
+				local varName = string.match(option, "^%-([%w-]+)")
+				if varName then
+					local value = commandLine[_ + 1] 
+					if value then
+						_G[varName] = value
+					end
+				end
+			end
+		end
+	end
+end
+
+-- Helper functions to get/set cmdline arg values
+function getSetting(key)
+	local val = nil
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		val = _G[container][field]
+	else
+		val = _G[key]
+	end
+
+	if log then
+		if not val then
+			log:debug("getSetting: " .. key .. " " .. "nil")
+		else
+			log:debug("getSetting: " .. key .. " " .. val)
+		end
+	end
+
+	return val
+end
+
+function setSetting(key, value)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		_G[container][field] = value
+	else
+		_G[key] = value
+	end
+
+	if log then
+		if not value then
+			log:debug("setSetting: " .. key .. " " .. "nil")
+		else
+			log:debug("setSetting: " .. key .. " " .. value)
+		end
+	end
+end
+
+function tableAsString(arg)
+    if(not arg) then
+        return "nil"
+    elseif (type(arg) == "table") then
+        local str = "{ "
+        for key,value in pairs(arg) do
+            str = str .. tableAsString(key) .. " = " .. tableAsString(value) .. ", "
+        end
+        str = str .. "}"
+        return str
+    elseif (type(arg) == "string") then
+        return '"' .. arg .. '"'
+    else
+        return arg
+    end
+end
+
+-- merges the source table into dest recursively.
+-- ie. if a table value is itself a table it will be merged, preventing existing elements from being removed from the dest.
+-- 
+-- eg.
+-- { A = "B", C = { D = "E", F = "G" } } #merged with# { C = { F = "H", I = "J" } }
+-- = { A = "B", C = { D = "E", F = "H", I = "J" } }
+function mergeTableContentsTo(a, b)
+    local merged = {}
+    
+    -- shallow copy, any elements that are tables will be recursively merged later.
+    for key,value in pairs(a) do
+        merged[key] = value
+    end
+    
+    for key,value in pairs(b) do
+        if (type(value) == "table" and a[key] and type(a[key]) == "table") then
+            merged[key] = mergeTableContentsTo(a[key], b[key])
+        else
+            merged[key] = value
+        end
+    end
+    
+    return merged
+end
+[/version]
+
+[version]
+2022 (Skate Closed Playtest - Late)
+[notes]
+Simplified - removed tableAsString() implementation details.
+
+Changes:
+- tableAsString() kept but simplified (removed nil check branch)
+
+Minor refinement from playtest feedback.
+[content]
+--
+-- Various bits of Lua scaffolding
+--
+
+require "os"
+require "vfs"
+
+module("Frost.Core", package.seeall);
+
+-- Execute a script
+--
+--   If flags contains a "silent=true" flag, then no message
+--   will be emitted if the script can't be found
+--
+
+-- Execute a script, optionally returning an error message if it fails
+function import(script, friendlyName, flags)
+	local name = friendlyName or script
+
+	local success, err = pcall(dofile,script)
+	
+
+	if not success and not (flags and flags.silent) then
+		error("Could not import script: " .. name .. " error: " .. err)
+	end
+end
+
+-- Execute a new-style config file
+local function executeCfg(file)
+	if log then
+		log:debug("  Executing new style (lua) config file")
+	end
+
+	local script = file:read("*all")
+
+	local func, err = loadstring(script)
+
+	if func then 
+		func() 
+	else 
+		error(err) 
+	end
+end
+
+function trim(s)
+  return s:match'^%s*(.*%S)' or ''
+end
+
+-- Parse a single line containing a key-value pair (and possibly some comments)
+function parseKeyValueCfgLine(file, line, targetTable)
+	
+	-- Remove comments
+	line = string.gsub(line, "#.*", ")
+	line = string.gsub(line, "^//.*", ")         -- remove text with double slashes at the beginning
+	line = string.gsub(line, "([^:])//.*", "%1")  -- remove text with double slashes unless preceeded by a colon
+
+	-- Fix nonbreaking space which is commonly inadvertently inserted into cfg files
+	line = string.gsub(line, "\xc2\xa0", " ")		-- replace non-breaking space with regular space
+
+	if string.find(line, "[\128-\255]") then
+		error("Unsupported non-ascii characters found in " .. file .. " at line: " .. line)
+	end
+
+	-- Split into key, value pairs
+	local key, value = string.match(line, "(%S+)%s+(.+)%s*")
+
+	if key and value then
+		-- Handle dotted key names
+
+		local currentTable = targetTable
+		local first, second
+		second = key
+		repeat
+			first, second = string.match(second, "([^%.]+)%.?(.*)")
+
+			if first and second then
+				if second:len() == 0 then
+					currentTable[first] = trim(value)
+					if log then
+						log:debug(string.format("set %s = %s (from key-value cfg %s)", key, value, file))
+					end
+				else
+					if not currentTable[first] then
+						currentTable[first] = {}
+					end
+					currentTable = currentTable[first]
+				end
+			end
+
+		until not second or second:len() == 0
+	end
+end
+
+-- Parse a string of key-value config entries
+function parseKeyValueCfgString(location, str, targetTable)
+	for line in string.gmatch(str, "[^\n]*") do
+		parseKeyValueCfgLine(location, line, targetTable)
+	end
+end
+
+-- Parse an old-style key-value CFG file
+function readKeyValueCfg(file, targetTable)
+	if log then
+		log:debug("Reading cfg '" .. file .. "'")
+	end
+
+	local f = vfs.open(file, "r")
+	
+	if not f then
+		-- File not found
+		if log then
+			log:debug("Failed to find file '" .. file .. "'")
+		end
+			
+		return
+	end
+
+	local firstLine = true
+
+	while true do
+		local line = f:read("*line")
+		
+		if not line then 
+			break 
+		end
+
+		if firstLine and line == "#!/bin/lua" then
+			executeCfg(f)
+		end
+		
+		parseKeyValueCfgLine(file, line, targetTable)
+	end
+	
+	f:close();
+end
+
+-- Returns the cmdline arg value if found or returns the default passed in
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+	return value or default
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+-- Parses the commandline settings and sets them in a global table for easy access
+function parseCmdLineSettings()
+	if allowCommandlineSettings then
+		for _,option in ipairs(commandLine) do
+			local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+	
+			if table and member then
+				local value = commandLine[_ + 1] 
+				local cfgLine = table .. "." .. member .. " " .. value
+				core.parseKeyValueCfgString("Core.lua#commandLine", cfgLine, _G)
+			else
+				local varName = string.match(option, "^%-([%w-]+)")
+				if varName then
+					local value = commandLine[_ + 1] 
+					if value then
+						_G[varName] = value
+					end
+				end
+			end
+		end
+	end
+end
+
+-- Helper functions to get/set cmdline arg values
+function getSetting(key)
+	local val = nil
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		val = _G[container][field]
+	else
+		val = _G[key]
+	end
+
+	if log then
+		if not val then
+			log:debug("getSetting: " .. key .. " " .. "nil")
+		else
+			log:debug("getSetting: " .. key .. " " .. val)
+		end
+	end
+
+	return val
+end
+
+function setSetting(key, value)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		_G[container][field] = value
+	else
+		_G[key] = value
+	end
+
+	if log then
+		if not value then
+			log:debug("setSetting: " .. key .. " " .. "nil")
+		else
+			log:debug("setSetting: " .. key .. " " .. value)
+		end
+	end
+end
+[/version]
+
+[version]
+2024 (Madden NFL 25)
+[notes]
+Simplified for EA Sports - removed advanced features.
+
+Changes:
+- Removed all command-line parsing functions
+- Removed getSetting/setSetting helpers
+- Reverted function signatures (no 'file' parameter)
+- executeCfg() now takes fileName parameter for better error messages
+
+Why: Sports games don't need complex dev tools - they have simpler workflows.
+
+This is a deliberate step BACKWARD for code simplicity.
+[content]
+--
+-- Various bits of Lua scaffolding
+--
+
+require "os"
+require "vfs"
+
+module("Frost.Core", package.seeall);
+	
+-- Execute a script
+--
+--   If flags contains a "silent=true" flag, then no message
+--   will be emitted if the script can't be found
+--
+
+-- Execute a script, optionally returning an error message if it fails
+
+function import(script, friendlyName, flags)
+	local name = friendlyName or script
+
+	local success, err = pcall(dofile,script)
+	
+	if not success and not (flags and flags.silent) then
+		error("Could not import script: " .. name .. " error: " .. err)
+	end
+end
+
+-- Execute a new-style config file
+
+local function executeCfg(fileName, file)
+	if log then
+		log:debug("  Executing new style (lua) config file")
+	end
+
+	local script = file:read("*all")
+
+	local func, err = loadstring(script)
+
+	if func then 
+		func() 
+	else 
+		error("(Reading file " .. fileName .. " : " .. err .. ")") 
+	end
+end
+
+function trim(s)
+  return s:match'^%s*(.*%S)' or ''
+end
+
+-- Parse a single line containing a key-value pair (and possibly some comments)
+
+function parseKeyValueCfgLine(line, targetTable)
+	-- Remove comments
+
+	line = string.gsub(line, "#.*", ")
+	line = string.gsub(line, "^//.*", ")
+	line = string.gsub(line, "([^:])//.*", "%1")
+
+	-- Split into key, value pairs
+	local key, value = string.match(line, "(%S+)%s+(.+)%s*")
+
+	if key and value then
+		-- Handle dotted key names
+
+		local currentTable = targetTable
+		local first, second
+		second = key
+		repeat
+			first, second = string.match(second, "([^%.]+)%.?(.*)")
+
+			if first and second then
+				if second:len() == 0 then
+					currentTable[first] = trim(value)
+					if log then
+						log:debug(string.format("set %s = %s (from key-value cfg line)", key ,value))
+					end
+				else
+					if not currentTable[first] then
+						currentTable[first] = {}
+					end
+					currentTable = currentTable[first]
+				end
+			end
+
+		until not second or second:len() == 0
+	end
+end
+
+-- Parse a string of key-value config entries
+
+function parseKeyValueCfgString(str, targetTable)
+	for line in string.gmatch(str, "[^\n]*") do
+		parseKeyValueCfgLine(line, targetTable)
+	end
+end
+
+-- Parse an old-style key-value CFG file
+
+function readKeyValueCfg(file, targetTable)
+	if log then
+		log:debug("Reading cfg '" .. file .. "'")
+	end
+
+	local f = vfs.open(file, "r")
+	
+	if not f then
+		-- File not found
+		if log then
+			log:debug("Failed to find file '" .. file .. "'")
+		end
+			
+		return
+	end
+
+	local firstLine = true
+
+	while true do
+		local line = f:read("*line")
+		
+		if not line then 
+			break 
+		end
+
+		if firstLine and line == "#!/bin/lua" then
+			executeCfg(file, f)
+		end
+		
+		parseKeyValueCfgLine(line, targetTable)
+	end
+	
+	f:close();
+end
+[/version]
+
+[version]
+2025 (Battlefield 6, NFL 25)
+[notes]
+Modern comprehensive version - all features combined.
+
+New Features:
+- Enhanced import() with better error handling (required/silent flags)
+- allowAssignVar parameter - Tracks which variables can be modified at runtime
+- parseLocalCfgs() - Multi-platform local config loading
+- Double-dash support in command-line parsing (-- and -)
+- Complete utility suite restored
+
+Why: This represents the 'gold standard' mainline Frostbite template.
+All the lessons learned from 2011-2024 combined into one robust system.
+
+Key improvements:
+- Better import() error messages (distinguishes 'file not found' from 'execution error')
+- Runtime modification tracking (_AllowAssignVar suffix)
+- Cross-platform config file support (/local/, /scratch/, /localhost/, /scratchhost/)
+- More flexible command-line argument patterns
+[content]
+--
+-- Various bits of Lua scaffolding
+--
+
+require "os"
+require "vfs"
+
+module("Frost.Core", package.seeall);
+
+-- Execute a script
+--
+--   Optional flags:
+--		required (default: true):
+--			Emits an error if the script doesn't exist.
+--		silent (default: false):
+--			DEPRECATED: Previous behaviour did not emit errors if the script did not exist OR failed to execute correctly.
+--			`silent = true` has the same behaviour as `required = false` now, but the name is misleading.
+--
+
+-- Execute a script, optionally returning an error message if it fails
+function import(script, friendlyName, flags)
+	local name = friendlyName or script
+	
+	if not flags then
+		flags = {}
+	end
+	if flags.required == nil and not flags.silent then
+		flags.required = true
+	end
+
+	local success, executeError = pcall(dofile,script)
+
+	if not success then
+		if string.match(executeError, "file not found") then
+			if flags.required then
+				error("Failed to open file: " .. name)
+			elseif log then
+				log:debug("Script not executed; failed to open file: " .. name)
+			end
+		else
+			error("Failed to execute script: " .. name .. " error: " .. executeError)
+		end
+	end
+end
+
+-- Execute a new-style config file
+local function executeCfg(file)
+	if log then
+		log:debug("  Executing new style (lua) config file")
+	end
+
+	local script = file:read("*all")
+
+	local func, err = loadstring(script)
+
+	if func then 
+		func() 
+	else 
+		error(err) 
+	end
+end
+
+function trim(s)
+  return s:match'^%s*(.*%S)' or ''
+end
+
+-- Parse a single line containing a key-value pair (and possibly some comments)
+-- Add the key-value pair to targetTable.
+function parseKeyValueCfgLine(file, line, targetTable, allowAssignVar)
+	
+	-- Remove comments
+	line = string.gsub(line, "#.*", ")
+	line = string.gsub(line, "^//.*", ")         -- remove text with double slashes at the beginning
+	line = string.gsub(line, "([^:])//.*", "%1")  -- remove text with double slashes unless preceeded by a colon
+
+	-- Fix nonbreaking space which is commonly inadvertently inserted into cfg files
+	line = string.gsub(line, "\xc2\xa0", " ")		-- replace non-breaking space with regular space
+
+	if string.find(line, "[\128-\255]") then
+		error("Unsupported non-ascii characters found in " .. file .. " at line: " .. line)
+	end
+
+	-- Split into key, value pairs
+	local key, value = string.match(line, "(%S+)%s+(.+)%s*")
+
+	if key and value then
+		-- Handle dotted key names
+
+		local currentTable = targetTable
+		local first, second
+		second = key
+		repeat
+			first, second = string.match(second, "([^%.]+)%.?(.*)")
+
+			if first and second then
+				if second:len() == 0 then
+					currentTable[first] = trim(value)
+					if allowAssignVar then
+						currentTable[first .. "_AllowAssignVar"] = true
+					end
+					if log then
+						log:debug(string.format("set %s = %s (from key-value cfg %s)", key, value, file))
+					end
+				else
+					if not currentTable[first] then
+						currentTable[first] = {}
+					end
+					currentTable = currentTable[first]
+				end
+			end
+
+		until not second or second:len() == 0
+	end
+end
+
+-- Parse a string of key-value config entries
+function parseKeyValueCfgString(location, str, targetTable, allowAssignVar)
+	for line in string.gmatch(str, "[^\n]*") do
+		parseKeyValueCfgLine(location, line, targetTable, allowAssignVar)
+	end
+end
+
+-- Parse an old-style key-value CFG file
+function readKeyValueCfg(file, targetTable, allowAssignVar)
+	if log then
+		log:debug("Reading cfg '" .. file .. "'")
+	end
+
+	local f = vfs.open(file, "r")
+	
+	if not f then
+		-- File not found
+		if log then
+			log:debug("Failed to find file '" .. file .. "'")
+		end
+			
+		return
+	end
+
+	local firstLine = true
+
+	while true do
+		local line = f:read("*line")
+		
+		if not line then 
+			break 
+		end
+
+		if firstLine and line == "#!/bin/lua" then
+			executeCfg(f)
+		end
+		
+		parseKeyValueCfgLine(file, line, targetTable, allowAssignVar)
+	end
+	
+	f:close();
+end
+
+-- Returns the cmdline arg value if found or returns the default passed in
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+	return value or default
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+-- Parses the commandline settings and sets them in a global table for easy access
+function parseCmdLineSettings()
+	if allowCommandlineSettings then
+		for _,option in ipairs(commandLine) do
+			local table,member = string.match(option, "^%-%-?(%w+)%.([%w%.]+)")
+	
+			if table and member then
+				local value = commandLine[_ + 1] 
+				local cfgLine = table .. "." .. member .. " " .. value
+				core.parseKeyValueCfgString("Core.lua#commandLine", cfgLine, _G, true)
+			else
+				local varName = string.match(option, "^%-%-?([%w-]+)")
+				if varName then
+					local value = commandLine[_ + 1] 
+					if value then
+						_G[varName] = value
+						_G[varName .. "_AllowAssignVar"] = true
+					end
+				end
+			end
+		end
+	end
+end
+
+function parseLocalCfgs(editorActive)
+	if not cmdLineOption('noLocalCfg', false) then
+		-- Read common local cfg file
+		core.readKeyValueCfg("/local/local.cfg", _G, true)
+		-- Look at cfg on scratch drive
+		core.readKeyValueCfg("/scratch/local.cfg", _G, true)
+		-- ps4 data drive is case sensitive :(
+		core.readKeyValueCfg("/scratch/Local.cfg", _G, true)
+		-- ps5 host drive
+		core.readKeyValueCfg("/localhost/local.cfg", _G, true)
+		core.readKeyValueCfg("/scratchhost/local.cfg", _G, true)
+
+		if editorActive then
+			-- Read local cfg with editor specific settings
+			core.readKeyValueCfg("/local/localeditor.cfg", _G, true)
+		else
+			-- Read local cfg with standalone specific settings
+			core.readKeyValueCfg("/local/LocalGame.cfg", _G, true)
+		end
+	end
+end
+
+-- Helper functions to get/set cmdline arg values
+function getSetting(key)
+	local val = nil
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		val = _G[container][field]
+	else
+		val = _G[key]
+	end
+
+	if log then
+		if not val then
+			log:debug("getSetting: " .. key .. " " .. "nil")
+		else
+			log:debug("getSetting: " .. key .. " " .. val)
+		end
+	end
+
+	return val
+end
+
+function setSetting(key, value)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		_G[container][field] = value
+	else
+		_G[key] = value
+	end
+
+	if log then
+		if not value then
+			log:debug("setSetting: " .. key .. " " .. "nil")
+		else
+			log:debug("setSetting: " .. key .. " " .. value)
+		end
+	end
+end
+
+-- like Lua's tostring(), but actually prints the contents of a table, rather than its pointer value.
+-- despite the name this can convert any value to a string.
+function tableAsString(arg)
+	if (type(arg) == "table") then
+        local str = "{ "
+        for key,value in pairs(arg) do
+            str = str .. tableAsString(key) .. " = " .. tableAsString(value) .. ", "
+        end
+        str = str .. "}"
+        return str
+    elseif (type(arg) == "string") then
+        return '"' .. arg .. '"'
+    else -- the remaining types are: nil, boolean, number, function, userdata and thread
+        return tostring(arg)
+    end
+end
+
+-- merges the source table into dest recursively.
+-- ie. if a table value is itself a table it will be merged, preventing existing elements from being removed from the dest.
+-- 
+-- eg.
+-- { A = "B", C = { D = "E", F = "G" } } #merged with# { C = { F = "H", I = "J" } }
+-- = { A = "B", C = { D = "E", F = "H", I = "J" } }
+function mergeTableContentsTo(a, b)
+    local merged = {}
+    
+    -- shallow copy, any elements that are tables will be recursively merged later.
+    for key,value in pairs(a) do
+        merged[key] = value
+    end
+    
+    for key,value in pairs(b) do
+        if (type(value) == "table" and a[key] and type(a[key]) == "table") then
+            merged[key] = mergeTableContentsTo(a[key], b[key])
+        else
+            merged[key] = value
+        end
+    end
+    
+    return merged
+end
+[/version]
+
+[version]
+2025 (Skate Playtest 1.00-1.01)
+[notes]
+Skate's version with Lua comment support.
+
+New Features:
+- Lua comment stripping: ^%s*%-%-.*
+- Strips -- comments at line beginning (with optional leading whitespace)
+- Android case-sensitive path support added to parseLocalCfgs()
+
+Why: Skate's config files mixed traditional // comments with Lua -- comments.
+The pattern ^%s*%-%-.* allows for indented Lua comments.
+[content]
+--
+-- Various bits of Lua scaffolding
+--
+
+require "os"
+require "vfs"
+
+module("Frost.Core", package.seeall);
+
+-- Execute a script
+--
+--   Optional flags:
+--		required (default: true):
+--			Emits an error if the script doesn't exist.
+--		silent (default: false):
+--			DEPRECATED: Previous behaviour did not emit errors if the script did not exist OR failed to execute correctly.
+--			`silent = true` has the same behaviour as `required = false` now, but the name is misleading.
+--
+
+-- Execute a script, optionally returning an error message if it fails
+function import(script, friendlyName, flags)
+	local name = friendlyName or script
+	
+	if not flags then
+		flags = {}
+	end
+	if flags.required == nil and not flags.silent then
+		flags.required = true
+	end
+
+	local success, executeError = pcall(dofile,script)
+
+	if not success then
+		if string.match(executeError, "file not found") then
+			if flags.required then
+				error("Failed to open file: " .. name)
+			elseif log then
+				log:debug("Script not executed; failed to open file: " .. name)
+			end
+		else
+			error("Failed to execute script: " .. name .. " error: " .. executeError)
+		end
+	end
+end
+
+-- Execute a new-style config file
+local function executeCfg(file)
+	if log then
+		log:debug("  Executing new style (lua) config file")
+	end
+
+	local script = file:read("*all")
+
+	local func, err = loadstring(script)
+
+	if func then 
+		func() 
+	else 
+		error(err) 
+	end
+end
+
+function trim(s)
+  return s:match'^%s*(.*%S)' or ''
+end
+
+-- Parse a single line containing a key-value pair (and possibly some comments)
+-- Add the key-value pair to targetTable.
+function parseKeyValueCfgLine(file, line, targetTable, allowAssignVar)
+	
+	-- Remove comments
+	line = string.gsub(line, "#.*", ")
+	line = string.gsub(line, "^//.*", ")         -- remove text with double slashes at the beginning
+	line = string.gsub(line, "([^:])//.*", "%1")  -- remove text with double slashes unless preceeded by a colon
+	line = string.gsub(line, "^%s*%-%-.*", ")    -- remove text with double hypens at the beginning, allowing for whitespaces for indented lines
+
+	-- Fix nonbreaking space which is commonly inadvertently inserted into cfg files
+	line = string.gsub(line, "\xc2\xa0", " ")		-- replace non-breaking space with regular space
+
+	if string.find(line, "[\128-\255]") then
+		error("Unsupported non-ascii characters found in " .. file .. " at line: " .. line)
+	end
+
+	-- Split into key, value pairs
+	local key, value = string.match(line, "(%S+)%s+(.+)%s*")
+
+	if key and value then
+		-- Handle dotted key names
+
+		local currentTable = targetTable
+		local first, second
+		second = key
+		repeat
+			first, second = string.match(second, "([^%.]+)%.?(.*)")
+
+			if first and second then
+				if second:len() == 0 then
+					currentTable[first] = trim(value)
+					if allowAssignVar then
+						currentTable[first .. "_AllowAssignVar"] = true
+					end
+					if log then
+						log:debug(string.format("set %s = %s (from key-value cfg %s)", key, value, file))
+					end
+				else
+					if not currentTable[first] then
+						currentTable[first] = {}
+					end
+					currentTable = currentTable[first]
+				end
+			end
+
+		until not second or second:len() == 0
+	end
+end
+
+-- Parse a string of key-value config entries
+function parseKeyValueCfgString(location, str, targetTable, allowAssignVar)
+	for line in string.gmatch(str, "[^\n]*") do
+		parseKeyValueCfgLine(location, line, targetTable, allowAssignVar)
+	end
+end
+
+-- Parse an old-style key-value CFG file
+function readKeyValueCfg(file, targetTable, allowAssignVar)
+	if log then
+		log:debug("Reading cfg '" .. file .. "'")
+	end
+
+	local f = vfs.open(file, "r")
+	
+	if not f then
+		-- File not found
+		if log then
+			log:debug("Failed to find file '" .. file .. "'")
+		end
+			
+		return
+	end
+
+	local firstLine = true
+
+	while true do
+		local line = f:read("*line")
+		
+		if not line then 
+			break 
+		end
+
+		if firstLine and line == "#!/bin/lua" then
+			executeCfg(f)
+		end
+		
+		parseKeyValueCfgLine(file, line, targetTable, allowAssignVar)
+	end
+	
+	f:close();
+end
+
+-- Returns the cmdline arg value if found or returns the default passed in
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+	return value or default
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+-- Parses the commandline settings and sets them in a global table for easy access
+function parseCmdLineSettings()
+	if allowCommandlineSettings then
+		for _,option in ipairs(commandLine) do
+			local table,member = string.match(option, "^%-%-?(%w+)%.([%w%.]+)")
+	
+			if table and member then
+				local value = commandLine[_ + 1] 
+				local cfgLine = table .. "." .. member .. " " .. value
+				core.parseKeyValueCfgString("Core.lua#commandLine", cfgLine, _G, true)
+			else
+				local varName = string.match(option, "^%-%-?([%w-]+)")
+				if varName then
+					local value = commandLine[_ + 1] 
+					if value then
+						_G[varName] = value
+						_G[varName .. "_AllowAssignVar"] = true
+					end
+				end
+			end
+		end
+	end
+end
+
+function parseLocalCfgs(editorActive)
+	if not cmdLineOption('noLocalCfg', false) then
+		-- Read common local cfg file
+		core.readKeyValueCfg("/local/local.cfg", _G, true)
+		-- Android is case sensitive
+		core.readKeyValueCfg("/local/Local.cfg", _G, true)
+		-- Look at cfg on scratch drive
+		core.readKeyValueCfg("/scratch/local.cfg", _G, true)
+		-- ps4 data drive is case sensitive :(
+		core.readKeyValueCfg("/scratch/Local.cfg", _G, true)
+		-- ps5 host drive
+		core.readKeyValueCfg("/localhost/local.cfg", _G, true)
+		core.readKeyValueCfg("/scratchhost/local.cfg", _G, true)
+
+		if editorActive then
+			-- Read local cfg with editor specific settings
+			core.readKeyValueCfg("/local/localeditor.cfg", _G, true)
+		else
+			-- Read local cfg with standalone specific settings
+			core.readKeyValueCfg("/local/LocalGame.cfg", _G, true)
+		end
+	end
+end
+
+-- Helper functions to get/set cmdline arg values
+function getSetting(key)
+	local val = nil
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		val = _G[container][field]
+	else
+		val = _G[key]
+	end
+
+	if log then
+		if not val then
+			log:debug("getSetting: " .. key .. " " .. "nil")
+		else
+			log:debug("getSetting: " .. key .. " " .. val)
+		end
+	end
+
+	return val
+end
+
+function setSetting(key, value)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		_G[container][field] = value
+	else
+		_G[key] = value
+	end
+
+	if log then
+		if not value then
+			log:debug("setSetting: " .. key .. " " .. "nil")
+		else
+			log:debug("setSetting: " .. key .. " " .. value)
+		end
+	end
+end
+
+-- like Lua's tostring(), but actually prints the contents of a table, rather than its pointer value.
+-- despite the name this can convert any value to a string.
+function tableAsString(arg)
+	if (type(arg) == "table") then
+        local str = "{ "
+        for key,value in pairs(arg) do
+            str = str .. tableAsString(key) .. " = " .. tableAsString(value) .. ", "
+        end
+        str = str .. "}"
+        return str
+    elseif (type(arg) == "string") then
+        return '"' .. arg .. '"'
+    else -- the remaining types are: nil, boolean, number, function, userdata and thread
+        return tostring(arg)
+    end
+end
+
+-- merges the source table into dest recursively.
+-- ie. if a table value is itself a table it will be merged, preventing existing elements from being removed from the dest.
+-- 
+-- eg.
+-- { A = "B", C = { D = "E", F = "G" } } #merged with# { C = { F = "H", I = "J" } }
+-- = { A = "B", C = { D = "E", F = "H", I = "J" } }
+function mergeTableContentsTo(a, b)
+    local merged = {}
+    
+    -- shallow copy, any elements that are tables will be recursively merged later.
+    for key,value in pairs(a) do
+        merged[key] = value
+    end
+    
+    for key,value in pairs(b) do
+        if (type(value) == "table" and a[key] and type(a[key]) == "table") then
+            merged[key] = mergeTableContentsTo(a[key], b[key])
+        else
+            merged[key] = value
+        end
+    end
+    
+    return merged
+end
+[/version]
+
+[version]
+2025+ (Skate, Current Mainline)
+[notes]
+Latest version with error level control.
+
+New Features:
+- readKeyValueCfg() now has fileNotFoundIsError parameter
+- When true, logs file-not-found as ERROR instead of DEBUG
+- Allows distinguishing between 'optional config' vs 'required config'
+
+Why: Some config files are mandatory (game will break without them), others are optional overrides.
+Now the logging reflects this distinction.
+
+This is the current mainline template for all new Frostbite games.
+[content]
+--
+-- Various bits of Lua scaffolding
+--
+
+require "os"
+require "vfs"
+
+module("Frost.Core", package.seeall);
+
+-- Execute a script
+--
+--   Optional flags:
+--		required (default: true):
+--			Emits an error if the script doesn't exist.
+--		silent (default: false):
+--			DEPRECATED: Previous behaviour did not emit errors if the script did not exist OR failed to execute correctly.
+--			`silent = true` has the same behaviour as `required = false` now, but the name is misleading.
+--
+
+-- Execute a script, optionally returning an error message if it fails
+function import(script, friendlyName, flags)
+	local name = friendlyName or script
+	
+	if not flags then
+		flags = {}
+	end
+	if flags.required == nil and not flags.silent then
+		flags.required = true
+	end
+
+	local success, executeError = pcall(dofile,script)
+
+	if not success then
+		if string.match(executeError, "file not found") then
+			if flags.required then
+				error("Failed to open file: " .. name)
+			elseif log then
+				log:debug("Script not executed; failed to open file: " .. name)
+			end
+		else
+			error("Failed to execute script: " .. name .. " error: " .. executeError)
+		end
+	end
+end
+
+-- Execute a new-style config file
+local function executeCfg(file)
+	if log then
+		log:debug("  Executing new style (lua) config file")
+	end
+
+	local script = file:read("*all")
+
+	local func, err = loadstring(script)
+
+	if func then 
+		func() 
+	else 
+		error(err) 
+	end
+end
+
+function trim(s)
+  return s:match'^%s*(.*%S)' or ''
+end
+
+-- Parse a single line containing a key-value pair (and possibly some comments)
+-- Add the key-value pair to targetTable.
+function parseKeyValueCfgLine(file, line, targetTable, allowAssignVar)
+	
+	-- Remove comments
+	line = string.gsub(line, "#.*", ")
+	line = string.gsub(line, "^//.*", ")         -- remove text with double slashes at the beginning
+	line = string.gsub(line, "([^:])//.*", "%1")  -- remove text with double slashes unless preceeded by a colon
+	line = string.gsub(line, "^%s*%-%-.*", ")    -- remove text with double hypens at the beginning, allowing for whitespaces for indented lines
+
+	-- Fix nonbreaking space which is commonly inadvertently inserted into cfg files
+	line = string.gsub(line, "\xc2\xa0", " ")		-- replace non-breaking space with regular space
+
+	if string.find(line, "[\128-\255]") then
+		error("Unsupported non-ascii characters found in " .. file .. " at line: " .. line)
+	end
+
+	-- Split into key, value pairs
+	local key, value = string.match(line, "(%S+)%s+(.+)%s*")
+
+	if key and value then
+		-- Handle dotted key names
+
+		local currentTable = targetTable
+		local first, second
+		second = key
+		repeat
+			first, second = string.match(second, "([^%.]+)%.?(.*)")
+
+			if first and second then
+				if second:len() == 0 then
+					currentTable[first] = trim(value)
+					if allowAssignVar then
+						currentTable[first .. "_AllowAssignVar"] = true
+					end
+					if log then
+						log:debug(string.format("set %s = %s (from key-value cfg %s)", key, value, file))
+					end
+				else
+					if not currentTable[first] then
+						currentTable[first] = {}
+					end
+					currentTable = currentTable[first]
+				end
+			end
+
+		until not second or second:len() == 0
+	end
+end
+
+-- Parse a string of key-value config entries
+function parseKeyValueCfgString(location, str, targetTable, allowAssignVar)
+	for line in string.gmatch(str, "[^\n]*") do
+		parseKeyValueCfgLine(location, line, targetTable, allowAssignVar)
+	end
+end
+
+-- Parse an old-style key-value CFG file
+function readKeyValueCfg(file, targetTable, allowAssignVar, fileNotFoundIsError)
+	if log then
+		log:debug("Reading cfg '" .. file .. "'")
+	end
+
+	local f = vfs.open(file, "r")
+	
+	if not f then
+		-- File not found
+		if log then
+			if fileNotFoundIsError then
+				log:error("Failed to find file '" .. file .. "'")
+			else
+				log:debug("Failed to find file '" .. file .. "'")
+			end
+		end
+			
+		return
+	end
+
+	local firstLine = true
+
+	while true do
+		local line = f:read("*line")
+		
+		if not line then 
+			break 
+		end
+
+		if firstLine and line == "#!/bin/lua" then
+			executeCfg(f)
+		end
+		
+		parseKeyValueCfgLine(file, line, targetTable, allowAssignVar)
+	end
+	
+	f:close();
+end
+
+-- Returns the cmdline arg value if found or returns the default passed in
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+	return value or default
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+-- Parses the commandline settings and sets them in a global table for easy access
+function parseCmdLineSettings()
+	if allowCommandlineSettings then
+		for _,option in ipairs(commandLine) do
+			local table,member = string.match(option, "^%-%-?(%w+)%.([%w%.]+)")
+	
+			if table and member then
+				local value = commandLine[_ + 1] 
+				local cfgLine = table .. "." .. member .. " " .. value
+				core.parseKeyValueCfgString("Core.lua#commandLine", cfgLine, _G, true)
+			else
+				local varName = string.match(option, "^%-%-?([%w-]+)")
+				if varName then
+					local value = commandLine[_ + 1] 
+					if value then
+						_G[varName] = value
+						_G[varName .. "_AllowAssignVar"] = true
+					end
+				end
+			end
+		end
+	end
+end
+
+function parseLocalCfgs(editorActive)
+	if not cmdLineOption('noLocalCfg', false) then
+		-- Read common local cfg file
+		core.readKeyValueCfg("/local/local.cfg", _G, true)
+		-- Android is case sensitive
+		core.readKeyValueCfg("/local/Local.cfg", _G, true)
+		-- Look at cfg on scratch drive
+		core.readKeyValueCfg("/scratch/local.cfg", _G, true)
+		-- ps4 data drive is case sensitive :(
+		core.readKeyValueCfg("/scratch/Local.cfg", _G, true)
+		-- ps5 host drive
+		core.readKeyValueCfg("/localhost/local.cfg", _G, true)
+		core.readKeyValueCfg("/scratchhost/local.cfg", _G, true)
+
+		if editorActive then
+			-- Read local cfg with editor specific settings
+			core.readKeyValueCfg("/local/localeditor.cfg", _G, true)
+		else
+			-- Read local cfg with standalone specific settings
+			core.readKeyValueCfg("/local/LocalGame.cfg", _G, true)
+		end
+	end
+end
+
+-- Helper functions to get/set cmdline arg values
+function getSetting(key)
+	local val = nil
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		val = _G[container][field]
+	else
+		val = _G[key]
+	end
+
+	if log then
+		if not val then
+			log:debug("getSetting: " .. key .. " " .. "nil")
+		else
+			log:debug("getSetting: " .. key .. " " .. val)
+		end
+	end
+
+	return val
+end
+
+function setSetting(key, value)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		_G[container][field] = value
+	else
+		_G[key] = value
+	end
+
+	if log then
+		if not value then
+			log:debug("setSetting: " .. key .. " " .. "nil")
+		else
+			log:debug("setSetting: " .. key .. " " .. value)
+		end
+	end
+end
+
+-- like Lua's tostring(), but actually prints the contents of a table, rather than its pointer value.
+-- despite the name this can convert any value to a string.
+function tableAsString(arg)
+	if (type(arg) == "table") then
+        local str = "{ "
+        for key,value in pairs(arg) do
+            str = str .. tableAsString(key) .. " = " .. tableAsString(value) .. ", "
+        end
+        str = str .. "}"
+        return str
+    elseif (type(arg) == "string") then
+        return '"' .. arg .. '"'
+    else -- the remaining types are: nil, boolean, number, function, userdata and thread
+        return tostring(arg)
+    end
+end
+
+-- merges the source table into dest recursively.
+-- ie. if a table value is itself a table it will be merged, preventing existing elements from being removed from the dest.
+-- 
+-- eg.
+-- { A = "B", C = { D = "E", F = "G" } } #merged with# { C = { F = "H", I = "J" } }
+-- = { A = "B", C = { D = "E", F = "H", I = "J" } }
+function mergeTableContentsTo(a, b)
+    local merged = {}
+    
+    -- shallow copy, any elements that are tables will be recursively merged later.
+    for key,value in pairs(a) do
+        merged[key] = value
+    end
+    
+    for key,value in pairs(b) do
+        if (type(value) == "table" and a[key] and type(a[key]) == "table") then
+            merged[key] = mergeTableContentsTo(a[key], b[key])
+        else
+            merged[key] = value
+        end
+    end
+    
+    return merged
+end
+[/version]

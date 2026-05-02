@@ -1,0 +1,136 @@
+[description]
+Automated single-player campaign testing with main menu transitions - tests frontend/campaign loading cycles.
+
+[version]
+2011-2015 (Battlefield 4)
+[notes]
+Extended version of cycleSpLevels that returns to main menu after each mission test.
+
+Script Structure:
+Each mission follows extended test sequence:
+1. server.loadLevel [MissionPath] - Load campaign mission
+2. sleep 60 - Wait for initial load
+3. server.restartLevel - Restart mission
+4. sleep 180/240 - Gameplay period
+5. client.restartFromLastCheckpoint - Load checkpoint
+6. sleep 60 - Wait after checkpoint load
+7. server.loadLevel Levels/FrontEnd/FrontEnd - Return to main menu
+8. sleep 30 - Wait for menu load
+9. Proceed to next mission
+
+Initial Command:
+- Core.LogLevel FatalAssert
+
+Final Command:
+- main.playCommands Scripts/Debug/cycleSpLevelsViaMainMenu - Recursive loop
+
+Additional Testing vs cycleSpLevels:
+- server.loadLevel Levels/FrontEnd/FrontEnd - Loads main menu/frontend
+- Tests campaign → menu → campaign transitions
+- 30 second sleep after menu load (shorter than mission loads)
+
+Missions Tested: Same 8 missions as cycleSpLevels
+1. SP_Prologue (240s gameplay)
+2. SP_Shanghai (180s gameplay)
+3. SP_Naval (180s gameplay)
+4. SP_Airfield (180s gameplay)
+5. SP_Prison (180s gameplay)
+6. SP_Journey (180s gameplay)
+7. SP_Dam (180s gameplay)
+8. SP_Suez (180s gameplay)
+
+FrontEnd Level:
+- Levels/FrontEnd/FrontEnd - Main menu scene
+- Contains UI, player profile data, matchmaking interface
+- Lighter resource load than gameplay missions
+
+Total Cycle Duration Per Mission:
+- Prologue: 420 seconds + 30 seconds (menu) = 450 seconds
+- Other missions: 360 seconds + 30 seconds (menu) = 390 seconds each
+- Full cycle: ~54 minutes (vs 49 minutes without menu transitions)
+
+Testing Coverage (Additional):
+- Campaign-to-menu unloading
+- Menu-to-campaign loading
+- Frontend state management
+- Memory cleanup between mission/menu transitions
+- UI system stability
+- Player profile persistence across transitions
+- Resource streaming across drastically different scenes (gameplay vs UI)
+[content]
+Core.LogLevel FatalAssert
+
+server.loadLevel Levels/SP_Prologue/SP_Prologue
+sleep 60
+server.restartLevel
+sleep 240
+client.restartFromLastCheckpoint
+sleep 60
+server.loadLevel Levels/FrontEnd/FrontEnd
+sleep 30
+
+server.loadLevel Levels/SP_Shanghai/SP_Shanghai
+sleep 60
+server.restartLevel
+sleep 180
+client.restartFromLastCheckpoint
+sleep 60
+server.loadLevel Levels/FrontEnd/FrontEnd
+sleep 30
+
+server.loadLevel Levels/SP_Naval/SP_Naval
+sleep 60
+server.restartLevel
+sleep 180
+client.restartFromLastCheckpoint
+sleep 60
+server.loadLevel Levels/FrontEnd/FrontEnd
+sleep 30
+
+server.loadLevel Levels/SP_Airfield/SP_Airfield
+sleep 60
+server.restartLevel
+sleep 180
+client.restartFromLastCheckpoint
+sleep 60
+server.loadLevel Levels/FrontEnd/FrontEnd
+sleep 30
+
+server.loadLevel Levels/SP_Prison/SP_Prison
+sleep 60
+server.restartLevel
+sleep 180
+client.restartFromLastCheckpoint
+sleep 60
+server.loadLevel Levels/FrontEnd/FrontEnd
+sleep 30
+
+server.loadLevel Levels/SP_Journey/SP_Journey
+sleep 60
+server.restartLevel
+sleep 180
+client.restartFromLastCheckpoint
+sleep 60
+server.loadLevel Levels/FrontEnd/FrontEnd
+sleep 30
+
+server.loadLevel Levels/SP_Dam/SP_Dam
+sleep 60
+server.restartLevel
+sleep 180
+client.restartFromLastCheckpoint
+sleep 60
+server.loadLevel Levels/FrontEnd/FrontEnd
+sleep 30
+
+server.loadLevel Levels/SP_Suez/SP_Suez
+sleep 60
+server.restartLevel
+sleep 180
+client.restartFromLastCheckpoint
+sleep 60
+server.loadLevel Levels/FrontEnd/FrontEnd
+sleep 30
+
+main.playCommands Scripts/Debug/cycleSpLevelsViaMainMenu
+[/version]

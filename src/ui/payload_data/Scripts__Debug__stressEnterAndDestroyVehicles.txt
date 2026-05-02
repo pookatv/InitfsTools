@@ -1,0 +1,127 @@
+[description]
+Vehicle entry/destruction stress test - spawns soldiers, enters vehicles, kills soldiers, and cleans up repeatedly.
+
+[version]
+2011 (Battlefield 3)
+[notes]
+Comprehensive vehicle system stress testing.
+
+Script Structure:
+1. Core.LogLevel FatalAssert - Suppress non-critical logs
+2. Spawn 5 soldiers (player IDs 1-5)
+3. Enter all soldiers into vehicles
+4. Kill all soldiers with massive damage
+5. Delete all players
+6. Loop
+
+Spawn Phase:
+- server.spawnsoldier 0 1 0 - Spawns soldier for player ID 1, team 0
+- server.spawnsoldier 0 1 0 - Spawns soldier for player ID 1, team 0 (duplicate spawn)
+- server.spawnsoldier 0 2 0 - Player ID 2, team 0
+- server.spawnsoldier 0 2 0 - Player ID 2, team 0 (duplicate)
+- server.spawnsoldier 0 2 0 - Player ID 2, team 0 (triple spawn)
+- sleep 1 - Wait 1 second for spawn completion
+
+Commands Explained:
+
+server.spawnsoldier [team] [playerID] [unknown]:
+- Spawns soldier entity for specified player
+- team: 0 or 1
+- playerID: Player identifier (1-5 in this script)
+- Third parameter: 0 (purpose unclear, possibly spawn point index)
+
+Vehicle Entry Phase:
+- server.playerEnterClosestVehicle 1 true - Player 1 enters nearest vehicle
+- server.playerEnterClosestVehicle 2 true - Player 2 enters nearest vehicle
+- server.playerEnterClosestVehicle 3 true - Player 3 enters nearest vehicle
+- server.playerEnterClosestVehicle 4 true - Player 4 enters nearest vehicle
+- server.playerEnterClosestVehicle 5 true - Player 5 enters nearest vehicle
+- sleep 1 - Wait 1 second for entry animations
+
+server.playerEnterClosestVehicle [playerID] [force]:
+- Teleports player into nearest available vehicle
+- playerID: Player to enter vehicle
+- true: Force entry (ignore distance/availability checks)
+
+Destruction Phase:
+- server.damageSoldier 1 2000 true - Deal 2000 damage to player 1
+- server.damageSoldier 2 2000 true - Deal 2000 damage to player 2
+- server.damageSoldier 3 2000 true - Deal 2000 damage to player 3
+- server.damageSoldier 4 2000 true - Deal 2000 damage to player 4
+- server.damageSoldier 5 2000 true - Deal 2000 damage to player 5
+- sleep 3 - Wait 3 seconds for death animations/vehicle explosions
+
+server.damageSoldier [playerID] [damage] [unknown]:
+- Applies damage to soldier
+- 2000 damage = instant kill (health typically 100)
+- true parameter: Possibly bypasses damage reduction/armor
+
+Cleanup Phase:
+- server.deletePlayer 1 - Remove player 1 entity
+- server.deletePlayer 2 - Remove player 2 entity
+- server.deletePlayer 3 - Remove player 3 entity
+- server.deletePlayer 4 - Remove player 4 entity
+- server.deletePlayer 5 - Remove player 5 entity
+- sleep 2 - Wait 2 seconds for cleanup
+
+server.deletePlayer [playerID]:
+- Completely removes player entity from game
+- Frees memory and resources
+
+Loop:
+- main.playCommands Scripts/Debug/stressEnterAndDestroyVehicles
+
+Cycle Duration:
+7 seconds per iteration (1 + 1 + 3 + 2)
+
+Testing Coverage:
+- Soldier spawn system
+- Vehicle entry logic
+- Vehicle seat assignment
+- Vehicle-player association
+- Damage system on vehicle occupants
+- Death handling inside vehicles
+- Vehicle destruction when occupant dies
+- Player cleanup/deallocation
+- Memory leak detection (through continuous spawning/destruction)
+- Vehicle respawn system
+- Entity reference management
+
+Duplicate Spawns:
+Player 1 spawned twice, player 2 spawned three times. This may test:
+- Spawn request queuing
+- Duplicate spawn prevention
+- Entity replacement logic
+[content]
+Core.LogLevel FatalAssert
+
+server.spawnsoldier 0 1 0
+server.spawnsoldier 0 1 0
+server.spawnsoldier 0 2 0
+server.spawnsoldier 0 2 0
+server.spawnsoldier 0 2 0
+sleep 1
+
+server.playerEnterClosestVehicle 1 true
+server.playerEnterClosestVehicle 2 true
+server.playerEnterClosestVehicle 3 true
+server.playerEnterClosestVehicle 4 true
+server.playerEnterClosestVehicle 5 true
+sleep 1
+
+server.damageSoldier 1 2000 true
+server.damageSoldier 2 2000 true
+server.damageSoldier 3 2000 true
+server.damageSoldier 4 2000 true
+server.damageSoldier 5 2000 true
+sleep 3
+
+server.deletePlayer 1
+server.deletePlayer 2
+server.deletePlayer 3
+server.deletePlayer 4
+server.deletePlayer 5
+sleep 2
+
+main.playCommands Scripts/Debug/stressEnterAndDestroyVehicles
+[/version]

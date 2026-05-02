@@ -1,0 +1,48 @@
+[notes]
+Designed for "Star Wars Battlefront 2": List of commands that will make a somewhat noticeable visual difference to the game but gives you the highest possible FPS gains without breaking the game - ideal for laptops or struggling old hardware that is in dire need of that massive performance boost!
+[/notes]
+
+Enlighten.EmissiveEnable 0 // Disables emissive lighting effects
+Enlighten.LocalLightsEnable 0 // Disables local light sources in-game
+Enlighten.ShadowsEnable 0 // Disables all shadows in-game
+Enlighten.SpotLightShadowsEnable 0 // Disables spot light shadows
+Enlighten.SunLightShadowsEnable 0 // Disables sunlight shadows
+Enlighten.TerrainMapEnable 0 // Disables terrain-based lighting maps
+PostProcess.BloomEnable 0 // Disables bloom effects
+PostProcess.VignetteEnable 0 // Disables vignette entirely
+Texture.SkipMipmapCount 4 // Skips higher mipmap levels of textures for lower texture resolution
+VegetationSystem.MaxActiveDistance 0 // Disables vegetation rendering such as grass
+VisualTerrain.Decal3dFarDrawDistanceScaleFactor 0 // Disables distant 3D decals
+VisualTerrain.DrawMeshScatteringEnable 0 // Disables all plants
+VisualTerrain.MeshScatteringDrawMotionVectorsEnable 0 // Disables motion vector calculations for plants
+VisualTerrain.MeshScatteringEnable 0 // Disables all plants
+WorldRender.CloudShadowEnable 0 // Disables cloud-based shadows
+WorldRender.DecalVolumeEnable 0 // Disables 3D decal volumes
+WorldRender.EnvironmentDecalVolumesEnabled 0 // Disables environment decal volumes (projected world decals)
+WorldRender.ForwardOpaqueEnable 0 // Disables forward rendering for opaque objects such as visible lights
+WorldRender.LocalIBLShadowmapSliceCount 0 // Disables local IBL shadowmap slices
+WorldRender.LocalLightShadowEnable 0 // Disables shadows from local light sources
+WorldRender.LocalLightShadowFilterQuality 0 // Disables shadow filters from local light sources
+WorldRender.LocalLightTranslucencyEnable 0 // Disables local light translucency
+WorldRender.LocalPlanarReflectionEnable 0 // Disables local planar reflections
+WorldRender.LocalReflectionVolumeSphereEnable 0 // Disables local reflection volumes
+WorldRender.MaxAreaShadowLightCount 0 // Stops light from reflecting on cloth
+WorldRender.MaxLocalReflectionVolumeCount 64 // Limits local reflection volumes; values < 5 break reflection lighting
+WorldRender.MaxShadowCount 8 // Limits number of active shadows
+WorldRender.MotionBlurEnable 0 // Disables motion blur effects
+WorldRender.MotionBlurMaxSampleCount 0 // Disables motion blur sampling
+WorldRender.MotionBlurQuality 0 // Disables motion blur quality level
+WorldRender.MotionBlurRadialBlurMax 0 // Disables radial motion blur
+WorldRender.OutdoorLightEnable 0 // Disables outdoor lighting effects - makes maps darker
+WorldRender.PlanarReflectionViewScale 0.01 // Reduces quality of ground reflection
+WorldRender.ShadowmapExtrusionLength 0 // Minimizes shadow extrusion; may clip distant shadows
+WorldRender.ShadowmapSliceCount 1 // Reduces number of shadow map slices
+WorldRender.ShadowmapViewDistance -10 // Reduces maximum view distance for shadow maps
+WorldRender.SimpleVolumetricsEnable 0 // Disables volumetric effects such as fog
+WorldRender.SplitLightingEnable 0 // Disables split-lighting path (separate diffuse/specular)
+WorldRender.SkyDepthFogEnable 0 // Disables depth-based fog in the sky
+WorldRender.SkyForwardScatteringEnable 0 // Disables forward scattering effects in the sky
+WorldRender.SkyHeightFogEnable 0 // Disables height-based fog effects in the sky
+WorldRender.SubSurfaceScatteringEnable 0 // Disables subsurface scattering effects
+WorldRender.SubSurfaceScatteringSampleCount 0 // Disables subsurface scattering samples
+WorldRender.TilePassLocalPlanarReflectionEnable 0 // Disables some ground reflections

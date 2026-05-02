@@ -1,0 +1,44 @@
+[description]
+End of round loop testing - repeatedly ends rounds to test round transition logic.
+
+[version]
+2011 (Battlefield 3)
+[notes]
+Simple end-of-round testing loop.
+
+Script Structure:
+1. Core.LogLevel FatalAssert - Suppress non-critical logs
+2. server.endRound 1 - End round with team 1 winning
+3. sleep 90 - Wait 90 seconds
+4. main.playCommands Scripts/Debug/eorLevel - Loop
+
+Commands Explained:
+
+server.endRound [team]:
+- Forces current round to end immediately
+- Parameter 1 = team 1 wins
+- Triggers end-of-round sequence, scoreboard, map transition
+
+Sleep Duration:
+- 90 seconds: Allows for end-of-round scoreboard display, next round loading, brief gameplay
+
+Cycle Duration:
+90 seconds per iteration
+
+Testing Coverage:
+- Round end logic
+- Scoreboard system
+- Round transition
+- Score/stat persistence between rounds
+- Map rotation (if configured)
+- Player spawn reset
+- Objective reset
+- Memory management during round transitions
+[content]
+Core.LogLevel FatalAssert
+
+server.endRound 1
+sleep 90
+
+main.playCommands Scripts/Debug/eorLevel
+[/version]

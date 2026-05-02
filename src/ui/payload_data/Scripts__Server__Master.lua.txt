@@ -1,0 +1,31 @@
+[description]
+Server script loader - entry point for dedicated server Lua functionality, loads all server management modules.
+
+[version]
+2011+ (Universal)
+[notes]
+Simple server script orchestrator.
+
+Loading Order:
+1. Scripts/Server/Startup.lua - Server initialization
+2. Scripts/Server/Shutdown.lua - Cleanup handlers
+3. Scripts/Server/Server.lua - Core server functions
+4. Scripts/Server/Session.lua - Player session management
+
+Global Variable:
+- serverSaveFilePath = 'serverAdminSave.lua' - Persistent storage file
+
+Why It's Simple:
+This is just a loader script. All actual logic lives in the individual modules. The print statements provide basic boot logging for server administrators.
+[content]
+print("Loading scripts...")
+
+serverSaveFilePath = "serverAdminSave.lua"
+
+dofile("Scripts/Server/Startup.lua")
+dofile("Scripts/Server/Shutdown.lua")
+dofile("Scripts/Server/Server.lua")
+dofile("Scripts/Server/Session.lua")
+
+print("Done loading scripts.")
+[/version]

@@ -1,0 +1,337 @@
+[description]
+Animation quality settings - controls temporal LOD (level-of-detail) system for animation update rates based on distance from camera.
+
+[version]
+2011-2014 (Battlefield 3, NFS, Medal of Honor, Army of Two, C&C, GW1, DAI)
+[notes]
+Original distance-based animation LOD system.
+
+Distance Thresholds:
+- Six LOD levels with distance cutoffs: 31m, 40m, 60m, 90m, 120m, 208m
+- High quality (>0.8): ThirdDistance = 60m
+- Low quality (≤0.8): ThirdDistance = 50m (10m reduction for performance)
+
+Delta Time Values (animation update intervals):
+- First: 0.02s (50 FPS) - full framerate animations
+- Second: 0.04s (25 FPS)
+- Third: 0.06s (16.67 FPS)
+- Fourth: 0.08s (12.5 FPS)
+- Fifth: 0.10s (10 FPS)
+- Sixth: 0.12s (8.33 FPS)
+
+Critical Constraint:
+GameAnimation.TemporalLoddingFirstDistance must be slightly larger than the distance where IK (inverse kinematics/foot planting) is disabled in the animation project (EnableFootplanting_ESIG).
+
+Purpose:
+Aggressive performance optimization for early Frostbite 2 games. Reduces animation update costs for distant characters while maintaining visual quality for nearby entities. Essential for large-scale multiplayer games with many visible animated characters.
+[content]
+local quality = settings['AnimationQuality']
+log:info("setting animation quality : "..quality)
+
+-- IMPORTANT:
+-- GameAnimation.TemporalLoddingFirstDistance *must* be slighly larger than the 
+-- distance where IK is disabled in the animation project (EnableFootplanting_ESIG) 
+-- for all quality levels.
+
+if(quality > 0.8) then
+	applySettings([=[
+
+	GameAnimation.TemporalLoddingFirstDistance 31.0
+	GameAnimation.TemporalLoddingSecondDistance 40.0
+	GameAnimation.TemporalLoddingThirdDistance 60.0
+	GameAnimation.TemporalLoddingFourthDistance 90.0
+	GameAnimation.TemporalLoddingFifthDistance 120.0
+	GameAnimation.TemporalLoddingSixthDistance 208.0
+
+	GameAnimation.TemporalLoddingFirstDeltaTime = 0.02
+	GameAnimation.TemporalLoddingSecondDeltaTime = 0.04
+	GameAnimation.TemporalLoddingThirdDeltaTime = 0.06
+	GameAnimation.TemporalLoddingFourthDeltaTime = 0.08
+	GameAnimation.TemporalLoddingFifthDeltaTime = 0.10
+	GameAnimation.TemporalLoddingSixthDeltaTime = 0.12
+
+  ]=])
+else
+	applySettings([=[
+
+	GameAnimation.TemporalLoddingFirstDistance 31.0
+	GameAnimation.TemporalLoddingSecondDistance 40.0
+	GameAnimation.TemporalLoddingThirdDistance 50.0
+	GameAnimation.TemporalLoddingFourthDistance 90.0
+	GameAnimation.TemporalLoddingFifthDistance 120.0
+	GameAnimation.TemporalLoddingSixthDistance 208.0
+
+	GameAnimation.TemporalLoddingFirstDeltaTime = 0.02
+	GameAnimation.TemporalLoddingSecondDeltaTime = 0.04
+	GameAnimation.TemporalLoddingThirdDeltaTime = 0.06
+	GameAnimation.TemporalLoddingFourthDeltaTime = 0.08
+	GameAnimation.TemporalLoddingFifthDeltaTime = 0.10
+	GameAnimation.TemporalLoddingSixthDeltaTime = 0.12
+
+  ]=])
+end
+[/version]
+
+[version]
+2013 (Battlefield 4/Hardline, Battlefront)
+[notes]
+Distance-based LOD effectively disabled - quality-first approach.
+
+Critical Change:
+All distance thresholds set to 10,000 meters (effectively infinite for gameplay).
+
+Distance Values (all):
+- First through Sixth: 10,000m
+- Effectively disables distance-based animation culling
+- Full-quality animations maintained at all visible ranges
+
+Delta Times: Unchanged from 2011 (0.02 to 0.12 seconds)
+
+Quality Setting Impact: None - high and low quality now identical
+
+Why This Change:
+1. Hardware improvements (PS4/Xbox One generation, modern PC GPUs)
+2. Large-scale warfare in Battlefield 4 requires quality at long distances
+3. Cinematic expectations for Star Wars Battlefront franchise
+4. 64-player matches need smooth animations even for distant players
+
+Technical Impact:
+No performance savings from animation LOD, but maintains visual fidelity across the entire map. Represents EA/DICE's decision to prioritize animation quality over aggressive optimization.
+[content]
+local quality = settings['AnimationQuality']
+log:info("setting animation quality : "..quality)
+
+-- IMPORTANT:
+-- GameAnimation.TemporalLoddingFirstDistance *must* be slighly larger than the 
+-- distance where IK is disabled in the animation project (EnableFootplanting_ESIG) 
+-- for all quality levels.
+
+if(quality > 0.8) then
+	applySettings([=[
+
+	GameAnimation.TemporalLoddingFirstDistance 10000.0
+	GameAnimation.TemporalLoddingSecondDistance 10000.0
+	GameAnimation.TemporalLoddingThirdDistance 10000.0
+	GameAnimation.TemporalLoddingFourthDistance 10000.0
+	GameAnimation.TemporalLoddingFifthDistance 10000.0
+	GameAnimation.TemporalLoddingSixthDistance 10000.0
+
+	GameAnimation.TemporalLoddingFirstDeltaTime = 0.02
+	GameAnimation.TemporalLoddingSecondDeltaTime = 0.04
+	GameAnimation.TemporalLoddingThirdDeltaTime = 0.06
+	GameAnimation.TemporalLoddingFourthDeltaTime = 0.08
+	GameAnimation.TemporalLoddingFifthDeltaTime = 0.10
+	GameAnimation.TemporalLoddingSixthDeltaTime = 0.12
+
+  ]=])
+else
+	applySettings([=[
+
+	GameAnimation.TemporalLoddingFirstDistance 10000.0
+	GameAnimation.TemporalLoddingSecondDistance 10000.0
+	GameAnimation.TemporalLoddingThirdDistance 10000.0
+	GameAnimation.TemporalLoddingFourthDistance 10000.0
+	GameAnimation.TemporalLoddingFifthDistance 10000.0
+	GameAnimation.TemporalLoddingSixthDistance 10000.0
+
+	GameAnimation.TemporalLoddingFirstDeltaTime = 0.02
+	GameAnimation.TemporalLoddingSecondDeltaTime = 0.04
+	GameAnimation.TemporalLoddingThirdDeltaTime = 0.06
+	GameAnimation.TemporalLoddingFourthDeltaTime = 0.08
+	GameAnimation.TemporalLoddingFifthDeltaTime = 0.10
+	GameAnimation.TemporalLoddingSixthDeltaTime = 0.12
+
+  ]=])
+end
+[/version]
+
+[version]
+2015-2025 (PGA, GW2/BFN, MEC, FIFA/FC, MEA, NFS Payback, SWBF2, Anthem..)
+[notes]
+Quality-first approach standardized across entire EA portfolio.
+
+Changes from 2013:
+- Logging changed: log:info → log:debug (reduces console verbosity)
+- All other values identical to 2013 version
+
+Distance Values: 10,000m for all six LOD levels (LOD disabled)
+Delta Times: 0.02 to 0.12 seconds (unchanged)
+Quality Setting Impact: None - both branches identical
+
+Significance:
+This 10-year span confirms that disabling distance-based animation LOD became EA's standard practice across:
+- Sports games (FIFA/FC, NHL, Madden (payload removed in Madden 26), PGA Tour)
+- Shooters (Battlefront II, Squadrons)
+- RPGs (Mass Effect Andromeda, Anthem)
+- Racing games (Need for Speed Payback)
+- Action games (Mirror's Edge Catalyst, Garden Warfare series)
+
+The unified approach suggests:
+1. Hardware baselines (PS4/Xbox One) could handle full animation quality
+2. Cross-franchise consistency in animation quality standards
+3. Reduced need for per-title animation optimization
+4. Player expectations for visual fidelity across all EA titles
+
+Debug logging change indicates reduced need to monitor animation quality settings in production builds.
+[content]
+local quality = settings['AnimationQuality']
+log:debug("setting animation quality : "..quality)
+
+-- IMPORTANT:
+-- GameAnimation.TemporalLoddingFirstDistance *must* be slighly larger than the 
+-- distance where IK is disabled in the animation project (EnableFootplanting_ESIG) 
+-- for all quality levels.
+
+if(quality > 0.8) then
+	applySettings([=[
+
+	GameAnimation.TemporalLoddingFirstDistance 10000.0
+	GameAnimation.TemporalLoddingSecondDistance 10000.0
+	GameAnimation.TemporalLoddingThirdDistance 10000.0
+	GameAnimation.TemporalLoddingFourthDistance 10000.0
+	GameAnimation.TemporalLoddingFifthDistance 10000.0
+	GameAnimation.TemporalLoddingSixthDistance 10000.0
+
+	GameAnimation.TemporalLoddingFirstDeltaTime = 0.02
+	GameAnimation.TemporalLoddingSecondDeltaTime = 0.04
+	GameAnimation.TemporalLoddingThirdDeltaTime = 0.06
+	GameAnimation.TemporalLoddingFourthDeltaTime = 0.08
+	GameAnimation.TemporalLoddingFifthDeltaTime = 0.10
+	GameAnimation.TemporalLoddingSixthDeltaTime = 0.12
+
+  ]=])
+else
+	applySettings([=[
+
+	GameAnimation.TemporalLoddingFirstDistance 10000.0
+	GameAnimation.TemporalLoddingSecondDistance 10000.0
+	GameAnimation.TemporalLoddingThirdDistance 10000.0
+	GameAnimation.TemporalLoddingFourthDistance 10000.0
+	GameAnimation.TemporalLoddingFifthDistance 10000.0
+	GameAnimation.TemporalLoddingSixthDistance 10000.0
+
+	GameAnimation.TemporalLoddingFirstDeltaTime = 0.02
+	GameAnimation.TemporalLoddingSecondDeltaTime = 0.04
+	GameAnimation.TemporalLoddingThirdDeltaTime = 0.06
+	GameAnimation.TemporalLoddingFourthDeltaTime = 0.08
+	GameAnimation.TemporalLoddingFifthDeltaTime = 0.10
+	GameAnimation.TemporalLoddingSixthDeltaTime = 0.12
+
+  ]=])
+end
+[/version]
+
+[version]
+2016 (Battlefield 1/V)
+[notes]
+Configuration externalization - distance values moved to Game.cfg.
+
+Critical Change:
+Distance values commented out with explicit note: 'The following values are set in Game.cfg instead'
+
+What Remains Active:
+- Only TemporalLoddingDeltaTime values (0.02 to 0.12 seconds)
+- Quality-based branching structure (though differences only in commented values)
+- High quality: distances 31, 40, 60, 90, 120, 208 (commented)
+- Low quality: distances 31, 40, 50, 90, 120, 208 (commented)
+
+Why Move to Game.cfg:
+1. Per-map tuning without code changes
+2. Level designers can adjust animation quality for specific scenarios
+3. Easier A/B testing of performance vs quality
+4. Separation of game-specific config from engine defaults
+5. Runtime adjustments without Lua recompilation
+
+Technical Implications:
+- Game.cfg loaded earlier in initialization pipeline
+- Allows different animation profiles per multiplayer map
+- Battlefield 1's varied map sizes (close-quarters to massive open maps) benefit from per-level tuning
+- Configuration becomes data-driven rather than code-driven
+
+This represents Frostbite's maturation toward flexible, designer-controlled animation systems while maintaining backward compatibility with the Lua settings framework.
+[content]
+local quality = settings['AnimationQuality']
+log:info("setting animation quality : "..quality)
+
+-- IMPORTANT:
+-- GameAnimation.TemporalLoddingFirstDistance *must* be slighly larger than the 
+-- distance where IK is disabled in the animation project (EnableFootplanting_ESIG) 
+-- for all quality levels.
+
+if(quality > 0.8) then
+	applySettings([=[
+
+--	#The following values are set in Game.cfg instead
+--	GameAnimation.TemporalLoddingFirstDistance 31.0
+--	GameAnimation.TemporalLoddingSecondDistance 40.0
+--	GameAnimation.TemporalLoddingThirdDistance 60.0
+--	GameAnimation.TemporalLoddingFourthDistance 90.0
+--	GameAnimation.TemporalLoddingFifthDistance 120.0
+--	GameAnimation.TemporalLoddingSixthDistance 208.0
+
+	GameAnimation.TemporalLoddingFirstDeltaTime = 0.02
+	GameAnimation.TemporalLoddingSecondDeltaTime = 0.04
+	GameAnimation.TemporalLoddingThirdDeltaTime = 0.06
+	GameAnimation.TemporalLoddingFourthDeltaTime = 0.08
+	GameAnimation.TemporalLoddingFifthDeltaTime = 0.10
+	GameAnimation.TemporalLoddingSixthDeltaTime = 0.12
+
+  ]=])
+else
+	applySettings([=[
+
+--	#The following values are set in Game.cfg instead
+--	GameAnimation.TemporalLoddingFirstDistance 31.0
+--	GameAnimation.TemporalLoddingSecondDistance 40.0
+--	GameAnimation.TemporalLoddingThirdDistance 50.0
+--	GameAnimation.TemporalLoddingFourthDistance 90.0
+--	GameAnimation.TemporalLoddingFifthDistance 120.0
+--	GameAnimation.TemporalLoddingSixthDistance 208.0
+
+	GameAnimation.TemporalLoddingFirstDeltaTime = 0.02
+	GameAnimation.TemporalLoddingSecondDeltaTime = 0.04
+	GameAnimation.TemporalLoddingThirdDeltaTime = 0.06
+	GameAnimation.TemporalLoddingFourthDeltaTime = 0.08
+	GameAnimation.TemporalLoddingFifthDeltaTime = 0.10
+	GameAnimation.TemporalLoddingSixthDeltaTime = 0.12
+
+  ]=])
+end
+[/version]
+
+[version]
+2021+ (Battlefield 2042/6)
+[notes]
+Complete abstraction - all animation settings removed from Lua.
+
+Critical Change:
+Both quality branches are empty - no settings applied via Lua.
+
+What This Means:
+1. Animation LOD system completely redesigned or deprecated
+2. Settings handled entirely by engine defaults or other configuration systems
+3. No user-controllable animation quality via options menu
+4. Possible migration to GPU-driven animation culling
+5. Next-gen consoles (PS5/Xbox Series X) may have eliminated need for manual LOD
+
+Historical Significance:
+This represents the complete evolution from aggressive manual optimization (2011) to zero manual configuration (2021), reflecting both hardware progress and engine sophistication over a decade of Frostbite development.
+[content]
+local quality = settings['AnimationQuality']
+log:info("setting animation quality : "..quality)
+
+-- IMPORTANT:
+-- GameAnimation.TemporalLoddingFirstDistance *must* be slighly larger than the 
+-- distance where IK is disabled in the animation project (EnableFootplanting_ESIG) 
+-- for all quality levels.
+
+if(quality > 0.8) then
+	applySettings([=[
+
+  ]=])
+else
+	applySettings([=[
+
+  ]=])
+end
+[/version]

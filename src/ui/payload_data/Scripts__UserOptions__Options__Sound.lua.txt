@@ -1,0 +1,672 @@
+[description]
+Audio quality settings - controls simultaneous sound limits, CPU load management, and audio processing features across Frostbite titles.
+
+[version]
+2011 (Battlefield 3 Alpha/Beta)
+[notes]
+Initial audio quality system with aggressive sound limits.
+
+High Quality (>0.8):
+- Audio.MaxAudibleSoundCount 30
+- Audio.AudioCoreCpuLoadLimit 50
+
+Low Quality (≤0.8):
+- Audio.MaxAudibleSoundCount 15
+- Audio.AudioCoreCpuLoadLimit 40
+
+Technical Explanation:
+
+Audio.MaxAudibleSoundCount:
+- Maximum simultaneous sounds that can be heard by player
+- When limit reached, audio system prioritizes based on:
+  * Distance from player
+  * Sound importance/priority
+  * Volume/intensity
+- Lower values = more aggressive culling of distant/quiet sounds
+
+Audio.AudioCoreCpuLoadLimit:
+- Maximum CPU percentage allocated to audio processing
+- Controls audio thread's CPU budget
+- Higher values = more complex audio mixing, effects, and spatialization
+- Lower values = simplified audio processing to free CPU for rendering/gameplay
+
+The high MaxAudibleSoundCount (30 high, 15 low) reflects the chaotic audio environment requiring careful prioritization.
+[content]
+local quality = settings['AudioQuality']
+log:info("setting sound quality : "..quality)
+if(quality > 0.8) then
+	applySettings([=[
+			Audio.MaxAudibleSoundCount 30
+			Audio.AudioCoreCpuLoadLimit 50
+  ]=])
+else
+	applySettings([=[
+			Audio.MaxAudibleSoundCount 15
+			Audio.AudioCoreCpuLoadLimit 40
+  ]=])
+end
+[/version]
+
+[version]
+2011-2015 (Battlefield 3/4/Hardline, NFS, C&C, GW, SWBF Alpha/Beta)
+[notes]
+Reduced sound limits after Alpha - more conservative approach.
+
+Changes from Alpha/Beta:
+- High quality MaxAudibleSoundCount: 30 → 15 (50% reduction)
+- Low quality MaxAudibleSoundCount: 15 → 8 (47% reduction)
+- CPU load limits adjusted: High 50 (unchanged), Low 40 → 30
+
+High Quality (>0.8):
+- Audio.MaxAudibleSoundCount 15
+- Audio.AudioCoreCpuLoadLimit 50
+
+Low Quality (≤0.8):
+- Audio.MaxAudibleSoundCount 8
+- Audio.AudioCoreCpuLoadLimit 30
+
+Why the Reduction:
+1. Performance Optimization: Alpha testing revealed 30 sounds was too expensive
+2. Audio Prioritization Improved: Better algorithms meant fewer sounds needed
+3. Console Parity: Xbox 360/PS3 couldn't handle 30 simultaneous sounds reliably
+4. CPU Budget: Needed more headroom for rendering improvements in final release
+
+Technical Impact:
+Halving MaxAudibleSoundCount from 30 to 15 means:
+- More aggressive sound culling (distant explosions, background ambience dropped first)
+- Better performance on lower-end hardware
+- Slightly less immersive audio in chaotic 64-player moments
+- But: Most players wouldn't notice due to improved prioritization
+
+Games Using This:
+- Battlefield 3/4/Hardline
+- Need For Speed The Run/Rivals
+- Command & Conquer: Generals 2
+- PVZ Garden Warfare 1
+- Star Wars Battlefront Alpha/Beta
+
+This became the 'standard' Frostbite audio configuration for mid-2010s games.
+[content]
+local quality = settings['AudioQuality']
+log:info("setting sound quality : "..quality)
+if(quality > 0.8) then
+	applySettings([=[
+			Audio.MaxAudibleSoundCount 15
+			Audio.AudioCoreCpuLoadLimit 50
+  ]=])
+else
+	applySettings([=[
+			Audio.MaxAudibleSoundCount 8
+			Audio.AudioCoreCpuLoadLimit 30
+  ]=])
+end
+[/version]
+
+[version]
+2012 (Medal Of Honor)
+[notes]
+Custom audio configuration with CPU load recovery system.
+
+Changes from Standard 2011-2015:
+- Added Audio.AudioCoreCpuLoadRecovery setting
+- High quality CPU limit: 50 → 70 (40% increase)
+- Low quality unchanged
+
+High Quality (>0.8):
+- Audio.MaxAudibleSoundCount 15
+- Audio.AudioCoreCpuLoadLimit 70 (increased)
+- Audio.AudioCoreCpuLoadRecovery 5 (NEW)
+
+Low Quality (≤0.8):
+- Audio.MaxAudibleSoundCount 8
+- Audio.AudioCoreCpuLoadLimit 30
+
+Developer Comment:
+'eala-begin etrama' / 'eala-end' indicates EA Los Angeles (Danger Close Studios) divergence
+
+Technical Explanation:
+
+Audio.AudioCoreCpuLoadRecovery:
+- When audio processing exceeds CPU limit, this controls recovery behavior
+- Value of 5 = gradual throttling/recovery over 5 frames
+- Prevents audio stuttering from sudden CPU limit violations
+- Smooths audio processing load spikes
+
+Why Medal of Honor Needed This:
+
+AudioCoreCpuLoadLimit 70 (vs standard 50):
+Medal of Honor: Warfighter featured:
+- Extremely detailed weapon audio (realistic gun sounds crucial to military shooter)
+- Complex environmental audio (urban warfare, indoor/outdoor transitions)
+- Heavy use of audio occlusion/obstruction
+- Tier 1 operator authenticity demanded high-fidelity audio
+
+The LoadRecovery system suggests:
+- MOH had audio processing spikes during intense moments
+- Standard hard limit caused audio dropouts
+- Recovery system maintained audio quality during load spikes
+- Only applied to high quality (competitive advantage acceptable)
+
+EA Los Angeles Context:
+Danger Close Studios developed MOH:W after DICE's BF3 engine was established. The 'eala' tags show they customized Frostbite audio beyond DICE's original parameters for their more audio-focused military simulation approach.
+[content]
+local quality = settings['AudioQuality']
+log:info("setting sound quality : "..quality)
+if(quality > 0.8) then
+	applySettings([=[
+			Audio.MaxAudibleSoundCount 15
+-- eala-begin etrama
+			Audio.AudioCoreCpuLoadLimit 70
+			Audio.AudioCoreCpuLoadRecovery 5
+-- eala-end
+  ]=])
+else
+	applySettings([=[
+			Audio.MaxAudibleSoundCount 8
+			Audio.AudioCoreCpuLoadLimit 30
+  ]=])
+end
+[/version]
+
+[version]
+2013 (Army Of Two)
+[notes]
+Complete audio API overhaul with obstruction testing.
+
+Critical Changes:
+- Audio.MaxAudibleSoundCount → Sound.MaxAudibleSoundCount (namespace change)
+- Audio.AudioCoreCpuLoadLimit → audio-rwac-cpu-load-limit (kebab-case naming)
+- NEW: audio-max-obstruction-tests-per-frame
+
+High Quality (>0.8):
+- Sound.MaxAudibleSoundCount 30
+- audio-rwac-cpu-load-limit 50
+- audio-max-obstruction-tests-per-frame 2
+
+Low Quality (≤0.8):
+- Sound.MaxAudibleSoundCount 15
+- audio-rwac-cpu-load-limit 60 (counterintuitively HIGHER than high quality)
+- audio-max-obstruction-tests-per-frame 1
+
+Technical Explanation:
+
+Namespace Change (Audio → Sound):
+Suggests Army of Two used different Frostbite audio backend or earlier fork
+
+Kebab-Case Naming (audio-rwac-cpu-load-limit):
+- Earlier/alternative Frostbite naming convention
+- 'rwac' possibly = Real-World Audio Culling or similar acronym
+- Indicates different audio system implementation
+
+Audio Obstruction Testing:
+- Raycasts from audio source to player to detect occlusion
+- Walls, obstacles reduce/muffle sound realistically
+- audio-max-obstruction-tests-per-frame limits raycasts per frame
+- High quality: 2 tests = more accurate occlusion
+- Low quality: 1 test = less CPU cost, simpler occlusion
+
+Counterintuitive CPU Limits:
+- High quality: 50 limit
+- Low quality: 60 limit (HIGHER)
+Why? Likely bug or compensates for:
+  * Fewer obstruction tests need more mixing headroom
+  * Lower MaxAudibleSoundCount (15 vs 30) allows higher CPU per sound
+  * Trade-off between sound count and per-sound processing
+
+This version represents a significantly divergent audio system implementation, possibly due to Army of Two using an earlier or heavily customized Frostbite branch.
+[content]
+local quality = settings['AudioQuality']
+log:info("setting sound quality : "..quality)
+if(quality > 0.8) then
+	applySettings([=[
+			Sound.MaxAudibleSoundCount 30
+			audio-rwac-cpu-load-limit 50
+			audio-max-obstruction-tests-per-frame 2
+  ]=])
+else
+	applySettings([=[
+			Sound.MaxAudibleSoundCount 15
+			audio-rwac-cpu-load-limit 60
+			audio-max-obstruction-tests-per-frame 1
+  ]=])
+end
+[/version]
+
+[version]
+2014-2016 (Dragon Age, Need For Speed/Edge)
+[notes]
+Simplified audio system - MaxAudibleSoundCount removed.
+
+Critical Change:
+Only CPU load limit remains - MaxAudibleSoundCount completely removed.
+
+High Quality (>0.8):
+- Audio.AudioCoreCpuLoadLimit 50
+
+Low Quality (≤0.8):
+- Audio.AudioCoreCpuLoadLimit 30
+
+What's Missing:
+- No MaxAudibleSoundCount setting
+- Audio system handles sound limits automatically
+
+Why This Simplification:
+
+1. Engine Maturity:
+   - Frostbite's audio prioritization became sophisticated enough to auto-manage
+   - Dynamic sound limiting based on scene complexity
+   - No need for hardcoded limits
+
+2. Game-Specific Needs:
+   - Dragon Age Inquisition: RPG with less chaotic audio than shooters
+   - Need For Speed: Racing audio is more predictable (engine, tires, wind, music)
+   - Mirror's Edge Catalyst: Parkour action, simpler soundscape than battlefield
+
+3. Hardware Advancement:
+   - PS4/Xbox One generation had more audio processing power
+   - Could handle more sounds within CPU budget automatically
+
+Technical Implications:
+Without MaxAudibleSoundCount hardcoded:
+- Audio engine dynamically allocates sound slots
+- Prioritization based on runtime scene analysis
+- CPU budget (30/50) becomes the only constraint
+- More flexible, adapts to different game moments
+
+This represents Frostbite audio becoming 'smart' enough to not need manual sound count limits.
+[content]
+local quality = settings['AudioQuality']
+log:info("setting sound quality : "..quality)
+if(quality > 0.8) then
+	applySettings([=[
+			Audio.AudioCoreCpuLoadLimit 50
+  ]=])
+else
+	applySettings([=[
+			Audio.AudioCoreCpuLoadLimit 30
+  ]=])
+end
+[/version]
+
+[version]
+2015 (PGA Tour, Star Wars Battlefront)
+[notes]
+Dramatic shift to maximum audio quality - no quality-based branching.
+
+Revolutionary Changes:
+- No high/low quality distinction - single configuration for all
+- MaxAudibleSoundCount: 15 → 200 (1,233% increase!)
+- AudioCoreCpuLoadLimit: 50 → 100 (100% increase)
+- Logging: log:info → log:debug
+
+Settings (All Quality Levels):
+- Audio.MaxAudibleSoundCount 200
+- Audio.AudioCoreCpuLoadLimit 100
+
+Technical Implications:
+MaxAudibleSoundCount 200 means:
+- Virtually no audio culling in normal gameplay
+- Every distant explosion, background voice, ambient sound audible
+- Requires sophisticated CPU scheduling (100% audio core budget)
+- PS4/Xbox One generation could finally handle this
+
+This represents EA's shift toward:
+- Quality-first approach (matching animation LOD changes from same era)
+- No compromises on audio immersion
+- Hardware powerful enough to eliminate trade-offs
+- Audio quality as selling point (Star Wars license demands it)
+[content]
+local quality = settings['AudioQuality']
+log:debug("setting sound quality : "..quality)
+applySettings([=[
+        Audio.MaxAudibleSoundCount 200
+        Audio.AudioCoreCpuLoadLimit 100
+]=])
+[/version]
+
+[version]
+2016-2020 (GW2/BFN, Mass Effect, NFS Payback, Battlefront II, Anthem, Squadrons)
+[notes]
+Return to quality-based branching with conservative limits.
+
+Changes from 2015 Battlefront:
+- Reverted to high/low quality distinction
+- MaxAudibleSoundCount: 200 → 15 high / 8 low (massive reduction)
+- AudioCoreCpuLoadLimit: 100 → 50 high / 30 low (back to 2011-2015 values)
+- Retained log:debug
+
+High Quality (>0.8):
+- Audio.MaxAudibleSoundCount 15
+- Audio.AudioCoreCpuLoadLimit 50
+
+Low Quality (≤0.8):
+- Audio.MaxAudibleSoundCount 8
+- Audio.AudioCoreCpuLoadLimit 30
+
+This reversion shows:
+- EA found the 'sweet spot' was 15 high / 8 low
+- CPU budget better spent on other systems
+- Audio quality comes from mixing/prioritization, not raw count
+
+Represents industry learning that 'more sounds' ≠ better audio experience.
+[content]
+local quality = settings['AudioQuality']
+log:debug("setting sound quality : "..quality)
+if(quality > 0.8) then
+	applySettings([=[
+			Audio.MaxAudibleSoundCount 15
+			Audio.AudioCoreCpuLoadLimit 50
+  ]=])
+else
+	applySettings([=[
+			Audio.MaxAudibleSoundCount 8
+			Audio.AudioCoreCpuLoadLimit 30
+  ]=])
+end
+[/version]
+
+[version]
+2016 (Battlefield 1 Alpha - Removed in Beta/Release)
+[notes]
+Alpha-only configuration with aggressive CPU limits and recovery - removed before launch.
+
+Changes from Standard:
+- MaxAudibleSoundCount completely removed
+- Dramatically increased CPU limits
+- Added AudioCoreCpuLoadRecovery (similar to Medal of Honor)
+
+High Quality (>0.8):
+- Audio.AudioCoreCpuLoadLimit 90 (highest in any Frostbite game)
+- Audio.AudioCoreCpuLoadRecovery 10
+
+Low Quality (≤0.8):
+- Audio.AudioCoreCpuLoadLimit 50
+- Audio.AudioCoreCpuLoadRecovery 20
+
+Why These Extreme Values:
+
+AudioCoreCpuLoadLimit 90:
+- BF1 Alpha tested EXTREME audio ambition
+- WWI setting with unique audio: artillery barrages, gas attacks, trench warfare
+- Wanted cinematic audio (explosions echoing across No Man's Land)
+- 90% CPU = almost unlimited audio processing
+
+AudioCoreCpuLoadRecovery Inverted:
+- High quality: Recovery 10 = faster recovery from overload (prioritizes quality)
+- Low quality: Recovery 20 = slower recovery (more conservative)
+- Allows brief audio spikes on high quality without throttling
+
+BF1 Final Release and future Battlefield titles:
+Sound.lua was completely removed, meaning:
+- All audio settings moved to engine defaults
+- No user-configurable audio quality
+- DICE hardcoded optimal audio for BF1's specific needs
+
+Battlefield 1's final audio (without this configuration) was critically acclaimed, proving that removing user settings and using engine-tuned defaults was the right call.
+[content]
+local quality = settings['AudioQuality']
+log:info("setting sound quality : "..quality)
+if(quality > 0.8) then
+	applySettings([=[
+			Audio.AudioCoreCpuLoadLimit 90
+			Audio.AudioCoreCpuLoadRecovery 10
+  ]=])
+else
+	applySettings([=[
+			Audio.AudioCoreCpuLoadLimit 50
+			Audio.AudioCoreCpuLoadRecovery 20
+  ]=])
+end
+[/version]
+
+[version]
+2017 (FIFA, NHL, Madden 25)
+[notes]
+Sports game audio optimization - PC-specific sample rate reduction.
+
+Revolutionary Change:
+Sample rate reduction for low-spec PCs - first time audio QUALITY reduced, not just quantity.
+
+Configuration:
+Platform-specific: Only applies on Win32 (PC) platform
+Quality-specific: Only applies when quality ≤ 0.8 (low settings)
+
+Low Quality PC (Win32 platform, quality ≤0.8):
+- Audio.AudioCoreSampleRate 32000 (32kHz)
+
+All Other Configurations:
+- No settings applied (engine defaults)
+
+Developer Comment:
+'FIFA_BEGIN | BACKPORT:3101658 | avanderstar | 2016-11-10 | (eta 2017.1) audio settings for min spec PCs'
+
+Technical Explanation:
+
+Audio.AudioCoreSampleRate 32000:
+- Reduces sample rate from default to 32kHz
+- 32kHz = 33% reduction in audio data throughput
+- Nyquist theorem: 32kHz captures frequencies up to 16kHz
+- Human hearing: 20Hz-20kHz (32kHz is borderline acceptable)
+
+Why This Matters:
+
+Sample Rate Impact:
+- Higher sample rate = better audio quality, more CPU/memory
+- 32kHz loses some high-frequency detail (cymbals, crowd noise, whistle overtones)
+- But: Still acceptable for sports commentary, crowd ambience, basic sound effects
+
+Minimum Spec PC Context:
+- FIFA/NHL/Madden target VERY low-end PCs (integrated graphics, old CPUs)
+- Sports games have huge market on budget laptops/PCs
+- Sample rate reduction allows game to run on Intel HD Graphics, old dual-core CPUs
+- Trade-off: Slightly muffled audio for playability on weak hardware
+
+Backport Comment Significance:
+- Originally developed for FIFA
+- Backported from FIFA 2017.1 to FIFA/NHL/Madden 25
+- Shows EA's sports division sharing optimization techniques
+- 'eta 2017.1' suggests FIFA 18 development era (2016-2017)
+
+Why Console Version Doesn't Use This:
+- Consoles have fixed hardware (sample rate optimized per-platform)
+- Only PC has wild hardware variance requiring runtime sample rate adjustment
+[content]
+local quality = settings['AudioQuality']
+log:debug("setting sound quality : "..quality)
+-- FIFA_BEGIN | BACKPORT:3101658 | avanderstar | 2016-11-10 | (eta 2017.1) audio settings for min spec PCs
+if platform == 'Win32' and quality <= 0.8 then
+applySettings([=[
+		Audio.AudioCoreSampleRate 32000
+  ]=])
+-- FIFA_END
+end
+[/version]
+
+[version]
+2019 (Need For Speed Heat/Unbound, EA Sports PGA Tour)
+[notes]
+Simplified CPU-only configuration - return to 2014-2016 approach.
+
+Changes from Previous Versions:
+- No MaxAudibleSoundCount (same as 2014-2016)
+- No sample rate adjustments (unlike 2017 FIFA)
+- Pure CPU limit control
+
+High Quality (>0.8):
+- Audio.AudioCoreCpuLoadLimit 50
+
+Low Quality (≤0.8):
+- Audio.AudioCoreCpuLoadLimit 30
+
+Technical Rationale:
+By 2019, Frostbite audio had matured to:
+- Automatic sound prioritization and culling
+- Dynamic load balancing within CPU budget
+- No need for hardcoded sound count limits
+- CPU limit is the only constraint needed
+
+Matches animation quality philosophy from same era: simplify settings, trust engine intelligence.
+[content]
+local quality = settings['AudioQuality']
+log:debug("setting sound quality : "..quality)
+if(quality > 0.8) then
+	applySettings([=[
+			Audio.AudioCoreCpuLoadLimit 50
+  ]=])
+else
+	applySettings([=[
+			Audio.AudioCoreCpuLoadLimit 30
+  ]=])
+end
+[/version]
+
+[version]
+2023 (FC 24+)
+[notes]
+Nearly empty configuration - platform check remains but no settings applied.
+
+Critical Change:
+Settings block is EMPTY - no audio configuration applied.
+
+Remaining Code:
+- Platform check: if platform == 'Win32' and quality <= 0.8
+- Empty applySettings block
+- Framework exists but does nothing
+
+What This Means:
+
+1. Audio Fully Automatic:
+   - No user-configurable audio settings whatsoever
+   - Engine handles all audio quality decisions
+   - Complete trust in Frostbite audio auto-management
+
+2. Platform Check Vestigial:
+   - Code structure remains from 2017 FIFA version
+   - Likely copy-pasted but gutted
+   - Could be removed but left for future flexibility
+
+3. Quality Parameter Ignored:
+   - AudioQuality setting still read but unused
+   - No branching, no settings applied
+   - Placeholder for potential future use
+
+Why Remove All Settings:
+
+Modern Hardware:
+- 2023 PC minimum specs far exceed 2017
+- Even integrated graphics (Intel Iris Xe, AMD Vega) handle full audio
+- No need for sample rate reduction or CPU limiting
+
+Automatic Scaling:
+- Frostbite audio engine intelligent enough to adapt
+- Dynamic CPU allocation based on system profiling
+- Better results than hardcoded limits
+
+FC 24 Context:
+- FIFA rebranded to FC (EA Sports FC)
+- Fresh start, clean slate for audio
+- Remove legacy settings, modernize codebase
+
+This represents the ultimate endpoint of audio configuration evolution:
+2011: Aggressive manual limits
+2017: Minimal PC-specific tweaks
+2023: No configuration needed at all
+
+The empty block suggests EA considered completely removing Sound.lua but kept the file for potential future needs (similar to Animation.lua evolution).
+[content]
+local quality = settings['AudioQuality']
+log:debug("setting sound quality : "..quality)
+if platform == 'Win32' and quality <= 0.8 then
+applySettings([=[
+  ]=])
+end
+[/version]
+
+[version]
+2024 (Dragon Age)
+[notes]
+Dragon Age-specific audio with reverb quality system.
+
+Changes from Standard:
+- Custom CPU limits with explicit DIVERGENCE tag
+- NEW: MorrisonAudio.ReverbQuality setting
+- Game-specific audio needs
+
+High Quality (>0.8):
+- Audio.AudioCoreCpuLoadLimit 80 (increased from 50)
+- MorrisonAudio.ReverbQuality ReverbQuality_High
+
+Low Quality (≤0.8):
+- Audio.AudioCoreCpuLoadLimit 30 (unchanged)
+- MorrisonAudio.ReverbQuality ReverbQuality_Optimized
+
+Developer Comment:
+'MORRISON_START - 2020/12/07 - Cody Behiel - [DIVERGENCE] Increasing audio core load limit for PC'
+
+Technical Explanation:
+
+AudioCoreCpuLoadLimit 80:
+- Increased from standard 50 to 80 (60% increase)
+- Dragon Age needs higher CPU for complex audio
+- Dated 2020/12/07 - mid-development decision
+
+MorrisonAudio.ReverbQuality:
+- 'Morrison' = Dragon Age: The Veilguard's codename
+- Game-specific audio namespace
+- Controls reverb (echo/room acoustics) quality
+
+ReverbQuality_High:
+- Full reverb simulation
+- Accurate room acoustics
+- Multiple reflection calculations
+- Tail decay modeling
+
+ReverbQuality_Optimized:
+- Simplified reverb algorithms
+- Fewer reflections calculated
+- Faster decay, less CPU cost
+- Still acceptable acoustic immersion
+
+AudioCoreCpuLoadLimit 80:
+Allows Dragon Age to:
+- Play multiple companion dialogues simultaneously
+- Layer ambient loops (wind, water, creatures)
+- Process reverb for complex geometries
+- Handle combat audio (spells, impacts, abilities) + dialogue
+
+Why DIVERGENCE Tagged:
+- Standard Frostbite uses CPU limit 50
+- Dragon Age's audio-heavy nature requires exception
+- Code reviewer approval needed for deviation
+- Future maintainers warned not to 'standardize' this back to 50
+
+Reverb Quality System:
+Represents first game-specific audio namespace in this document:
+- Shows Frostbite maturity: games can extend audio with custom systems
+- MorrisonAudio = Dragon Age-specific audio features
+
+Historical Context:
+Dragon Age has always been audio-intensive (Origins, Inquisition both praised for audio). The Veilguard continues this tradition, justifying the increased CPU budget and specialized reverb system.
+
+This version shows Frostbite's flexibility: standard audio config (CPU limits) + game-specific extensions (reverb quality) working together.
+[content]
+local quality = settings['AudioQuality']
+log:debug("setting sound quality : "..quality)
+if(quality > 0.8) then
+	applySettings([=[
+			-- Audio.AudioCoreCpuLoadLimit 50
+			-- MORRISON_START - 2020/12/07 - Cody Behiel - [DIVERGENCE] Increasing audio core load limit for PC
+			Audio.AudioCoreCpuLoadLimit 80
+			-- MORRISON_END
+            MorrisonAudio.ReverbQuality ReverbQuality_High
+  ]=])
+else
+	applySettings([=[
+			-- Audio.AudioCoreCpuLoadLimit 30
+			-- MORRISON_START - 2020/12/07 - Cody Behiel - [DIVERGENCE] Increasing audio core load limit for PC
+			Audio.AudioCoreCpuLoadLimit 30
+			-- MORRISON_END
+            MorrisonAudio.ReverbQuality ReverbQuality_Optimized
+  ]=])
+end
+[/version]

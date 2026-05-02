@@ -1,0 +1,349 @@
+[description]
+Physics quality settings - controls vehicle wheel raycasting and debris simulation (payload removed in NFL 26 and Skate, indicating complete physics system redesign).
+
+[version]
+2011-2015 (BF3/4/Hardline, NFS, Medal of Honor, Army of Two, C&C, GW1, DAI)
+[notes]
+Original physics quality system focused on vehicle wheel simulation.
+
+Settings:
+
+High Quality (>0.8):
+- Physics.EnableFollowWheelRaycasts true
+- Physics.EnableASyncWheelRaycasts true
+
+Low Quality (≤0.8):
+- Physics.EnableFollowWheelRaycasts false
+- Physics.EnableASyncWheelRaycasts true
+
+Technical Explanation:
+
+Physics.EnableFollowWheelRaycasts:
+- When true: Wheels continuously raycast to follow ground surface contours
+- When false: Simplified wheel ground contact simulation
+- Impact: Better suspension behavior and terrain conformity on high settings
+- Performance: Expensive for vehicles with many wheels (tanks, APCs)
+- Visual difference: More realistic wheel/suspension movement on uneven terrain
+
+Physics.EnableASyncWheelRaycasts:
+- Always enabled regardless of quality setting
+- Moves wheel raycasts to separate physics thread
+- Prevents main thread stalls from expensive ground queries
+- Critical for maintaining framerate with multiple vehicles
+
+Why Both Settings:
+- AsyncWheelRaycasts = threading optimization (always on)
+- FollowWheelRaycasts = quality feature (high quality only)
+- Low quality disables the expensive feature but keeps threading
+[content]
+local quality = settings['PhysicsQuality']
+log:info("setting physics quality : "..quality)
+if(quality > 0.8) then
+	applySettings([=[
+			Physics.EnableFollowWheelRaycasts true
+			Physics.EnableASyncWheelRaycasts true
+  ]=])
+else
+	applySettings([=[
+			Physics.EnableFollowWheelRaycasts false
+			Physics.EnableASyncWheelRaycasts true
+  ]=])
+end
+[/version]
+
+[version]
+2015-2025 (PGA, GW2/BFN, MEC, FIFA/FC, NFS Payback+, Anthem..)
+[notes]
+Standardized physics quality across EA's entire portfolio.
+
+Changes from 2011-2015:
+- Logging changed: log:info → log:debug (reduced console verbosity)
+- All other settings identical
+
+Settings remain unchanged:
+- High quality: EnableFollowWheelRaycasts true
+- Low quality: EnableFollowWheelRaycasts false
+- AsyncWheelRaycasts always true
+
+Cross-Genre Application:
+This single payload spans wildly different game types:
+- Sports: PGA Tour, FIFA/FC, NHL, Madden 25 (payload removed in Madden 26)
+- Racing: Need for Speed Payback and onward titles
+- Shooters: Anthem, Squadrons
+- Action: Mirror's Edge Catalyst
+- Horror: Dead Space remake
+- RPG: Dragon Age The Veliguard
+
+The debug logging change indicates this became a 'set and forget' configuration that developers rarely needed to monitor in production builds.
+[content]
+local quality = settings['PhysicsQuality']
+log:debug("setting physics quality : "..quality)
+if(quality > 0.8) then
+	applySettings([=[
+			Physics.EnableFollowWheelRaycasts true
+			Physics.EnableASyncWheelRaycasts true
+  ]=])
+else
+	applySettings([=[
+			Physics.EnableFollowWheelRaycasts false
+			Physics.EnableASyncWheelRaycasts true
+  ]=])
+end
+[/version]
+
+[version]
+2015 (Star Wars Battlefront)
+[notes]
+Added debris quality system for destructible environments.
+
+Changes from Standard 2015 Version:
+- Retains log:info instead of log:debug
+- Adds separate DebrisQuality setting system
+
+Wheel Physics: Unchanged from 2011 version
+- High quality: EnableFollowWheelRaycasts true
+- Low quality: EnableFollowWheelRaycasts false
+
+NEW: Debris Quality System:
+Four-tier debris simulation quality:
+
+Quality.Low:
+- DebrisSystem.DebrisQualityLevel Low
+- Minimal debris particles/chunks
+- Faster despawn times
+- Lower physics complexity
+
+Quality.Medium:
+- DebrisSystem.DebrisQualityLevel Medium
+- Moderate debris density
+- Standard lifetime
+
+Quality.High:
+- DebrisSystem.DebrisQualityLevel High
+- Increased debris particle count
+- Longer persistence
+- More complex collision shapes
+
+Quality.Ultra:
+- DebrisSystem.DebrisQualityLevel Ultra
+- Maximum debris density
+- Full persistence times
+- High-fidelity collision meshes
+- Individual piece physics
+
+Why Battlefront Needed This:
+Star Wars Battlefront featured highly destructible environments:
+- Collapsing AT-AT walkers leaving massive debris fields
+- Exploding TIE fighters scattering components
+- Destructible cover creating rubble
+- Environmental destruction (trees, rocks, structures)
+
+The debris system was critical for:
+- Visual spectacle (Star Wars cinematic destruction)
+- Performance scaling (consoles vs high-end PC)
+- Gameplay impact (debris as cover/obstacles)
+
+Technical Implications:
+DebrisQualityLevel likely controls:
+- Maximum simultaneous debris objects
+- Physics simulation complexity (simple shapes vs. convex hulls)
+- Debris lifetime before culling
+- Fragment size/subdivision level
+- Collision detection precision
+[content]
+local quality = settings['PhysicsQuality']
+log:info("setting physics quality : "..quality)
+if(quality > 0.8) then
+	applySettings([=[
+			Physics.EnableFollowWheelRaycasts true
+			Physics.EnableASyncWheelRaycasts true
+  ]=])
+else
+	applySettings([=[
+			Physics.EnableFollowWheelRaycasts false
+			Physics.EnableASyncWheelRaycasts true
+  ]=])
+end
+
+applyQualitySettings('DebrisQuality', {
+	[Quality.Low]=[=[
+		DebrisSystem.DebrisQualityLevel Low
+	]=],
+	
+	[Quality.Medium]=[=[
+		DebrisSystem.DebrisQualityLevel Medium
+	]=],
+	
+	[Quality.High]=[=[
+		DebrisSystem.DebrisQualityLevel High
+	]=],
+	
+	[Quality.Ultra]=[=[
+		DebrisSystem.DebrisQualityLevel Ultra
+	]=],
+})
+[/version]
+
+[version]
+2016 (Battlefield 1 and future Battlefield titles)
+[notes]
+Complete physics settings removal - framework remains but no active configuration.
+
+Critical Change:
+Both quality branches are now empty - no physics settings applied.
+
+What's Missing:
+- No EnableFollowWheelRaycasts configuration
+- No EnableASyncWheelRaycasts configuration
+- Empty applySettings blocks
+
+Battlefield Context:
+Despite empty settings, Battlefield 1/V/2042/6 all feature extensive vehicle physics
+
+The fact that these games work without Lua physics configuration suggests:
+- Vehicle physics became robust enough to not need quality scaling
+- Per-vehicle physics tuning handled elsewhere
+- CPU threading improvements eliminated need for AsyncWheelRaycasts toggle
+
+Historical Significance:
+Represents the maturation of Frostbite's vehicle physics from requiring manual quality configuration (2011) to being fully automatic (2016+). The framework remains for backward compatibility but applies no actual settings.
+[content]
+local quality = settings['PhysicsQuality']
+log:info("setting physics quality : "..quality)
+if(quality > 0.8) then
+	applySettings([=[
+  ]=])
+else
+	applySettings([=[
+  ]=])
+end
+[/version]
+
+[version]
+2017 (Mass Effect)
+[notes]
+Mass Effect-specific divergence with custom wheel physics configuration.
+
+Critical Developer Comment:
+'MEC_START - pvbelisle - 2015-09-22 - [DIVERGENCE] Change settings, in Physics.lua, for vehicle wheels'
+
+Changes from Standard Version:
+- Original quality-based branching COMMENTED OUT entirely
+- Replaced with hardcoded configuration regardless of quality setting
+
+Hardcoded Settings:
+- Physics.EnableFollowWheelRaycasts true (always enabled)
+- Physics.EnableASyncWheelRaycasts false (explicitly DISABLED)
+
+Why This Divergence:
+
+EnableFollowWheelRaycasts Always True:
+Mass Effect Andromeda's Nomad (six-wheeled exploration vehicle) needed consistent high-quality wheel physics for:
+- Alien planet terrain (highly irregular surfaces)
+- Rock climbing gameplay mechanics
+- Critical to exploration experience
+- No performance mode acceptable (would break gameplay)
+
+EnableASyncWheelRaycasts Disabled:
+Extremely unusual - this is normally always enabled. Possible reasons:
+1. Thread Safety: Nomad physics may have had race conditions with async raycasts
+2. Determinism: Story/exploration game needed 100% consistent physics behavior
+3. Animation Integration: Nomad suspension animations may have required synchronous physics updates
+4. Debug/Development: Easier debugging with synchronous physics during development
+
+Mass Effect Context:
+Unlike Battlefield's many vehicles, Mass Effect Andromeda has ONE primary vehicle (Nomad) that's:
+- Central to gameplay loop (planet exploration)
+- Featured in scripted sequences
+- Subject to precise animation/camera work
+- Needs absolute reliability over performance optimization
+
+Developer Note Significance:
+The explicit DIVERGENCE tag indicates:
+- This wasn't a bug - it was a conscious decision
+- Code reviewer flagged it as intentionally different from standard Frostbite
+- Future maintainers need to preserve this difference
+- Dated 2015-09-22, likely during alpha/beta when Nomad handling was being tuned
+
+Technical Trade-off:
+Disabling async raycasts means:
+- Main thread may stall during Nomad wheel raycasts
+- Potential frame drops when driving over complex geometry
+- But: Guaranteed consistent, debuggable physics behavior
+- Acceptable for single-vehicle exploration game
+[content]
+local quality = settings['PhysicsQuality']
+log:debug("setting physics quality : "..quality)
+-- MEC_START - pvbelisle - 2015-09-22 - [DIVERGENCE] Change settings, in Physics.lua, for vehicle wheels
+--if(quality > 0.8) then
+--	applySettings([=[
+--			Physics.EnableFollowWheelRaycasts true
+--			Physics.EnableASyncWheelRaycasts true
+--  ]=])
+--else
+--	applySettings([=[
+--			Physics.EnableFollowWheelRaycasts false
+--			Physics.EnableASyncWheelRaycasts true
+--  ]=])
+--end
+applySettings([=[
+	Physics.EnableFollowWheelRaycasts true
+	Physics.EnableASyncWheelRaycasts false
+]=])
+-- MEC_END
+[/version]
+
+[version]
+2017 (Star Wars Battlefront II)
+[notes]
+Returns to standard wheel physics with enhanced debris system.
+
+Changes from Battlefront (2015):
+- Logging changed: log:info → log:debug
+- Wheel physics settings identical to 2015
+- Debris quality system retained and unchanged
+
+Wheel Physics:
+- High quality (>0.8): EnableFollowWheelRaycasts true
+- Low quality (≤0.8): EnableFollowWheelRaycasts false
+- AsyncWheelRaycasts always true
+
+Debris Quality System: (Unchanged from 2015)
+Four-tier system: Low, Medium, High, Ultra
+Controls DebrisSystem.DebrisQualityLevel
+
+The retention of both systems indicates:
+- Wheel physics remained important for ground vehicle handling
+- Debris system proved successful enough to carry forward
+- Performance scaling still necessary for console/PC difference
+
+Debug logging suggests both systems had matured to 'production stable' status.
+[content]
+local quality = settings['PhysicsQuality']
+log:debug("setting physics quality : "..quality)
+if(quality > 0.8) then
+	applySettings([=[
+			Physics.EnableFollowWheelRaycasts true
+			Physics.EnableASyncWheelRaycasts true
+  ]=])
+else
+	applySettings([=[
+			Physics.EnableFollowWheelRaycasts false
+			Physics.EnableASyncWheelRaycasts true
+  ]=])
+end
+applyQualitySettings('DebrisQuality', {
+	[Quality.Low]=[=[
+		DebrisSystem.DebrisQualityLevel Low
+	]=],
+	[Quality.Medium]=[=[
+		DebrisSystem.DebrisQualityLevel Medium
+	]=],
+	[Quality.High]=[=[
+		DebrisSystem.DebrisQualityLevel High
+	]=],
+	[Quality.Ultra]=[=[
+		DebrisSystem.DebrisQualityLevel Ultra
+	]=],
+})
+[/version]

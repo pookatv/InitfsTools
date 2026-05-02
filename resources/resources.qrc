@@ -1,0 +1,33 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>app.ico</file>
+    </qresource>
+    <qresource prefix="/platforms">
+        <file>icons/platforms/Windows.png</file>
+        <file>icons/platforms/PS3.png</file>
+        <file>icons/platforms/XB360.png</file>
+        <file>icons/platforms/XB1.png</file>
+        <file>icons/platforms/PS4.png</file>
+        <file>icons/platforms/XBSX.png</file>
+        <file>icons/platforms/PS5.png</file>
+        <file>icons/platforms/Switch.png</file>
+        <file>icons/platforms/Switch2.png</file>
+        <file>icons/platforms/MacOS.png</file>
+        <file>icons/platforms/iOS.png</file>
+        <file>icons/platforms/Android.png</file>
+        <file>icons/platforms/Linux.png</file>
+        <file>icons/platforms/Stadia.png</file>
+        <file>icons/platforms/DedicatedServer.png</file>
+        <file>icons/platforms/Editor.png</file>
+        <file>icons/platforms/Unknown.png</file>
+    </qresource>
+    <qresource prefix="/tools">
+        <file>icons/tools/diff_check.png</file>
+        <file>icons/tools/export_all_payloads.png</file>
+        <file>icons/tools/export_payload.png</file>
+        <file>icons/tools/import_payload.png</file>
+        <file>icons/tools/library.png</file>
+        <file>icons/tools/preset_manager.png</file>
+    </qresource>
+</RCC>

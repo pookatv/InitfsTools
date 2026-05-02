@@ -1,0 +1,62 @@
+[description]
+Timeout testing script - triggers timeout command repeatedly to test error handling.
+
+[version]
+2013 (Battlefield 4)
+[notes]
+Script for testing timeout error conditions.
+
+Script Structure:
+1. Core.LogLevel FatalAssert - Only show fatal errors
+2. Core.DisplayAsserts false - Hide assert dialog boxes
+3. Core.IgnoreAlways true - Ignore all non-fatal assertions
+4. Core.CrashOnFatalErrors 1 - Crash on fatal errors (enabled)
+5. timeout - Execute timeout command
+6. sleep 200 - Wait 200 seconds
+7. main.playCommands Scripts/Debug/timeoutLevel - Loop
+
+Commands Explained:
+
+Core.DisplayAsserts false:
+- Prevents assert dialog boxes from appearing
+- Allows automated testing without manual intervention
+
+Core.IgnoreAlways true:
+- Ignores all assertion failures
+- Continues execution despite asserts
+
+Core.CrashOnFatalErrors 1:
+- Value 1 = enabled
+- Fatal errors will crash the application
+- Allows crash dump collection
+
+timeout:
+- Purpose unclear - likely triggers network timeout simulation
+- May force connection timeout condition
+- Could test timeout error handling paths
+
+Sleep Duration:
+- 200 seconds: Long wait between timeout triggers
+- Allows system to recover/stabilize
+
+Cycle Duration:
+200 seconds per iteration
+
+Testing Coverage:
+- Timeout error handling
+- Network disconnection recovery
+- Error message display
+- Crash dump generation on fatal errors
+- System stability under timeout conditions
+- Assert handling without UI interruption
+[content]
+Core.LogLevel FatalAssert
+Core.DisplayAsserts false
+Core.IgnoreAlways true
+Core.CrashOnFatalErrors 1
+
+timeout
+sleep 200
+
+main.playCommands Scripts/Debug/timeoutLevel
+[/version]

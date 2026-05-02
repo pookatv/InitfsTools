@@ -1,0 +1,1996 @@
+[description]
+Core settings initialization script - handles level loading, quality presets, platform detection, and configuration file processing across all Frostbite games.
+
+[version]
+2011 (Battlefield 3 Alpha)
+[notes]
+Foundation version establishing core patterns.
+Structure:
+- Simple level name handling with Venice naming convention (Levels/name/name)
+- Basic applySettings() for parsing config strings
+- Loads 6 separate modules: Animations, Mesh, Physics, Shaders, Sound, Textures
+- Reads /local/local.cfg for user overrides
+- Processes command-line arguments directly (no conditional checks)
+No Quality System:
+- No applyQualitySettings() function yet
+- No preset system for low/medium/high/ultra
+- Direct module loading without platform detection
+Command-Line Processing:
+- Supports both table.member (-Graphics.Quality high) and simple variable (-level MP_001) syntax
+- Always processes command-line, no allowCommandlineSettings gate
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+
+levelName = currentGameLevel or cmdLineOption('level') or Game.Level
+if levelName then
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with Venice's epic level naming convention
+	if not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	Game.FastStartupEnable = true
+	if not Game.Level then
+		Game.Level = levelName
+	end
+end
+
+
+function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+dofile("Scripts/UserOptions/Options/Animations.lua")
+dofile("Scripts/UserOptions/Options/Mesh.lua")
+dofile("Scripts/UserOptions/Options/Physics.lua")
+dofile("Scripts/UserOptions/Options/Shaders.lua")
+dofile("Scripts/UserOptions/Options/Sound.lua")
+dofile("Scripts/UserOptions/Options/Textures.lua")
+
+if not cmdLineOption('noLocalCfg', false) then
+	core.readKeyValueCfg("/local/local.cfg", _G)
+end
+
+for index,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+	if table and member then
+		local value = commandLine[index+1] 
+		if not _G[table] then _G[table] = {} end
+		_G[table][member] = value 
+	else
+		local varName = string.match(option, "^%-([%w-]+)")
+		if varName then
+			local value = commandLine[index+1] 
+			if value then
+				_G[varName] = value
+			end
+		end
+	end
+end
+[/version]
+
+[version]
+2011-2016 (BF3/4/Hardline, NFS/The Run/Rivals/Edge, GW, DAI, SWBF, Mass Effect)
+[notes]
+Major update introducing quality preset system.
+New Features:
+- applyQualitySettings(name, qualityMap) function
+  * Maps quality level names to console command strings
+  * Error handling for invalid/missing settings
+  * log:info() for applied settings
+- Module consolidation: Graphics replaces Mesh/Shaders/Textures (6→4 modules)
+- deviceSettings.consoleOverrides support for platform-specific tweaks
+- allowCommandlineSettings gate for security
+Quality System:
+Graphics.lua and other modules now define qualityMap tables:
+  qualityMap = {
+    ["Low"] = "RenderDevice.VSyncEnable 0 RenderDevice.TripleBufferingEnable 0",
+    ["Medium"] = "RenderDevice.VSyncEnable 1 RenderDevice.TripleBufferingEnable 0",
+    ["High"] = "RenderDevice.VSyncEnable 1 RenderDevice.TripleBufferingEnable 1"
+  }
+Script calls applyQualitySettings("Graphics", qualityMap) to apply preset
+Security:
+allowCommandlineSettings prevents command injection on public servers
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+levelName = currentGameLevel or cmdLineOption('level') or Game.Level
+if levelName then
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with Venice's epic level naming convention
+	if not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	Game.FastStartupEnable = true
+	if not Game.Level then
+		Game.Level = levelName
+	end
+end
+
+
+function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+function applyQualitySettings(name, qualityMap)
+	local quality = settings[name]
+	if quality == nil then
+		log:error("Invalid setting '" .. name .. "'")
+		return
+	end
+	
+	local consoleCommands = qualityMap[quality]
+	if consoleCommands == nil then
+		log:error("Could not find console settings for '" .. name .. "' with quality " .. quality)
+	else
+		log:info("setting '" .. name .. "': " .. quality)
+		applySettings(consoleCommands)
+	end
+end
+
+dofile("Scripts/UserOptions/Options/Graphics.lua")
+dofile("Scripts/UserOptions/Options/Physics.lua")
+dofile("Scripts/UserOptions/Options/Sound.lua")
+dofile("Scripts/UserOptions/Options/Animations.lua")
+
+applySettings(deviceSettings.consoleOverrides or ")
+
+if not cmdLineOption('noLocalCfg', false) then
+	core.readKeyValueCfg("/local/local.cfg", _G)
+end
+
+if allowCommandlineSettings then
+	for index,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+		if table and member then
+			local value = commandLine[index+1] 
+			if not _G[table] then _G[table] = {} end
+			_G[table][member] = value 
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[index+1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+	end
+end
+[/version]
+
+[version]
+2012 (Medal Of Honor)
+[notes]
+Numeric quality index support added.
+Enhancement by EALA (EA Los Angeles) team member 'aku':
+- Fallback to tonumber(quality) when string lookup fails
+- Allows quality settings defined as numbered arrays:
+  qualityMap = {
+    [0] = "Low settings",
+    [1] = "Medium settings",
+    [2] = "High settings"
+  }
+- Useful for slider-based UI (0-2 integer instead of string)
+Why This Matters:
+Some games store quality as integers (OptionsProfile.save: GraphicsQuality=1)
+Other games use strings (OptionsProfile.save: GraphicsQuality="Medium")
+This change supports both approaches in a single codebase
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+levelName = currentGameLevel or cmdLineOption('level') or Game.Level
+if levelName then
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with Venice's epic level naming convention
+	if not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	Game.FastStartupEnable = true
+	if not Game.Level then
+		Game.Level = levelName
+	end
+end
+
+
+function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+function applyQualitySettings(name, qualityMap)
+	local quality = settings[name]
+	if quality == nil then
+		log:error("Invalid setting '" .. name .. "'")
+		return
+	end
+	
+	local consoleCommands = qualityMap[quality]
+-- eala-begin: aku -- adds support for numbered array index
+	if consoleCommands == nil then
+		consoleCommands = qualityMap[tonumber(quality)]
+	end
+-- eala-end
+	if consoleCommands == nil then
+		log:error("Could not find console settings for '" .. name .. "' with quality " .. quality)
+	else
+		log:info("setting '" .. name .. "': " .. quality)
+		applySettings(consoleCommands)
+	end
+end
+
+dofile("Scripts/UserOptions/Options/Graphics.lua")
+dofile("Scripts/UserOptions/Options/Physics.lua")
+dofile("Scripts/UserOptions/Options/Sound.lua")
+dofile("Scripts/UserOptions/Options/Animations.lua")
+
+applySettings(deviceSettings.consoleOverrides or ")
+
+if not cmdLineOption('noLocalCfg', false) then
+	core.readKeyValueCfg("/local/local.cfg", _G)
+end
+
+if allowCommandlineSettings then
+	for index,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+		if table and member then
+			local value = commandLine[index+1] 
+			if not _G[table] then _G[table] = {} end
+			_G[table][member] = value 
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[index+1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+	end
+end
+[/version]
+
+[version]
+2013 (Army Of Two)
+[notes]
+Checkpoint resume system and visual parity initiative.
+Game-Specific Additions:
+- Checkpoint Resume: Game.AO2ResumeFromCheckpoint support
+  * Allows mid-game saves: -resume checkpoint_id
+  * Used for co-op campaign progress
+Module Changes (PC/Console Visual Parity by foreilly@ea.com):
+- Reverted to 6 modules with Enlighten.lua (global illumination)
+- Removed quality system (no applyQualitySettings)
+- Removed allowCommandlineSettings check
+- Uses: Enlighten, Mesh, Physics, Shaders, Sound, Textures
+Why Revert Quality System:
+Army of Two targeted console parity - fixed graphics settings per platform
+No user-adjustable quality on consoles = no need for preset system
+PC version locked to console-equivalent settings for fairness in co-op
+Enlighten:
+New in 2013 - real-time global illumination middleware
+Separate configuration due to performance impact
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+levelName = currentGameLevel or cmdLineOption('level') or Game.Level
+if levelName then
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with Venice's epic level naming convention
+	if not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	Game.FastStartupEnable = true
+	if not Game.Level then
+		Game.Level = levelName
+	end
+end
+
+--{@AO2:SM Checkpoint resume support
+resume = cmdLineOption('resume') or Game.AO2ResumeFromCheckpoint
+if resume then
+	if not Game.AO2ResumeFromCheckpoint then
+		Game.AO2ResumeFromCheckpoint = resume
+	end
+end
+--}@AO2:SM
+
+
+
+function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- foreilly@ea.com - PC/console visual parity
+--dofile("Scripts/UserOptions/Options/Animations.lua")
+dofile("Scripts/UserOptions/Options/Enlighten.lua")
+dofile("Scripts/UserOptions/Options/Mesh.lua")
+dofile("Scripts/UserOptions/Options/Physics.lua")
+dofile("Scripts/UserOptions/Options/Shaders.lua")
+dofile("Scripts/UserOptions/Options/Sound.lua")
+dofile("Scripts/UserOptions/Options/Textures.lua")
+
+if not cmdLineOption('noLocalCfg', false) then
+	core.readKeyValueCfg("/local/local.cfg", _G)
+end
+
+for index,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+	if table and member then
+		local value = commandLine[index+1] 
+		if not _G[table] then _G[table] = {} end
+		_G[table][member] = value 
+	else
+		local varName = string.match(option, "^%-([%w-]+)")
+		if varName then
+			local value = commandLine[index+1] 
+			if value then
+				_G[varName] = value
+			end
+		end
+	end
+end
+[/version]
+
+[version]
+2013 (Command & Conquer: Generals 2)
+[notes]
+Return to standard structure after Army of Two divergence.
+Restored Features:
+- applyQualitySettings() and quality preset system
+- 4-module structure (Graphics, Physics, Sound, Animations)
+- allowCommandlineSettings security gate
+- deviceSettings.consoleOverrides
+Removed:
+- Checkpoint resume (AO2-specific)
+- 6-module split (Enlighten/Mesh/Shaders/Textures)
+- Visual parity lock
+This represents the 'mainline' Frostbite configuration that most games use
+C&C (canceled free-to-play) needed standard PC quality options
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+levelName = currentGameLevel or cmdLineOption('level') or Game.Level
+if levelName then
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with Venice's epic level naming convention
+	if not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	Game.FastStartupEnable = true
+	if not Game.Level then
+		Game.Level = levelName
+	end
+end
+
+function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+function applyQualitySettings(name, qualityMap)
+	local quality = settings[name]
+	if quality == nil then
+		log:error("Invalid setting '" .. name .. "'")
+		return
+	end
+	
+	local consoleCommands = qualityMap[quality]
+	if consoleCommands == nil then
+		log:error("Could not find console settings for '" .. name .. "' with quality " .. quality)
+	else
+		log:info("setting '" .. name .. "': " .. quality)
+		applySettings(consoleCommands)
+	end
+end
+
+dofile("Scripts/UserOptions/Options/Graphics.lua")
+dofile("Scripts/UserOptions/Options/Physics.lua")
+dofile("Scripts/UserOptions/Options/Sound.lua")
+dofile("Scripts/UserOptions/Options/Animations.lua")
+
+applySettings(deviceSettings.consoleOverrides or ")
+
+if not cmdLineOption('noLocalCfg', false) then
+	core.readKeyValueCfg("/local/local.cfg", _G)
+end
+
+if allowCommandlineSettings then
+	for index,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+		if table and member then
+			local value = commandLine[index+1] 
+			if not _G[table] then _G[table] = {} end
+			_G[table][member] = value 
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[index+1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+	end
+end
+[/version]
+
+[version]
+2015 (PGA Tour)
+[notes]
+Conditional graphics loading for console development.
+New Feature:
+- -consoleSettings command-line flag
+  * if present, skips Graphics.lua loading entirely
+  * Allows testing console-fixed graphics on PC builds
+Log Level Change:
+- log:info → log:debug for quality settings
+- Reduces log spam in production builds
+Use Case:
+PGA Tour had strict console certification requirements
+Developers needed to verify exact console graphics settings
+-consoleSettings flag loads deviceSettings.consoleOverrides only
+PC QA could test 'console mode' without separate builds
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+levelName = currentGameLevel or cmdLineOption('level') or Game.Level
+if levelName then
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with Venice's epic level naming convention
+	if not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	Game.FastStartupEnable = true
+	if not Game.Level then
+		Game.Level = levelName
+	end
+end
+
+
+function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+function applyQualitySettings(name, qualityMap)
+	local quality = settings[name]
+	if quality == nil then
+		log:error("Invalid setting '" .. name .. "'")
+		return
+	end
+	
+	local consoleCommands = qualityMap[quality]
+	if consoleCommands == nil then
+		log:error("Could not find console settings for '" .. name .. "' with quality " .. quality)
+	else
+		log:debug("setting '" .. name .. "': " .. quality)
+		applySettings(consoleCommands)
+	end
+end
+
+if not cmdLineOption('consoleSettings', false) then
+	dofile("Scripts/UserOptions/Options/Graphics.lua")
+end
+dofile("Scripts/UserOptions/Options/Physics.lua")
+dofile("Scripts/UserOptions/Options/Sound.lua")
+dofile("Scripts/UserOptions/Options/Animations.lua")
+
+applySettings(deviceSettings.consoleOverrides or ")
+
+if not cmdLineOption('noLocalCfg', false) then
+	core.readKeyValueCfg("/local/local.cfg", _G)
+end
+
+if allowCommandlineSettings then
+	for index,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+		if table and member then
+			local value = commandLine[index+1] 
+			if not _G[table] then _G[table] = {} end
+			_G[table][member] = value 
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[index+1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+	end
+end
+[/version]
+
+[version]
+2016 (Battlefield 1 Alpha, Need For Speed Payback, Anthem)
+[notes]
+First mobile platform support in Frostbite.
+Platform Detection:
+- detectedAdapterName == "IOS" or "ANDROID"
+- Loads GraphicsMobile.lua for mobile, Graphics.lua for PC/console
+Mobile Graphics Differences:
+GraphicsMobile.lua contains touch-optimized settings:
+- Lower texture resolutions (PVRTC/ETC compression)
+- Simplified shaders (no tesselation, reduced particles)
+- Fixed quality level (no user presets)
+- Thermal throttling awareness
+- Battery-saving modes
+Why Now:
+Frostbite Go initiative - mobile versions of EA franchises
+iOS/Android hardware finally capable of simplified Frostbite rendering
+Anthem mobile companion app used Frostbite UI
+Need for Speed No Limits on mobile
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+levelName = currentGameLevel or cmdLineOption('level') or Game.Level
+if levelName then
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with Venice's epic level naming convention
+	if not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	Game.FastStartupEnable = true
+	if not Game.Level then
+		Game.Level = levelName
+	end
+end
+
+
+function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+function applyQualitySettings(name, qualityMap)
+	local quality = settings[name]
+	if quality == nil then
+		log:error("Invalid setting '" .. name .. "'")
+		return
+	end
+	
+	local consoleCommands = qualityMap[quality]
+	if consoleCommands == nil then
+		log:error("Could not find console settings for '" .. name .. "' with quality " .. quality)
+	else
+		log:debug("setting '" .. name .. "': " .. quality)
+		applySettings(consoleCommands)
+	end
+end
+
+if detectedAdapterName == "IOS" or detectedAdapterName == "ANDROID" then
+	dofile("Scripts/UserOptions/Options/GraphicsMobile.lua")
+else
+	dofile("Scripts/UserOptions/Options/Graphics.lua")
+end
+dofile("Scripts/UserOptions/Options/Physics.lua")
+dofile("Scripts/UserOptions/Options/Sound.lua")
+dofile("Scripts/UserOptions/Options/Animations.lua")
+
+applySettings(deviceSettings.consoleOverrides or ")
+
+if not cmdLineOption('noLocalCfg', false) then
+	core.readKeyValueCfg("/local/local.cfg", _G)
+end
+
+if allowCommandlineSettings then
+	for index,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+		if table and member then
+			local value = commandLine[index+1] 
+			if not _G[table] then _G[table] = {} end
+			_G[table][member] = value 
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[index+1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+	end
+end
+[/version]
+
+[version]
+2016 (Battlefield 1/V, Mirror's Edge)
+[notes]
+Sound.lua removed from Battlefield series.
+Module Change:
+- Only loads Graphics/GraphicsMobile, Physics, Animations
+- Sound.lua completely removed
+Why Remove Sound:
+Battlefield's sound engine (Frostbite Audio) became fully data-driven
+No Lua scripting needed for audio configuration
+All sound settings moved to:
+- AudioSettings (binary data files)
+- Soundbank streaming (Wwise/FMOD integration)
+- Console commands only (no quality presets)
+Modern audio engines handle:
+- Dynamic mixing (gunfire priority over ambience)
+- 3D positional audio (HRTF, surround)
+- Doppler effects, reverb zones
+- All configured in visual tools, not scripts
+This change persists through Battlefield V (2018)
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+levelName = currentGameLevel or cmdLineOption('level') or Game.Level
+if levelName then
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with Venice's epic level naming convention
+	if not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	Game.FastStartupEnable = true
+	if not Game.Level then
+		Game.Level = levelName
+	end
+end
+
+
+function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+function applyQualitySettings(name, qualityMap)
+	local quality = settings[name]
+	if quality == nil then
+		log:error("Invalid setting '" .. name .. "'")
+		return
+	end
+	
+	local consoleCommands = qualityMap[quality]
+	if consoleCommands == nil then
+		log:error("Could not find console settings for '" .. name .. "' with quality " .. quality)
+	else
+		log:debug("setting '" .. name .. "': " .. quality)
+		applySettings(consoleCommands)
+	end
+end
+
+if detectedAdapterName == "IOS" or detectedAdapterName == "ANDROID" then
+	dofile("Scripts/UserOptions/Options/GraphicsMobile.lua")
+else
+	dofile("Scripts/UserOptions/Options/Graphics.lua")
+end
+dofile("Scripts/UserOptions/Options/Physics.lua")
+dofile("Scripts/UserOptions/Options/Animations.lua")
+
+applySettings(deviceSettings.consoleOverrides or ")
+
+if not cmdLineOption('noLocalCfg', false) then
+	core.readKeyValueCfg("/local/local.cfg", _G)
+end
+
+if allowCommandlineSettings then
+	for index,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+		if table and member then
+			local value = commandLine[index+1] 
+			if not _G[table] then _G[table] = {} end
+			_G[table][member] = value 
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[index+1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+	end
+end
+[/version]
+
+[version]
+2016 (PVZ Garden Warfare 2/Battle for Neighborville)
+[notes]
+Plants vs. Zombies layer system and forced level assignment.
+PVZ-Specific Changes by [RK]:
+1. defaultGameLevel instead of currentGameLevel
+2. Always sets Game.Level (removed conditional check)
+   - Comment: 'Always set' - overrides even if already set
+3. Layer Inclusion System:
+   - Game.DefaultLayerInclusion for map variants
+   - Allows code to specify which layer to load
+   - Example: Garden Ops uses different layers than multiplayer
+4. Debug prints for verification:
+   - Prints Game.Level and Game.DefaultLayerInclusion if set
+Why These Changes:
+PVZ has hub worlds (Backyard Battleground) + match instances
+Hub stays loaded while matches load/unload in layers
+Layer system allows:
+- Different time-of-day variants (day/night maps)
+- Event-specific decorations (Halloween, holidays)
+- Different game mode layouts on same base map
+Always setting level prevents hub from persisting as 'current level'
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+levelName = defaultGameLevel or cmdLineOption('level') or Game.Level
+if levelName then
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with Venice's epic level naming convention
+	if not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	Game.FastStartupEnable = true
+	--[PVZ2][RK]: Removed:  Always set--	if not Game.Level then
+	Game.Level = levelName
+	--[PVZ2][RK]: Removed:  Always set-- 	end
+end
+
+--[PVZ2][RK]: Addition: Allow setting this from code
+defaultLayerInclusion = defaultLayerInclusion or Game.DefaultLayerInclusion
+if defaultLayerInclusion then
+	Game.DefaultLayerInclusion = defaultLayerInclusion
+end
+--[PVZ2][RK]: End Addition
+
+--[PVZ2][RK]: Addition: Debug prints
+if  Game.Level then
+	print("Game.Level:" .. Game.Level)
+end
+if Game.DefaultLayerInclusion then
+	print("Game.DefaultLayerInclusion:" .. Game.DefaultLayerInclusion )
+end
+--[PVZ2][RK]: End Addition
+
+
+function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+function applyQualitySettings(name, qualityMap)
+	local quality = settings[name]
+	if quality == nil then
+		log:error("Invalid setting '" .. name .. "'")
+		return
+	end
+	
+	local consoleCommands = qualityMap[quality]
+	if consoleCommands == nil then
+		log:error("Could not find console settings for '" .. name .. "' with quality " .. quality)
+	else
+		log:debug("setting '" .. name .. "': " .. quality)
+		applySettings(consoleCommands)
+	end
+end
+
+if detectedAdapterName == "IOS" or detectedAdapterName == "ANDROID" then
+	dofile("Scripts/UserOptions/Options/GraphicsMobile.lua")
+else
+	dofile("Scripts/UserOptions/Options/Graphics.lua")
+end
+dofile("Scripts/UserOptions/Options/Physics.lua")
+dofile("Scripts/UserOptions/Options/Sound.lua")
+dofile("Scripts/UserOptions/Options/Animations.lua")
+
+applySettings(deviceSettings.consoleOverrides or ")
+
+if not cmdLineOption('noLocalCfg', false) then
+	core.readKeyValueCfg("/local/local.cfg", _G)
+end
+
+if allowCommandlineSettings then
+	for index,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+		if table and member then
+			local value = commandLine[index+1] 
+			if not _G[table] then _G[table] = {} end
+			_G[table][member] = value 
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[index+1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+	end
+end
+[/version]
+
+[version]
+2017 (FIFA 18)
+[notes]
+Multiple configuration file paths for PlayStation platforms.
+FIFA-Specific Enhancements:
+1. Additional log:info() before applying quality
+   - Logs both name and quality value
+   - Better telemetry for FIFA's scalability system
+2. Multiple Config Paths:
+   - /local/local.cfg (standard PC/dev path)
+   - /scratch/local.cfg (PS4 standard)
+   - /scratch/Local.cfg (case-sensitive variant)
+PlayStation File System Issue:
+PS4's FreeBSD-based OS has case-sensitive file system
+User-created configs might be named 'Local.cfg' (capital L)
+Game-created configs are 'local.cfg' (lowercase)
+Both must be checked to avoid missing user settings
+Why /scratch/:
+PS4 'scratch' directory = user data partition (like AppData on Windows)
+Separate from game install directory for update safety
+FIFA has heavy customization (Ultimate Team, Career Mode settings)
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+levelName = currentGameLevel or cmdLineOption('level') or Game.Level
+if levelName then
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with Venice's epic level naming convention
+	if not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	Game.FastStartupEnable = true
+	if not Game.Level then
+		Game.Level = levelName
+	end
+end
+
+
+function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+function applyQualitySettings(name, qualityMap)
+	local quality = settings[name]
+	if quality == nil then
+		log:error("Invalid setting '" .. name .. "'")
+		return
+	end
+
+	log:info("applying: " .. name .. " quality: " .. quality)
+
+	local consoleCommands = qualityMap[quality]
+	if consoleCommands == nil then
+		log:error("Could not find console settings for '" .. name .. "' with quality " .. quality)
+	else
+		log:debug("setting '" .. name .. "': " .. quality)
+		applySettings(consoleCommands)
+	end
+end
+
+if detectedAdapterName == "IOS" or detectedAdapterName == "ANDROID" then
+	dofile("Scripts/UserOptions/Options/GraphicsMobile.lua")
+else
+	dofile("Scripts/UserOptions/Options/Graphics.lua")
+end
+dofile("Scripts/UserOptions/Options/Physics.lua")
+dofile("Scripts/UserOptions/Options/Sound.lua")
+dofile("Scripts/UserOptions/Options/Animations.lua")
+
+applySettings(deviceSettings.consoleOverrides or ")
+
+if not cmdLineOption('noLocalCfg', false) then
+	core.readKeyValueCfg("/local/local.cfg", _G)
+	core.readKeyValueCfg("/scratch/local.cfg", _G)
+	-- ps4 data drive is case sensitive :(
+	core.readKeyValueCfg("/scratch/Local.cfg", _G)
+end
+
+if allowCommandlineSettings then
+	for index,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+		if table and member then
+			local value = commandLine[index+1]
+			if not _G[table] then _G[table] = {} end
+			_G[table][member] = value
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[index+1]
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+	end
+end
+[/version]
+
+[version]
+2017 (Star Wars Battlefront II)
+[notes]
+Custom config system for modding and testing.
+New Feature: -customconfig Command-Line Parameter
+Loaded BEFORE deviceSettings.consoleOverrides
+Allows loading arbitrary config files:
+- Absolute path: -customconfig /path/to/config.cfg
+- Relative path: -customconfig MyMod/settings.cfg (loads from Scripts/)
+Use Cases:
+1. Modding: Community mods can ship custom.cfg files
+2. Testing: QA can test specific configurations without editing game files
+3. Tournaments: Esports configs for competitive balance
+4. Debugging: Developers can quickly test setting combinations
+Load Order Matters:
+1. Quality settings from Graphics.lua etc.
+2. Custom config (-customconfig)
+3. Device overrides (console-specific)
+4. Local user config (/local/local.cfg)
+5. Command-line arguments
+Later loads override earlier ones
+Custom configs can't override user preferences (local.cfg loads after)
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+levelName = currentGameLevel or cmdLineOption('level') or Game.Level
+if levelName then
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with Venice's epic level naming convention
+	if not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	Game.FastStartupEnable = true
+	if not Game.Level then
+		Game.Level = levelName
+	end
+end
+
+
+function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+function applyQualitySettings(name, qualityMap)
+	local quality = settings[name]
+	if quality == nil then
+		log:error("Invalid setting '" .. name .. "'")
+		return
+	end
+	
+	local consoleCommands = qualityMap[quality]
+	if consoleCommands == nil then
+		log:error("Could not find console settings for '" .. name .. "' with quality " .. quality)
+	else
+		log:debug("setting '" .. name .. "': " .. quality)
+		applySettings(consoleCommands)
+	end
+end
+
+if detectedAdapterName == "IOS" or detectedAdapterName == "ANDROID" then
+	dofile("Scripts/UserOptions/Options/GraphicsMobile.lua")
+else
+	dofile("Scripts/UserOptions/Options/Graphics.lua")
+end
+dofile("Scripts/UserOptions/Options/Physics.lua")
+dofile("Scripts/UserOptions/Options/Sound.lua")
+dofile("Scripts/UserOptions/Options/Animations.lua")
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			core.readKeyValueCfg(commandLine[i+1], _G)
+		else
+			core.readKeyValueCfg("Scripts/" .. commandLine[i+1], _G)
+		end
+	end
+end
+
+applySettings(deviceSettings.consoleOverrides or ")
+
+if not cmdLineOption('noLocalCfg', false) then
+	core.readKeyValueCfg("/local/local.cfg", _G)
+end
+
+if allowCommandlineSettings then
+	for index,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+		if table and member then
+			local value = commandLine[index+1] 
+			if not _G[table] then _G[table] = {} end
+			_G[table][member] = value 
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[index+1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+	end
+end
+[/version]
+
+[version]
+2020 (Star Wars Squadrons)
+[notes]
+Virtual Reality quality preset system.
+VR-Specific Implementation by 'fabien' (INCOM project):
+1. VR Mode Detection:
+   - currentVrMode variable or -vr command-line flag
+   - Sets vrMode boolean for entire session
+2. Quality Setting Modification:
+   - Appends '_VR' suffix to setting names
+   - Example: 'Graphics' becomes 'Graphics_VR' in VR mode
+   - Allows separate quality presets for VR vs flat screen
+Why Separate VR Settings:
+VR requires stereoscopic rendering (2 views per frame)
+- ~70-80% more GPU load than standard rendering
+- Must maintain 90fps minimum (vs 60fps) to prevent motion sickness
+- Lower resolution acceptable (lens magnification hides pixels)
+VR Quality Presets:
+Graphics_VR qualityMap typically contains:
+- Lower shadow resolution
+- Reduced particle counts
+- Simpler post-processing (no motion blur)
+- Aggressive LOD to maintain framerate
+Mobile Platform Removed:
+No iOS/Android check - VR headsets don't use mobile adapters
+Supports PC VR (Oculus, SteamVR) and PS VR only
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+levelName = currentGameLevel or cmdLineOption('level') or Game.Level
+if levelName then
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with Venice's epic level naming convention
+	if not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	Game.FastStartupEnable = true
+	if not Game.Level then
+		Game.Level = levelName
+	end
+end
+
+
+function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- INCOM_START - 2018-03-26 - fabien - [DIVERGENCE] VR quality settings
+vrMode = currentVrMode or cmdLineOption('vr')
+-- INCOM_END
+function applyQualitySettings(name, qualityMap)
+	-- INCOM_START - 2018-03-26 - fabien - [DIVERGENCE] VR quality settings
+	if vrMode then
+		name = name .. "_VR"
+	end
+	-- INCOM_END
+
+	local quality = settings[name]
+	if quality == nil then
+		log:error("Invalid setting '" .. name .. "'")
+		return
+	end
+	
+	local consoleCommands = qualityMap[quality]
+	if consoleCommands == nil then
+		log:error("Could not find console settings for '" .. name .. "' with quality " .. quality)
+	else
+		log:debug("setting '" .. name .. "': " .. quality)
+		applySettings(consoleCommands)
+	end
+end
+
+dofile("Scripts/UserOptions/Options/Graphics.lua")
+dofile("Scripts/UserOptions/Options/Physics.lua")
+dofile("Scripts/UserOptions/Options/Sound.lua")
+dofile("Scripts/UserOptions/Options/Animations.lua")
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			core.readKeyValueCfg(commandLine[i+1], _G)
+		else
+			core.readKeyValueCfg("Scripts/" .. commandLine[i+1], _G)
+		end
+	end
+end
+
+applySettings(deviceSettings.consoleOverrides or ")
+
+if not cmdLineOption('noLocalCfg', false) then
+	core.readKeyValueCfg("/local/local.cfg", _G)
+end
+
+if allowCommandlineSettings then
+	for index,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+		if table and member then
+			local value = commandLine[index+1] 
+			if not _G[table] then _G[table] = {} end
+			_G[table][member] = value 
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[index+1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+	end
+end
+[/version]
+
+[version]
+2021 (Battlefield 2042/6)
+[notes]
+Enhanced parsing API and iOS-only mobile support.
+Critical Changes:
+1. Enhanced applySettings():
+   - Now takes 3 parameters: parseKeyValueCfgString("Options.lua", settings, _G)
+   - First parameter is source filename (for better error messages)
+   - Helps debugging: logs show which file caused parse errors
+2. iOS-Only Mobile:
+   - Removed Android from detectedAdapterName check
+   - Only iOS gets GraphicsMobile.lua
+   - Suggests Android support dropped or moved elsewhere
+3. Removed Sound.lua:
+   - Only Graphics, Physics, Animations loaded
+   - Continues BF1/BFV audio system approach
+4. Removed /local/local.cfg:
+   - No local config file reading at all
+   - Settings stored in cloud/profile system instead
+   - Reflects shift to online-only gameplay
+Why These Changes:
+BF2042 launched with 'live service' model:
+- Settings synced via EA Account
+- No offline/local-only servers
+- Centralized configuration management
+- User can't edit local files to 'cheat' settings
+Android removal possibly due to:
+- BF2042 had no mobile version
+- BF Mobile was separate project (different codebase)
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+levelName = currentGameLevel or cmdLineOption('level') or Game.Level
+if levelName then
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with Venice's epic level naming convention
+	if not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	Game.FastStartupEnable = true
+	if not Game.Level then
+		Game.Level = levelName
+	end
+end
+
+
+function applySettings(settings)
+	core.parseKeyValueCfgString("Options.lua", settings, _G)
+end
+
+function applyQualitySettings(name, qualityMap)
+	local quality = settings[name]
+	if quality == nil then
+		log:error("Invalid setting '" .. name .. "'")
+		return
+	end
+	
+	local consoleCommands = qualityMap[quality]
+	if consoleCommands == nil then
+		log:error("Could not find console settings for '" .. name .. "' with quality " .. quality)
+	else
+		log:debug("setting '" .. name .. "': " .. quality)
+		applySettings(consoleCommands)
+	end
+end
+
+if detectedAdapterName == "IOS" then
+	dofile("Scripts/UserOptions/Options/GraphicsMobile.lua")
+else
+	dofile("Scripts/UserOptions/Options/Graphics.lua")
+end
+dofile("Scripts/UserOptions/Options/Physics.lua")
+dofile("Scripts/UserOptions/Options/Animations.lua")
+
+applySettings(deviceSettings.consoleOverrides or ")
+
+
+if allowCommandlineSettings then
+	for index,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+		if table and member then
+			local value = commandLine[index+1] 
+			if not _G[table] then _G[table] = {} end
+			_G[table][member] = value 
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[index+1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+	end
+end
+[/version]
+
+[version]
+2021 (NHL 22, Madden 25)
+[notes]
+PlayStation 5 support and full mobile/console config paths.
+EA Sports Enhancements:
+1. Restored Android Support:
+   - Both iOS and Android get GraphicsMobile.lua
+   - EA Sports mobile apps (Madden Mobile, FIFA Mobile)
+2. Complete Config File Coverage:
+   - /local/local.cfg (PC dev/legacy)
+   - /scratch/local.cfg (PS4 standard)
+   - /scratch/Local.cfg (PS4 case-variant)
+   - /localhost/local.cfg (PS5 new path)
+   - /scratchhost/local.cfg (PS5 host system)
+3. Restored log:info() for quality application
+   - Better telemetry for sports game performance
+PlayStation 5 File System:
+PS5 uses new path structure:
+- /localhost/ = PS5 local storage (SSD)
+- /scratchhost/ = PS5 extended storage (external drive)
+Different from PS4's /scratch/ due to PS5's dual-storage architecture
+Why Sports Games Need This:
+Annual release cycle needs robust backwards compatibility
+User settings from PS4 version must transfer to PS5
+Multiple config paths ensure nothing is missed during upgrade
+Cross-gen (PS4/PS5) versions need to find configs on both systems
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+levelName = currentGameLevel or cmdLineOption('level') or Game.Level
+if levelName then
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with Venice's epic level naming convention
+	if not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	Game.FastStartupEnable = true
+	if not Game.Level then
+		Game.Level = levelName
+	end
+end
+
+
+function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+function applyQualitySettings(name, qualityMap)
+	local quality = settings[name]
+	if quality == nil then
+		log:error("Invalid setting '" .. name .. "'")
+		return
+	end
+
+	log:info("applying: " .. name .. " quality: " .. quality)
+
+	local consoleCommands = qualityMap[quality]
+	if consoleCommands == nil then
+		log:error("Could not find console settings for '" .. name .. "' with quality " .. quality)
+	else
+		log:debug("setting '" .. name .. "': " .. quality)
+		applySettings(consoleCommands)
+	end
+end
+
+if detectedAdapterName == "IOS" or detectedAdapterName == "ANDROID" then
+	dofile("Scripts/UserOptions/Options/GraphicsMobile.lua")
+else
+	dofile("Scripts/UserOptions/Options/Graphics.lua")
+end
+dofile("Scripts/UserOptions/Options/Physics.lua")
+dofile("Scripts/UserOptions/Options/Sound.lua")
+dofile("Scripts/UserOptions/Options/Animations.lua")
+
+applySettings(deviceSettings.consoleOverrides or ")
+
+if not cmdLineOption('noLocalCfg', false) then
+	core.readKeyValueCfg("/local/local.cfg", _G)
+	core.readKeyValueCfg("/scratch/local.cfg", _G)
+	-- ps4 data drive is case sensitive :(
+	core.readKeyValueCfg("/scratch/Local.cfg", _G)
+	-- ps5 host drive
+	core.readKeyValueCfg("/localhost/local.cfg", _G)
+	core.readKeyValueCfg("/scratchhost/local.cfg", _G)
+end
+
+if allowCommandlineSettings then
+	for index,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+		if table and member then
+			local value = commandLine[index+1]
+			if not _G[table] then _G[table] = {} end
+			_G[table][member] = value
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[index+1]
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+	end
+end
+[/version]
+
+[version]
+2022 (Need for Speed Unbound)
+[notes]
+Streamlined configuration with Ghost Games divergence tracking.
+NFS Unbound Changes:
+1. Removed Game.FastStartupEnable:
+   - No fast startup flag set
+   - Standard initialization flow only
+2. Removed Animations.lua:
+   - Only Graphics, Physics, Sound loaded
+   - Animation system moved to different configuration
+3. Custom Config Integration:
+   - Battlefront II's -customconfig system added
+   - Ghost Games divergence marker: GM2875832
+   - eu\rperren = Reto Perren (Ghost Games engineer)
+   - Dated 2019-06-18 (likely from NFS Heat development)
+4. Simplified Config Loading:
+   - Only /local/local.cfg (no PS4/PS5 paths)
+   - PC-focused (NFS Unbound was PC/new-gen only at launch)
+Ghost Games Context:
+Ghost developed NFS Rivals through Heat (2013-2019)
+Studio closed in 2020, merged into Criterion
+NFS Unbound (2022) by Criterion but uses Ghost's Frostbite changes
+Divergence tracker references GM (Ghost Malmö) ticket system
+Custom config useful for NFS modding community (visual customization)
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+levelName = currentGameLevel or cmdLineOption('level') or Game.Level
+if levelName then
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with Venice's epic level naming convention
+	if not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	if not Game.Level then
+		Game.Level = levelName
+	end
+end
+
+
+function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+function applyQualitySettings(name, qualityMap)
+	local quality = settings[name]
+	if quality == nil then
+		log:error("Invalid setting '" .. name .. "'")
+		return
+	end
+	
+	local consoleCommands = qualityMap[quality]
+	if consoleCommands == nil then
+		log:error("Could not find console settings for '" .. name .. "' with quality " .. quality)
+	else
+		log:debug("setting '" .. name .. "': " .. quality)
+		applySettings(consoleCommands)
+	end
+end
+
+if detectedAdapterName == "IOS" or detectedAdapterName == "ANDROID" then
+	dofile("Scripts/UserOptions/Options/GraphicsMobile.lua")
+else
+	dofile("Scripts/UserOptions/Options/Graphics.lua")
+end
+dofile("Scripts/UserOptions/Options/Physics.lua")
+dofile("Scripts/UserOptions/Options/Sound.lua")
+
+applySettings(deviceSettings.consoleOverrides or ")
+
+-- NFS_START - DIVERGENCE - eu\rperren - 2019-06-18 - GM2875832 - Tracker for all Ghost changes to game configs
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			core.readKeyValueCfg(commandLine[i+1], _G)
+		else
+			core.readKeyValueCfg("Scripts/" .. commandLine[i+1], _G)
+		end
+	end
+end
+-- NFS_END
+
+if not cmdLineOption('noLocalCfg', false) then
+	core.readKeyValueCfg("/local/local.cfg", _G)
+end
+
+if allowCommandlineSettings then
+	for index,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+		if table and member then
+			local value = commandLine[index+1] 
+			if not _G[table] then _G[table] = {} end
+			_G[table][member] = value 
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[index+1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+	end
+end
+[/version]
+
+[version]
+2023 (Dead Space Remake)
+[notes]
+Minimal configuration - sound settings removed by design.
+Dead Space / BYD Project Changes:
+1. Enhanced Parsing (like BF2042):
+   - parseKeyValueCfgString("Options.lua", settings, _G)
+   - First parameter for source filename tracking
+2. Sound.lua Deliberately Removed:
+   - BYD divergence marker: dated 2021/05/28
+   - dmerayo = Diego Merayo (Motive Studios engineer)
+   - Recommended by Alex Van Der Star (EA audio architect)
+   - Reason: 'Do not change Sound settings based on CPU on PC'
+3. iOS-Only Mobile:
+   - No Android support
+4. Single Config Path:
+   - Only /local/local.cfg
+   - No PS4/PS5 multi-path system
+Why Remove Sound Configuration:
+Dead Space (2023) uses Frostbite's next-gen audio:
+- Fully data-driven (no script configuration needed)
+- CPU detection was causing issues:
+  * Old code: Low-end CPU → reduced audio voices
+  * Problem: Modern CPUs misidentified, audio quality degraded
+  * Solution: Use default audio settings from ddf/Game.cfg
+BYD = 'Beyond' (Motive Studios' Dead Space Remake project codename)
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+levelName = currentGameLevel or cmdLineOption('level') or Game.Level
+if levelName then
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with Venice's epic level naming convention
+	if not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	if not Game.Level then
+		Game.Level = levelName
+	end
+end
+
+
+function applySettings(settings)
+	core.parseKeyValueCfgString("Options.lua", settings, _G)
+end
+
+function applyQualitySettings(name, qualityMap)
+	local quality = settings[name]
+	if quality == nil then
+		log:error("Invalid setting '" .. name .. "'")
+		return
+	end
+	
+	local consoleCommands = qualityMap[quality]
+	if consoleCommands == nil then
+		log:error("Could not find console settings for '" .. name .. "' with quality " .. quality)
+	else
+		log:debug("setting '" .. name .. "': " .. quality)
+		applySettings(consoleCommands)
+	end
+end
+
+if detectedAdapterName == "IOS" then
+	dofile("Scripts/UserOptions/Options/GraphicsMobile.lua")
+else
+	dofile("Scripts/UserOptions/Options/Graphics.lua")
+end
+dofile("Scripts/UserOptions/Options/Physics.lua")
+-- BYD_START - 2021/05/28 - dmerayo - [DIVERGENCE] - Do not change the Sound settings based on the CPU on PC, just use whatever is the default in ddf/Game.cfg - Recommended by Alex Van Der Star
+-- BYD_END
+
+applySettings(deviceSettings.consoleOverrides or ")
+
+if not cmdLineOption('noLocalCfg', false) then
+	core.readKeyValueCfg("/local/local.cfg", _G)
+end
+
+if allowCommandlineSettings then
+	for index,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+		if table and member then
+			local value = commandLine[index+1] 
+			if not _G[table] then _G[table] = {} end
+			_G[table][member] = value 
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[index+1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+	end
+end
+[/version]
+
+[version]
+2023 (PGA Tour)
+[notes]
+Sound restored with enhanced parsing.
+EA Sports Golf Changes:
+1. Enhanced Parsing API:
+   - parseKeyValueCfgString("Options.lua", settings, _G)
+   - Filename parameter for better error tracking
+2. Sound.lua Restored:
+   - Unlike Dead Space, PGA Tour needs sound configuration
+   - Golf games have ambient audio (crowd, weather, commentary)
+   - Quality presets affect voice-over density
+3. iOS-Only Mobile:
+   - No Android variant
+4. Standard Config:
+   - Single /local/local.cfg path
+   - PC-focused release
+Minimal Changes:
+Nearly identical to BF2042 structure but with Sound.lua
+Standard EA Sports configuration without multi-platform paths
+Less complex than FIFA/Madden (no console variants needed)
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+levelName = currentGameLevel or cmdLineOption('level') or Game.Level
+if levelName then
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with Venice's epic level naming convention
+	if not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	if not Game.Level then
+		Game.Level = levelName
+	end
+end
+
+
+function applySettings(settings)
+	core.parseKeyValueCfgString("Options.lua", settings, _G)
+end
+
+function applyQualitySettings(name, qualityMap)
+	local quality = settings[name]
+	if quality == nil then
+		log:error("Invalid setting '" .. name .. "'")
+		return
+	end
+	
+	local consoleCommands = qualityMap[quality]
+	if consoleCommands == nil then
+		log:error("Could not find console settings for '" .. name .. "' with quality " .. quality)
+	else
+		log:debug("setting '" .. name .. "': " .. quality)
+		applySettings(consoleCommands)
+	end
+end
+
+if detectedAdapterName == "IOS" then
+	dofile("Scripts/UserOptions/Options/GraphicsMobile.lua")
+else
+	dofile("Scripts/UserOptions/Options/Graphics.lua")
+end
+dofile("Scripts/UserOptions/Options/Physics.lua")
+dofile("Scripts/UserOptions/Options/Sound.lua")
+
+applySettings(deviceSettings.consoleOverrides or ")
+
+if not cmdLineOption('noLocalCfg', false) then
+	core.readKeyValueCfg("/local/local.cfg", _G)
+end
+
+if allowCommandlineSettings then
+	for index,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+		if table and member then
+			local value = commandLine[index+1] 
+			if not _G[table] then _G[table] = {} end
+			_G[table][member] = value 
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[index+1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+	end
+end
+[/version]
+
+[version]
+2023 (FC 24)
+[notes]
+FIFA to FC rebranding with full platform support.
+EA Sports FC 24 Changes (FIFA → FC Rebranding):
+1. Level Name Conversion:
+   - Checks if levelName == "fifa/fifagame/fifagame"
+   - Converts to "fc/FCGame/FCGame"
+   - Backwards compatibility with FIFA naming
+   - Allows existing scripts/tools to work
+2. Game.FastStartupEnable Restored:
+   - Re-enabled after being removed in 2022
+   - Important for EA Sports' quick match flow
+3. All Modules Loaded:
+   - Graphics, Physics, Sound, Animations
+   - Full feature set for football simulation
+4. Complete Platform Support:
+   - iOS and Android mobile
+   - All PlayStation paths (PS4 and PS5)
+   - Case-sensitive file handling
+5. Enhanced Logging:
+   - log:info() for quality application
+   - Better telemetry for live service
+Why FIFA → FC Rebranding:
+EA's FIFA license expired end of 2022
+Rebranded to 'EA Sports FC' starting FC 24 (2023)
+Code must handle legacy content referencing 'FIFA'
+string.lower() ensures case-insensitive matching
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+levelName = currentGameLevel or cmdLineOption('level') or Game.Level
+if levelName then
+	if string.lower(levelName) == "fifa/fifagame/fifagame" then
+		levelName = "fc/FCGame/FCGame"
+	end
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with Venice's epic level naming convention
+	if not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	Game.FastStartupEnable = true
+	if not Game.Level then
+		Game.Level = levelName
+	end
+end
+
+
+function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+function applyQualitySettings(name, qualityMap)
+	local quality = settings[name]
+	if quality == nil then
+		log:error("Invalid setting '" .. name .. "'")
+		return
+	end
+
+	log:info("applying: " .. name .. " quality: " .. quality)
+
+	local consoleCommands = qualityMap[quality]
+	if consoleCommands == nil then
+		log:error("Could not find console settings for '" .. name .. "' with quality " .. quality)
+	else
+		log:debug("setting '" .. name .. "': " .. quality)
+		applySettings(consoleCommands)
+	end
+end
+
+if detectedAdapterName == "IOS" or detectedAdapterName == "ANDROID" then
+	dofile("Scripts/UserOptions/Options/GraphicsMobile.lua")
+else
+	dofile("Scripts/UserOptions/Options/Graphics.lua")
+end
+dofile("Scripts/UserOptions/Options/Physics.lua")
+dofile("Scripts/UserOptions/Options/Sound.lua")
+dofile("Scripts/UserOptions/Options/Animations.lua")
+
+applySettings(deviceSettings.consoleOverrides or ")
+
+if not cmdLineOption('noLocalCfg', false) then
+	core.readKeyValueCfg("/local/local.cfg", _G)
+	core.readKeyValueCfg("/scratch/local.cfg", _G)
+	-- ps4 data drive is case sensitive :(
+	core.readKeyValueCfg("/scratch/Local.cfg", _G)
+	-- ps5 host drive
+	core.readKeyValueCfg("/localhost/local.cfg", _G)
+	core.readKeyValueCfg("/scratchhost/local.cfg", _G)
+end
+
+if allowCommandlineSettings then
+	for index,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+		if table and member then
+			local value = commandLine[index+1]
+			if not _G[table] then _G[table] = {} end
+			_G[table][member] = value
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[index+1]
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+	end
+end
+[/version]
+
+[version]
+2024 (Dragon Age: The Veilguard)
+[notes]
+Next-gen console graphics modes support.
+BioWare Dragon Age Changes:
+1. Enhanced Parsing (like BF2042/Dead Space):
+   - parseKeyValueCfgString("Options.lua", settings, _G)
+2. Platform-Specific Graphics Detection:
+   - dice.getCurrentPlatformName() for precise platform identification
+   - string.lower() for case-insensitive comparison
+3. Three-Way Graphics Loading:
+   a) iOS → GraphicsMobile.lua (mobile)
+   b) PS5/Xbox Series X → GraphicsConsole.lua (next-gen)
+   c) Everything else → Graphics.lua (PC/last-gen)
+4. BioWare Divergence Tracking:
+   - FB-144775 JIRA ticket reference
+   - Adamitskiy, Daniel (BioWare engineer)
+   - Dated 2021/02/08
+5. Animations Removed:
+   - Only Graphics, Physics, Sound loaded
+   - Dragon Age uses different animation system
+GraphicsConsole.lua Purpose:
+Next-gen consoles offer Fidelity vs Performance modes:
+- Fidelity: 4K/30fps, ray tracing, high quality
+- Performance: 1440p/60fps, reduced effects
+- Balanced: Dynamic resolution, 40fps (120Hz displays)
+GraphicsConsole.lua contains mode-specific qualityMaps
+PC doesn't need this (user adjusts individual settings)
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+levelName = currentGameLevel or cmdLineOption('level') or Game.Level
+if levelName then
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with Venice's epic level naming convention
+	if not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	if not Game.Level then
+		Game.Level = levelName
+	end
+end
+
+
+function applySettings(settings)
+	core.parseKeyValueCfgString("Options.lua", settings, _G)
+end
+
+function applyQualitySettings(name, qualityMap)
+	local quality = settings[name]
+	if quality == nil then
+		log:error("Invalid setting '" .. name .. "'")
+		return
+	end
+	
+	local consoleCommands = qualityMap[quality]
+	if consoleCommands == nil then
+		log:error("Could not find console settings for '" .. name .. "' with quality " .. quality)
+	else
+		log:debug("setting '" .. name .. "': " .. quality)
+		applySettings(consoleCommands)
+	end
+end
+
+local currentPlatform = string.lower(dice.getCurrentPlatformName())
+if detectedAdapterName == "IOS" then
+	dofile("Scripts/UserOptions/Options/GraphicsMobile.lua")
+-- BW_START - 2021/02/08 - Adamitskiy, Daniel - [JIRA:FB-144775] Graphics mode (fidelity & performance) support
+elseif currentPlatform == "ps5" or currentPlatform == "xbsx" then
+	dofile("Scripts/UserOptions/Options/GraphicsConsole.lua")
+-- BW_END
+else
+	dofile("Scripts/UserOptions/Options/Graphics.lua")
+end
+dofile("Scripts/UserOptions/Options/Physics.lua")
+dofile("Scripts/UserOptions/Options/Sound.lua")
+
+applySettings(deviceSettings.consoleOverrides or ")
+
+if not cmdLineOption('noLocalCfg', false) then
+	core.readKeyValueCfg("/local/local.cfg", _G)
+end
+
+if allowCommandlineSettings then
+	for index,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+		if table and member then
+			local value = commandLine[index+1] 
+			if not _G[table] then _G[table] = {} end
+			_G[table][member] = value 
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[index+1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+	end
+end
+[/version]
+
+[version]
+2025 (FC 26)
+[notes]
+Nintendo Switch support and vendor ID detection.
+EA Sports FC 26 Changes (Latest):
+1. FIFA→FC Level Conversion (inherited from FC 24):
+   - string.lower(levelName) == "fifa/fifagame/fifagame"
+   - Converts to "fc/FCGame/FCGame"
+   - Two years of backwards compatibility
+2. Nintendo Platform Detection:
+   - tonumber(detectedVendorId) for numeric vendor ID
+   - AdapterVendor.Nintendo enum constant
+   - != comparison (not equal)
+3. Conditional Graphics Loading:
+   a) iOS/Android → GraphicsMobile.lua
+   b) NOT Nintendo → Graphics.lua
+   c) Nintendo → Skip Graphics.lua entirely
+4. FIFA Team Divergence:
+   - ydemendeev (FIFA/FC engineer)
+   - Dated 2023-07-13
+   - "Don't apply Graphics settings on PC-NVN"
+5. Complete Platform Support:
+   - Mobile (iOS/Android)
+   - All PlayStation paths (PS4/PS5)
+   - Nintendo Switch (NVN = Nintendo's Vulkan-based API)
+Why Skip Graphics.lua on Nintendo:
+Nintendo Switch has fixed hardware specifications
+No user-adjustable graphics quality
+Graphics settings baked into deviceSettings.consoleOverrides
+NVN (NVintendo) graphics API doesn't expose same controls as DirectX/Vulkan
+PC-NVN = PC development builds using Nintendo's graphics API for testing
+This is the most platform-diverse Frostbite configuration to date
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+levelName = currentGameLevel or cmdLineOption('level') or Game.Level
+if levelName then
+	if string.lower(levelName) == "fifa/fifagame/fifagame" then
+		levelName = "fc/FCGame/FCGame"
+	end
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with Venice's epic level naming convention
+	if not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	Game.FastStartupEnable = true
+	if not Game.Level then
+		Game.Level = levelName
+	end
+end
+
+
+function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+function applyQualitySettings(name, qualityMap)
+	local quality = settings[name]
+	if quality == nil then
+		log:error("Invalid setting '" .. name .. "'")
+		return
+	end
+
+	log:info("applying: " .. name .. " quality: " .. quality)
+
+	local consoleCommands = qualityMap[quality]
+	if consoleCommands == nil then
+		log:error("Could not find console settings for '" .. name .. "' with quality " .. quality)
+	else
+		log:debug("setting '" .. name .. "': " .. quality)
+		applySettings(consoleCommands)
+	end
+end
+
+-- FIFA_BEGIN | DIVERGENCE | ydemendeev | 2023-07-13 | don't apply Graphics settings on PC-NVN
+if detectedAdapterName == "IOS" or detectedAdapterName == "ANDROID" then
+	dofile("Scripts/UserOptions/Options/GraphicsMobile.lua")
+elseif tonumber(detectedVendorId) ~= AdapterVendor.Nintendo then
+	dofile("Scripts/UserOptions/Options/Graphics.lua")
+end
+-- FIFA_END
+dofile("Scripts/UserOptions/Options/Physics.lua")
+dofile("Scripts/UserOptions/Options/Sound.lua")
+dofile("Scripts/UserOptions/Options/Animations.lua")
+
+applySettings(deviceSettings.consoleOverrides or ")
+
+if not cmdLineOption('noLocalCfg', false) then
+	core.readKeyValueCfg("/local/local.cfg", _G)
+	core.readKeyValueCfg("/scratch/local.cfg", _G)
+	-- ps4 data drive is case sensitive :(
+	core.readKeyValueCfg("/scratch/Local.cfg", _G)
+	-- ps5 host drive
+	core.readKeyValueCfg("/localhost/local.cfg", _G)
+	core.readKeyValueCfg("/scratchhost/local.cfg", _G)
+end
+
+if allowCommandlineSettings then
+	for index,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+		if table and member then
+			local value = commandLine[index+1]
+			if not _G[table] then _G[table] = {} end
+			_G[table][member] = value
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[index+1]
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+	end
+end
+[/version]

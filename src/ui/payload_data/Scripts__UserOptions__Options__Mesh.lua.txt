@@ -1,0 +1,42 @@
+[description]
+Mesh quality and LOD (level-of-detail) settings - controls geometric detail scaling and culling thresholds (removed after Battlefield 3 Alpha).
+
+[version]
+2011 (Battlefield 3 Alpha)
+[notes]
+Alpha-only mesh quality system.
+
+Settings (Currently Disabled):
+- Mesh.GlobalLodScale - Controls mesh LOD bias globally
+- WorldRender.CullScreenAreaScale - Adjusts culling aggressiveness based on screen-space size
+
+Critical Note from Developer (johan):
+'Settings disabled for now as we want to tweak consoles the same way as PC'
+
+Why This Was Removed:
+1. Console Parity: Needed identical mesh quality across all platforms for fair gameplay
+2. Balance Issues: Different mesh LOD could affect visibility/hitboxes between platforms
+3. Performance Concerns: Console hardware couldn't handle user-adjustable mesh quality
+4. Development Phase: Alpha testing revealed mesh quality needed unified control
+
+Technical Context:
+- Mesh.GlobalLodScale: Multiplier for LOD distance thresholds (higher = better quality, more polygons)
+- WorldRender.CullScreenAreaScale: When objects occupy less screen space than threshold, they're culled
+
+This payload completely disappeared after BF3 Alpha, indicating DICE decided mesh quality should be:
+- Hardcoded per-platform in engine
+- Not user-configurable
+- Balanced for competitive fairness
+- Optimized by developers, not exposed to users
+
+Historical Significance:
+Represents early experimentation with user-configurable rendering settings that was ultimately deemed inappropriate for a competitive multiplayer shooter.
+[content]
+local quality = settings['MeshQuality']
+log:info("setting mesh quality : " .. quality)
+
+-- Settings disabled for now as we want to tweak consoles the same way as PC --johan
+
+-- applySettings("Mesh.GlobalLodScale " .. quality)
+-- applySettings("WorldRender.CullScreenAreaScale " .. quality)
+[/version]

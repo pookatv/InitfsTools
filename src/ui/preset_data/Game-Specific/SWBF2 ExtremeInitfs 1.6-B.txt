@@ -1,0 +1,105 @@
+[notes]
+Designed for "Star Wars Battlefront 2": List of commands that will give you a solid FPS boost while keeping most of the game’s visuals intact!
+[/notes]
+
+Client.ClientBulletsPerQuery 1024 // Sets number of bullets per query for the client
+EmitterSystem.BatchUpdateLightProbesEnable 0 // Disables batch updating of light probes, reducing lighting computation
+EmitterSystem.CollisionRaycastEnable 0 // Disables collision raycasts for emitters
+EmitterSystem.CollisionRayCastMaxCount 0 // Limits the number of collision raycasts, improving performance
+EmitterSystem.GraphEmitterOverlappedComputeEnable 0 // Disables overlapping computations for graph-based emitters
+EmitterSystem.GraphLightProbeMaxUpdateCount 0 // Limits the number of updates for light probes in graph emitter system
+EmitterSystem.MeshEmitterMotionBlurEnable 0 // Disables motion blur for mesh emitters, improving performance
+EmitterSystem.MeshLightProbeMaxUpdateCount 0 // Limits the number of updates to light probes related to mesh emitters
+EmitterSystem.MeshPlanarReflectionEnable 0 // Disables planar reflections for meshes
+EmitterSystem.MeshShadowEnable 0 // Disables mesh-specific shadows
+EmitterSystem.QuadClipScaleEnable 0 // Disables clipping of quad scale
+EmitterSystem.QuadCloudVertexShadowsEnable 0 // Disables cloud vertex shadows for quads
+EmitterSystem.QuadEnableOpaque 0 // Disables opaque rendering for quads
+EmitterSystem.QuadLightProbeMaxUpdateCount 0 // Limits the number of updates for light probes affecting quads
+EmitterSystem.QuadPointLightsEnable 0 // Disables point light effects for quads
+EmitterSystem.QuadPlanarReflectionsEnable 0 // Disables planar reflections for quads
+EmitterSystem.QuadSpotLightsEnable 0 // Disables spotlights for quads, reducing lighting computations
+EmitterSystem.TimeScale 0 // Disables time scaling for emitters
+Mesh.GlobalLodScale 0.420 // Adjusts mesh level of detail globally (lower = better performance)
+Mesh.ShadowDistanceScale 0.380 // Sets the shadow distance scale for meshes
+Physics.EnableClientKeyframedCollisions false // Disables client-side keyframed collisions
+Physics.EnableFXKeyframedCollisions false // Disables FX keyframed collisions
+Physics.RunClientSimulationSingleThreaded true // Runs client simulation in a single thread - multithreading causes issues
+Physics.RunEffectSimulationSingleThreaded true // Runs effect simulation in a single thread - multithreading causes issues
+Physics.RunServerSimulationSingleThreaded true // Runs server simulation in a single thread - multithreading causes issues
+PostProcess.ChromaticAberrationAllowed 0 // Disables chromatic aberration
+PostProcess.FilmGrainEnable 0 // Disables film grain
+PostProcess.LensDisortionAllowed 0 // Disables lens distortion
+PostProcess.DofMethod DofMethod_None // Disables depth of field
+PostProcess.BlurEnable 0 // Disables blur
+PostProcess.BlurMethod BlurMethod_None // Disables blur
+PostProcess.DynamicAOHalfResEnable 1 // Runs Dynamic Ambient Occlusion at half resolution instead of full
+PostProcess.DynamicAOSampleDirCount 0 // Sets number of directional samples per AO calculation pass to 0
+PostProcess.DynamicAOSampleTemporalCount 0 // Sets the number of temporal accumulation samples to 0
+PostProcess.ScreenSpaceRaytraceEnable 0 // Disables screen-space raytracing for post-processing
+PostProcess.ScreenSpaceRaytraceDeferredResolveEnable 0 // Disables deferred resolve of screen-space raytracing
+PostProcess.ScreenSpaceRaytraceSeparateCoverageEnable 0 // Disables separate coverage for screen-space raytracing
+PostProcess.IronsightsDofEnable 0 // Disables depth of field for ironsights
+Render.ViewDistance 10000 // Sets the view distance for rendering
+VisualTerrain.DetailDisplacementForReflectionsEnable 0 // Disables detailed terrain displacement in reflections
+VisualTerrain.DetailDisplacementForShadowsEnable 0 // Disables detailed terrain displacement in shadows
+WorldRender.Distortion8BitEnable 1 // Uses lower quality distortion
+WorldRender.DynamicEnvmapLightingEnable 0 // Disables unused feature for this game, increasing performance
+WorldRender.EmitterDecalVolumeQuality QualityLevel_Low // Sets quality for emitter decal volumes to Low
+WorldRender.EmitterPointLightsEnable 0 // Disables point lights from emitter effects
+WorldRender.EmitterSunTransmittanceMapEnabled 0 // Disables emitter sun transmittance map in-game
+WorldRender.EmitterSunTransmittanceResolution 0 // Sets the resolution for emitter sun transmittance map
+WorldRender.EnvironmentDecalVolumeMaxCount.Low 1000 // Sets decal volume limit for Low quality
+WorldRender.EnvironmentDecalVolumeMaxCount.Medium 1000 // Sets decal volume limit for Medium quality
+WorldRender.EnvironmentDecalVolumeMaxCount.High 1000 // Sets decal volume limit for High quality
+WorldRender.EnvironmentDecalVolumeMaxCount.Ultra 1000 // Sets decal volume limit for Ultra quality
+WorldRender.EnvironmentDecalVolumeQuality QualityLevel_Low // Sets environment decal volume quality to Low
+WorldRender.LensFlaresQualityLevel QualityLevel_Low // Lowers lens flare quality to reduce cost
+WorldRender.LightTileAsyncComputeCulling 1 // Runs light tile culling asynchronosly, increasing performance
+WorldRender.LightTileDebugColorMode 0 // Turns off debug feature, saves memory
+WorldRender.LightTileDebugLightMode LightTileDebugLightCountMode_Punctual // Uses less intensive debug feature, saves memory
+WorldRender.LocalIBLShadowmapSliceCount 4 // Limits local IBL shadowmap slices to 4
+WorldRender.LocalIBLUpdateWithSkyEnable 0 // Stops IBL updates from being affected by the sky
+WorldRender.MaxPunctualShadowLightCount 0 // Disables shadows from punctual light sources
+WorldRender.MotionBlurMaxSampleCount 14 // Reduces motion blur quality for performance (hardly noticeable)
+WorldRender.MultisampleCount 0 // Disables MSAA to save GPU cost
+WorldRender.ObjectHighlightEnable 0 // Disables object outline/selection glow (not used in SWBF2)
+WorldRender.ObjectHighlightMaskFirstPersonEnable 0 // Disables first-person highlight mask (not used in SWBF2)
+WorldRender.OccluderMeshZPrepassEnable 1 // Enables Z-prepass for occluders to improve culling
+WorldRender.OcclusionTriangleCount 15000 // Limits triangles considered for occlusion culling (perf over accuracy)
+WorldRender.PBRSpecularConvolutionSampleCount 16 // Lowers samples for specular IBL convolution
+WorldRender.PhysicalSkyScatteringOrders 0 // Disables higher-order sky scattering (cheaper sky)
+WorldRender.PhysicalSkyScatteringEvalFrameCount 0 // Disables progressive sky evaluation across frames
+WorldRender.PhysicalSkyForcePrecompute 1 // Forces precomputed sky lighting to reduce runtime cost
+WorldRender.PlanarReflectionEnable 0 // Disables planar reflections in-game
+WorldRender.PunctualLightCastVolumetricShadowmapEnableLevel QualityLevel_Low // Lowers volumetric shadow quality for small lights
+WorldRender.PunctualLightShadowLevel QualityLevel_Low // Lowers shadow quality for small lights
+WorldRender.RaytraceRefEnable 0 // Disables ray-traced reflections
+WorldRender.ReflectionLocalLightShadowResolution 64 // Uses low resolution for local-light shadows in reflections
+WorldRender.ReflectionVolumetricParticipatingMediaCameraDepth 12 // Reduces camera-depth steps for volumetric reflections
+WorldRender.ReflectionVolumetricParticipatingMediaTextureDepth 12 // Reduces 3D-texture depth for volumetric reflections
+WorldRender.ShadowmapAccumulateReuseEnable 1 // Reuses previous shadow accumulation for stability/perf
+WorldRender.ShadowmapFixedDepthEnable 1 // Enables fixed depth shadowmap in-game
+WorldRender.ShadowmapQuality 0 // Lowest shadowmap quality preset
+WorldRender.ShadowmapSliceSchemeWeight 0.6 // Tunes cascaded shadow split distribution (balanced)
+WorldRender.SkyEnvmapFilterMode MipmapFilterMode_Box // Cheaper envmap mip filtering
+WorldRender.SkyEnvmapResolution 32 // Low-resolution sky cubemap for performance
+WorldRender.SkyEnvmapUpdateCountThreshold 0 // Disables frame-count gating for sky envmap updates
+WorldRender.SkyEnvmapUpdateValueThreshold 0 // Disables change-threshold gating for sky envmap updates
+WorldRender.SphereLightsEnable 0 // Disables sphere/omni lights
+WorldRender.SkyCelestialEnable 0 // Disables celestial sky effects in-game
+WorldRender.SunShadowmapLevel QualityLevel_Low // Sets sun shadow map to lowest quality
+WorldRender.TilePassPunctualLightShadowEnable 0 // Disables punctual light shadows in-game
+WorldRender.TubeLightsEnable 0 // Disables tube light effects in-game such as lightsaber glow to increase performance by 20%
+WorldRender.TranslucencyAutoThicknessEnable 0 // Disables auto thickness evaluation for translucent materials
+WorldRender.TranslucencyEnable 0 // Disables translucency rendering
+WorldRender.TranslucencyLightingEnable 0 // Disables lighting on translucent materials
+WorldRender.TransparencyShadowmapsEnable 0 // Disables transparency shadowmaps in-game
+WorldRender.TransparentFoggingEnable 0 // Disables transparent fogging effects in-game
+WorldRender.VolumetricCloudsCastShadow 0 // Disables volumetric cloud shadows
+WorldRender.VolumetricCloudsEnabled 0 // Disables volumetric clouds
+WorldRender.VolumetricCloudsReflectionSampleCount 8 // Reduces samples for cloud reflections
+WorldRender.VolumetricEmitterVoxelisationEnable 0 // Disables voxelisation of volumetric emitters (fog/smoke)
+WorldRender.VolumetricExtinctionCascadeResolution 4 // Lowers resolution for volumetric extinction cascades
+WorldRender.VolumetricLocalFogVolumeEnable 0 // Disables local fog volumes
+WorldRender.ZPassEnable 1 // Enables depth pre-pass to reduce overdraw

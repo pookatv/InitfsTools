@@ -1,0 +1,102 @@
+[description]
+Server initialization - loads persistent ban list and level rotation on startup.
+
+[version]
+2011-2024 (Battlefield 3)
+[notes]
+Original startup with platform restrictions.
+
+Platform Detection:
+- string.lower(dice.getCurrentPlatformName())
+- Returns early on Xbox 360 (xenon) and PS3
+- Only loads persistence on platforms with file system access
+
+Persistence Loading:
+- Frost.Core.import(serverSaveFilePath, 'Server Admin file', {silent=true})
+- Loads serverAdminSave.lua containing serialized banList and levelList
+- silent=true prevents error if file doesn't exist (first run)
+
+State Restoration:
+1. Print loaded banList with formatted timestamps (os.date('%c'))
+2. Print loaded levelList while counting maxLevelIndex
+3. Set currentLevelIndex = 1 if any levels exist
+
+Why Platform Check:
+Xbox 360 and PS3 don't allow write access to game directory for security reasons. PC/Win32 servers have full file system access for dedicated server administration.
+
+Historical Context:
+Battlefield 3 had official EA-hosted console servers (no admin tools) and community-hosted PC servers (full admin capabilities). This code only runs on PC dedicated servers.
+[content]
+function Startup()
+
+  print("Startup called")
+
+  local currentPlatform = string.lower(dice.getCurrentPlatformName())
+  if (currentPlatform == "xenon" or currentPlatform == "ps3") then
+    return
+  end
+  
+  Frost.Core.import(serverSaveFilePath, "Server Admin file", {silent=true})
+  print("Loaded banList")
+  for k,v in pairs(banList) do
+	currentTime = os.date("%c", v.time)
+    print("[" .. k .. "]: " .. v.name .. "," .. currentTime)
+  end
+  
+  print("Loaded levelList")
+  for k,v in pairs(levelList) do
+	maxLevelIndex = maxLevelIndex + 1
+    print("[" .. k .. "]: " .. v)
+  end
+  
+  if (maxLevelIndex > 0) then
+    currentLevelIndex = 1
+  end
+
+end
+[/version]
+
+[version]
+2025+ (Battlefield 6)
+[notes]
+Platform restrictions removed.
+
+Critical Change:
+- Removed platform check (xenon/ps3 early return)
+- Frost.Core.import() flag changed: {silent=true} → {required=false}
+
+Why Platform Check Removed:
+1. Xbox 360/PS3 no longer supported (last-gen hardware)
+2. Modern consoles (PS5/Xbox Series X) have proper file systems
+3. Containerized/cloud servers handle persistence differently
+4. Unified codebase across all platforms
+
+Flag Change Meaning:
+- {silent=true} - Old API, suppresses all errors
+- {required=false} - New API, clearer intent: file is optional, errors are not hidden
+
+This represents the end of special-casing console platforms and the adoption of modern server infrastructure where all platforms support persistent storage.
+[content]
+function Startup()
+
+  print("Startup called")
+  
+  Frost.Core.import(serverSaveFilePath, "Server Admin file", {required=false})
+  print("Loaded banList")
+  for k,v in pairs(banList) do
+	currentTime = os.date("%c", v.time)
+    print("[" .. k .. "]: " .. v.name .. "," .. currentTime)
+  end
+  
+  print("Loaded levelList")
+  for k,v in pairs(levelList) do
+	maxLevelIndex = maxLevelIndex + 1
+    print("[" .. k .. "]: " .. v)
+  end
+  
+  if (maxLevelIndex > 0) then
+    currentLevelIndex = 1
+  end
+
+end
+[/version]

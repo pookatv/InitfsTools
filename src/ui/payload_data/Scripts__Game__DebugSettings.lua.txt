@@ -1,0 +1,1464 @@
+[description]
+Debug and testing configuration - controls thin-client mode, automated testing, and development settings (note that applySettings list is reference only; not accurate per game).
+
+[version]
+2011-2015 (Battlefield, Battlefront, Garden Warfare, Need For Speed)
+[notes]
+Original thin-client and testing implementation.
+
+Features:
+- Thin-client mode: Single mode (0=Off, 1=Console)
+- Testing mode: Binary on/off
+- Helper functions: getSetting(), setSetting()
+- applySettings() wrapper around core.parseKeyValueCfgString()
+
+Thin-client disables rendering, audio, input, and most client systems for headless server testing.
+Testing mode enables monkey testing layers and debug entities.
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G) end
+	
+-- helpers
+
+local function getSetting(key)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		return _G[container][field]
+	else
+		return _G[key]
+	end
+end
+
+local function setSetting(key, value)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		_G[container][field] = value
+	else
+		_G[key] = value
+	end
+end
+
+-- thin-client settings: 0=Off 1=Console
+
+setSetting("thin-client", cmdLineOption("thinClient", getSetting("thin-client")))
+
+if getSetting("thin-client") == "1" then
+	applySettings([=[
+		RenderDevice.NullDriverEnable true
+		RenderDevice.CreateMinimalWindow true
+		Core.HardwareProfile Hardware_Low
+		Core.HardwareGpuBias -1
+		Server.DebrisClusterEnabled true
+		Client.DebrisClusterEnabled false
+		DebrisSystem.Enable false
+		Client.WorldRenderEnabled false
+		Client.EmittersEnabled false
+		Client.TerrainEnabled false
+		Client.MeshMergingEnabled false
+		Client.OvergrowthEnabled false
+		Client.OccludersEnabled true
+		Decal.SystemEnable false
+		Render.DebugRendererEnable false
+		UI.HudEnable false
+		UI.System UISystem_None		
+		EmitterSystem.Enable false
+		Window.Fullscreen false
+		Render.Enable false
+		disable-input true
+		scripted-input true
+		use-script-input true
+		disable-client-correction true
+		disable-client-animations true
+		Sound.Enable false
+		disable-entities true
+		disable-camera true
+		Texture.LoadingEnabled false
+		Texture.RenderTexturesEnabled false
+		Mesh.LoadingEnabled false
+		ShaderSystem.DatabaseLoadingEnable false
+		disable-audio-loading true
+		GameTime.ForceUseSleepTimer true
+		ShaderSystem.DxFrameVertexBufferPoolSize 16
+		ShaderSystem.FrameMemoryBufferSize 16
+		PerformanceTracker.Enabled false
+	]=])
+end
+
+-- testingEnabled 0=Off, 1=On
+
+setSetting("testing-enabled", cmdLineOption("testingEnabled", getSetting("testing-enabled")))
+
+if getSetting("testing-enabled") == "1" then
+	applySettings([=[
+		Server.EnableMonkeyTestLayers true
+		add-debug-entity true
+		scripted-input true
+		use-script-input true
+		Juice.logClientTestingEvents true
+	]=])
+end
+[/version]
+
+[version]
+2016 (Battlefield 1/V)
+[notes]
+Multi-mode thin-client support.
+
+Major Change:
+- Thin-client modes expanded: 0=Off, 1=Console, 2=NullRenderer, 3=NullDriver
+
+Mode Differences:
+- Mode 1 (Console): Full feature disable - most aggressive disabling
+- Mode 2 (NullRenderer): Render-focused with hardware biasing, no heartbeat
+- Mode 3 (NullDriver): Minimal disable - only null driver and minimal window
+
+Why: Different testing scenarios needed different levels of system simulation.
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G) end
+	
+-- helpers
+
+local function getSetting(key)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		return _G[container][field]
+	else
+		return _G[key]
+	end
+end
+
+local function setSetting(key, value)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		_G[container][field] = value
+	else
+		_G[key] = value
+	end
+end
+
+-- thin-client settings: 0=Off 1=Console 2=NullRenderer 3=NullDriver
+
+setSetting("thin-client", cmdLineOption("thinClient", getSetting("thin-client")))
+
+if getSetting("thin-client") == "1" then
+	applySettings([=[
+		RenderDevice.NullDriverEnable true
+		RenderDevice.CreateMinimalWindow true
+		Core.HardwareProfile Hardware_Low
+		Core.HardwareGpuBias -1
+		DebrisSystem.Enable false
+		Client.WorldRenderEnabled false
+		Client.EmittersEnabled false
+		Client.TerrainEnabled false
+		Client.MeshMergingEnabled false
+		Client.OvergrowthEnabled false
+		Client.OccludersEnabled true
+		Decal.SystemEnable false
+		Render.DebugRendererEnable false
+		UI.HudEnable false
+		UI.System UISystem_None		
+		EmitterSystem.Enable false
+		Window.Fullscreen false
+		Render.Enable false
+		Render.NullRendererEnable true
+		disable-client-animations true
+		Sound.Enable false
+		Texture.LoadingEnabled false
+		Texture.RenderTexturesEnabled false
+		Mesh.LoadingEnabled false
+		ShaderSystem.DatabaseLoadingEnable false
+		disable-audio-loading true
+		GameTime.ForceUseSleepTimer true
+		ShaderSystem.DxFrameVertexBufferPoolSize 16
+		ShaderSystem.FrameMemoryBufferSize 16
+		PerformanceTracker.Enabled false
+	]=])
+end
+if getSetting("thin-client") == "2" then
+	applySettings([=[
+		Client.EmittersEnabled false
+		Client.TerrainEnabled false
+		Client.WorldRenderEnabled false
+		Core.HardwareCpuBias -1
+		Core.HardwareGpuBias -1
+		Core.HardwareProfile Hardware_Low
+		Game.ForceDisableFreeStreaming true
+		GameTime.ForceUseSleepTimer true
+		HeartbeatEnabled false
+		Mesh.LoadingEnabled false
+		Render.DebugRendererEnable false
+		Render.Enable false
+		Render.NullRendererEnable true
+		ShaderSystem.DatabaseLoadingEnable false
+		Sound.Enable false
+		Texture.LoadingEnabled false
+		Texture.RenderTexturesEnabled false
+	]=])
+end
+if getSetting("thin-client") == "3" then
+	applySettings([=[
+		Core.HardwareCpuBias -1
+		Core.HardwareGpuBias -1
+		Core.HardwareProfile Hardware_Low
+		GameTime.ForceUseSleepTimer true
+		HeartbeatEnabled false
+		Render.Enable false
+		RenderDevice.NullDriverEnable true
+		RenderDevice.CreateMinimalWindow true
+	]=])
+end
+
+-- testingEnabled 0=Off, 1=On
+
+setSetting("testing-enabled", cmdLineOption("testingEnabled", getSetting("testing-enabled")))
+
+if getSetting("testing-enabled") == "1" then
+	applySettings([=[
+		Server.EnableMonkeyTestLayers true
+		add-debug-entity true
+		scripted-input true
+		use-script-input true
+		Juice.logClientTestingEvents true
+	]=])
+end
+[/version]
+
+[version]
+2017 (FIFA/FC, Need For Speed Payback, NHL 22, Squadrons)
+[notes]
+Tiered testing levels + enhanced automation.
+
+Major Changes:
+- Reverted to single thin-client mode
+- Testing levels introduced: 0=Off, 1=On, 2=DebuggerAttached
+- testingLevel variable with tonumber() conversion
+
+Level 1 additions:
+- RenderDevice.EnableDriverWarning false
+- Core.DisplayAsserts false
+- HeartbeatEnabled true with 20-second interval
+- Window.AllowWindowsLargerThanDesktop true
+
+Level 2 (Debugger attached):
+- Core.BreakDebuggerOnAssert true
+
+Why: More sophisticated CI/CD integration needed different debug configurations.
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G) end
+	
+-- helpers
+
+local function getSetting(key)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		return _G[container][field]
+	else
+		return _G[key]
+	end
+end
+
+local function setSetting(key, value)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		_G[container][field] = value
+	else
+		_G[key] = value
+	end
+end
+
+-- thin-client settings: 0=Off 1=Console
+
+setSetting("thin-client", cmdLineOption("thinClient", getSetting("thin-client")))
+
+if getSetting("thin-client") == "1" then
+	applySettings([=[
+		RenderDevice.NullDriverEnable true
+		RenderDevice.CreateMinimalWindow true
+		Core.HardwareProfile Hardware_Low
+		Core.HardwareGpuBias -1
+		DebrisSystem.Enable false
+		Client.WorldRenderEnabled false
+		Client.EmittersEnabled false
+		Client.TerrainEnabled false
+		Client.MeshMergingEnabled false
+		Client.OvergrowthEnabled false
+		Client.OccludersEnabled true
+		Decal.SystemEnable false
+		Render.DebugRendererEnable false
+		UI.HudEnable false
+		UI.System UISystem_None		
+		EmitterSystem.Enable false
+		Window.Fullscreen false
+		Render.Enable false
+		Render.NullRendererEnable true
+		disable-input true
+		scripted-input true
+		use-script-input true
+		disable-client-correction true
+		disable-client-animations true
+		Sound.Enable false
+		disable-camera true
+		Texture.LoadingEnabled false
+		Texture.RenderTexturesEnabled false
+		Mesh.LoadingEnabled false
+		ShaderSystem.DatabaseLoadingEnable false
+		disable-audio-loading true
+		GameTime.ForceUseSleepTimer true
+		ShaderSystem.DxFrameVertexBufferPoolSize 16
+		ShaderSystem.FrameMemoryBufferSize 16
+		PerformanceTracker.Enabled false
+	]=])
+end
+
+-- testingEnabled 0=Off, 1=On, 2=DebuggerAttached , these include lower levels
+
+setSetting("testing-enabled", cmdLineOption("testingEnabled", getSetting("testing-enabled")))
+
+testingLevel = tonumber(getSetting("testing-enabled")) or 0
+
+if testingLevel >= 1 then
+	applySettings([=[
+		Server.EnableMonkeyTestLayers true
+		add-debug-entity true
+		scripted-input true
+		use-script-input true
+		Juice.logClientTestingEvents true
+		RenderDevice.EnableDriverWarning false
+		Core.DisplayAsserts false
+		HeartbeatEnabled true
+		HeartbeatInterval 20.0
+		Window.AllowWindowsLargerThanDesktop true
+	]=])
+end
+
+-- Debugger attached options
+if testingLevel >= 2 then
+	applySettings([=[
+		Core.BreakDebuggerOnAssert true
+	]=])
+end
+[/version]
+
+[version]
+2019 (Anthem, Battle for Neighborville)
+[notes]
+BugSentry crash reporting control + cosmetics optimization.
+
+Major Changes:
+- GameTime → SimulationTime.ForceUseSleepTimer
+- Appearance.LoadPresetItemsEnable false added to thin-client
+- Window.StartFocused false in testing
+- BugSentry.IsEnabledDebug control with ExceptionHandlingTestingEnabled override
+
+BugSentry Philosophy:
+- Default: disabled in testing (unreliable without online layer)
+- Exception testing: can be force-enabled via ExceptionHandlingTestingEnabled flag
+
+Why: Anthem's online focus required careful crash reporting management.
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G) end
+	
+-- helpers
+
+local function getSetting(key)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		return _G[container][field]
+	else
+		return _G[key]
+	end
+end
+
+local function setSetting(key, value)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		_G[container][field] = value
+	else
+		_G[key] = value
+	end
+end
+
+-- thin-client settings: 0=Off 1=Console
+
+setSetting("thin-client", cmdLineOption("thinClient", getSetting("thin-client")))
+
+if getSetting("thin-client") == "1" then
+	applySettings([=[
+		RenderDevice.NullDriverEnable true
+		RenderDevice.CreateMinimalWindow true
+		Core.HardwareProfile Hardware_Low
+		Core.HardwareGpuBias -1
+		DebrisSystem.Enable false
+		Client.WorldRenderEnabled false
+		Client.EmittersEnabled false
+		Client.TerrainEnabled false
+		Client.MeshMergingEnabled false
+		Client.OvergrowthEnabled false
+		Client.OccludersEnabled true
+		Decal.SystemEnable false
+		Render.DebugRendererEnable false
+		UI.HudEnable false
+		UI.System UISystem_None		
+		EmitterSystem.Enable false
+		Window.Fullscreen false
+		Render.Enable false
+		Render.NullRendererEnable true
+		disable-input true
+		scripted-input true
+		use-script-input true
+		disable-client-correction true
+		disable-client-animations true
+		Sound.Enable false
+		disable-camera true
+		Texture.LoadingEnabled false
+		Texture.RenderTexturesEnabled false
+		Mesh.LoadingEnabled false
+		ShaderSystem.DatabaseLoadingEnable false
+		disable-audio-loading true
+		SimulationTime.ForceUseSleepTimer true
+		ShaderSystem.DxFrameVertexBufferPoolSize 16
+		ShaderSystem.FrameMemoryBufferSize 16
+		PerformanceTracker.Enabled false
+		Appearance.LoadPresetItemsEnable false
+	]=])
+end
+
+-- testingEnabled 0=Off, 1=On, 2=DebuggerAttached , these include lower levels
+
+setSetting("testing-enabled", cmdLineOption("testingEnabled", getSetting("testing-enabled")))
+
+testingLevel = tonumber(getSetting("testing-enabled")) or 0
+
+if testingLevel >= 1 then
+	applySettings([=[
+		Server.EnableMonkeyTestLayers true
+		add-debug-entity true
+		scripted-input true
+		use-script-input true
+		Juice.logClientTestingEvents true
+		RenderDevice.EnableDriverWarning false
+		Core.DisplayAsserts false
+		HeartbeatEnabled true
+		HeartbeatInterval 20.0
+		Window.AllowWindowsLargerThanDesktop true
+		Window.StartFocused false
+		
+		# Game teams may not want this change
+		# BugSentry is not very reliable in ExampleGame as it lacks a online layer by default
+		# Thus the connection to EA servers is established on a crash which is risky
+		BugSentry.IsEnabledDebug false
+	]=])
+end
+
+-- If we are testing exception handling ensure BugSentry is enabled
+if ExceptionHandlingTestingEnabled then
+	applySettings([=[
+		BugSentry.IsEnabledDebug true
+	]=])
+end
+
+-- Debugger attached options
+if testingLevel >= 2 then
+	applySettings([=[
+		Core.BreakDebuggerOnAssert true
+	]=])
+end
+[/version]
+
+[version]
+2019 (Need For Speed Heat)
+[notes]
+NFS-specific divergence: selective system enabling.
+
+Major Divergence (NFS_START/NFS_END tags):
+- Core.HardwareProfile Hardware_LowEnd (vs Hardware_Low)
+- Thin-client selectively enables terrain and rendering (normally disabled)
+- Audio system renamed
+- UI drawing/updating explicitly disabled
+- Core.AllowSettingsParseErrors true for permissive configuration
+
+Testing Mode Replaced:
+- Standard testing settings commented out
+- Custom automation framework for NFS
+- Memory stats enabled
+- Platform-specific RenderDevice.EnableDriverWarning handling
+
+Why: Ghost Games needed open-world streaming systems active even in thin-client mode.
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G) end
+	
+-- helpers
+
+local function getSetting(key)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		return _G[container][field]
+	else
+		return _G[key]
+	end
+end
+
+local function setSetting(key, value)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		_G[container][field] = value
+	else
+		_G[key] = value
+	end
+end
+
+-- thin-client settings: 0=Off 1=Console
+
+setSetting("thin-client", cmdLineOption("thinClient", getSetting("thin-client")))
+
+if getSetting("thin-client") == "1" then
+	applySettings([=[
+		RenderDevice.NullDriverEnable true
+		RenderDevice.CreateMinimalWindow true
+		Core.HardwareProfile Hardware_LowEnd
+		Core.HardwareGpuBias -1
+		DebrisSystem.Enable false
+		Client.WorldRenderEnabled false
+		-- NFS_START - DIVERGENCE - DICE\acarlson - 2018-09-17 - GM4306808 - PREPORT - Thin client fixes
+		-- Client.TerrainEnabled false
+		Client.TerrainEnabled true
+		-- NFS_END
+		Client.OvergrowthEnabled false
+		Render.DebugRendererEnable false
+		UI.System UISystem_None
+		EmitterSystem.Enable false
+		-- NFS_START - DIVERGENCE - DICE\acarlson - 2018-09-17 - GM4306808 - PREPORT - Thin client fixes
+		-- Render.Enable false
+		Render.Enable true
+		-- NFS_END
+		Render.NullRendererEnable true
+		disable-input true
+		scripted-input true
+		use-script-input true
+		disable-client-correction true
+		disable-client-animations true
+		-- NFS_START - DIVERGENCE - DICE\acarlson - 2018-09-17 - GM4306808 - PREPORT - Thin client fixes
+		-- Sound.Enable false
+		Audio.Enable false
+		-- NFS_END
+		disable-camera true
+		Texture.LoadingEnabled false
+		Texture.RenderTexturesEnabled false
+		Mesh.LoadingEnabled false
+		ShaderSystem.DatabaseLoadingEnable false
+		disable-audio-loading true
+		SimulationTime.ForceUseSleepTimer true
+		ShaderSystem.DxFrameVertexBufferPoolSize 16
+		PerformanceTracker.Enabled false
+		-- NFS_START - DIVERGENCE - DICE\acarlson - 2018-09-17 - GM4306808 - PREPORT - Thin client fixes
+		UI.DrawEnable false
+		UI.UpdateEnable false
+		Core.AllowSettingsParseErrors true
+		-- NFS_END
+	]=])
+end
+
+-- testingEnabled 0=Off, 1=On, 2=DebuggerAttached , these include lower levels
+
+setSetting("testing-enabled", cmdLineOption("testingEnabled", getSetting("testing-enabled")))
+
+testingLevel = tonumber(getSetting("testing-enabled")) or 0
+
+if testingLevel >= 1 then
+	applySettings([=[
+		-- NFS_START - DIVERGENCE - DICE\acarlson - 2019-01-18 - GM2875832 - Tracker for all Ghost changes to game configs
+		-- add-debug-entity true
+		-- scripted-input true
+		-- use-script-input true
+		-- Juice.logClientTestingEvents true
+		-- Core.DisplayAsserts false
+		-- Window.AllowWindowsLargerThanDesktop true
+		-- Window.StartFocused false
+		-- Core.AssertLimit 10
+		-- Core.LimitedAssertRate 100
+		
+		
+		# Game teams may not want this change
+		# BugSentry is not very reliable in ExampleGame as it lacks a online layer by default
+		# Thus the connection to EA servers is established on a crash which is risky
+		-- BugSentry.IsEnabledDebug false
+
+		Automation.Enabled true
+		Automation.NavigateBootflow true
+		Features.FeatureConfig testing
+		Persistence.ResetAll true
+		Tweakable.DebugChapterState 10
+
+		Memory.DrawStats True
+		-- NFS_END
+	]=])
+	if platform == 'Win32' then
+		applySettings([=[
+			RenderDevice.EnableDriverWarning false
+		]=])
+	end
+end
+
+-- If we are testing exception handling ensure BugSentry is enabled
+if ExceptionHandlingTestingEnabled then
+	applySettings([=[
+		BugSentry.IsEnabledDebug true
+	]=])
+end
+
+-- Debugger attached options
+if testingLevel >= 2 then
+	applySettings([=[
+		Core.BreakDebuggerOnAssert true
+	]=])
+end
+[/version]
+
+[version]
+2021 (Battlefield 2042, Dragon Age)
+[notes]
+Multi-mode thin-client returns + next-gen optimizations.
+
+Major Changes:
+- Thin-client modes restored: 0=Off, 1=Console, 2=NullRenderer, 3=NullDriver
+- parseKeyValueCfgString now takes location parameter: 'DebugSettings.lua'
+- Hardware_LowEnd standardized across all modes
+- Testing simplified back to binary on/off (no debugger level)
+
+New Additions:
+- Enlighten.Enable false (global illumination)
+- MeshStreaming.Enable false
+
+Why: BF2042's cross-platform needs required flexible thin-client configurations.
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString("DebugSettings.lua", settings, _G) end
+	
+-- helpers
+
+local function getSetting(key)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		return _G[container][field]
+	else
+		return _G[key]
+	end
+end
+
+local function setSetting(key, value)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		_G[container][field] = value
+	else
+		_G[key] = value
+	end
+end
+
+-- thin-client settings: 0=Off 1=Console 2=NullRenderer 3=NullDriver
+
+setSetting("thin-client", cmdLineOption("thinClient", getSetting("thin-client")))
+
+if getSetting("thin-client") == "1" then
+	applySettings([=[
+		RenderDevice.NullDriverEnable true
+		RenderDevice.CreateMinimalWindow true
+		Core.HardwareProfile Hardware_LowEnd
+		Core.HardwareGpuBias -1
+		DebrisSystem.Enable false
+		Client.WorldRenderEnabled false
+		Client.TerrainEnabled false
+		Client.OvergrowthEnabled false
+		Decal.SystemEnable false
+		Render.DebugRendererEnable false
+		UI.HudEnable false
+		UI.System UISystem_None		
+		EmitterSystem.Enable false
+		Window.Fullscreen false
+		Render.Enable false
+		Render.NullRendererEnable true
+		disable-client-animations true
+		Sound.Enable false
+		Texture.LoadingEnabled false
+		Texture.RenderTexturesEnabled false
+		Mesh.LoadingEnabled false
+		ShaderSystem.DatabaseLoadingEnable false
+		disable-audio-loading true
+		SimulationTime.ForceUseSleepTimer true
+		ShaderSystem.DxFrameVertexBufferPoolSize 16
+		ShaderSystem.FrameMemoryBufferSize 16
+		PerformanceTracker.Enabled false
+		Enlighten.Enable false
+		MeshStreaming.Enable false
+	]=])
+end
+if getSetting("thin-client") == "2" then
+	applySettings([=[
+		Client.TerrainEnabled false
+		Client.WorldRenderEnabled false
+		Core.HardwareCpuBias -1
+		Core.HardwareGpuBias -1
+		Core.HardwareProfile Hardware_LowEnd
+		Game.ForceDisableFreeStreaming true
+		GameTime.ForceUseSleepTimer true
+		HeartbeatEnabled false
+		Mesh.LoadingEnabled false
+		Render.DebugRendererEnable false
+		Render.Enable false
+		Render.NullRendererEnable true
+		ShaderSystem.DatabaseLoadingEnable false
+		Sound.Enable false
+		Texture.LoadingEnabled false
+		Texture.RenderTexturesEnabled false
+	]=])
+end
+if getSetting("thin-client") == "3" then
+	applySettings([=[
+		Core.HardwareCpuBias -1
+		Core.HardwareGpuBias -1
+		Core.HardwareProfile Hardware_LowEnd
+		GameTime.ForceUseSleepTimer true
+		HeartbeatEnabled false
+		Render.Enable false
+		RenderDevice.NullDriverEnable true
+		RenderDevice.CreateMinimalWindow true
+	]=])
+end
+
+-- testingEnabled 0=Off, 1=On
+
+setSetting("testing-enabled", cmdLineOption("testingEnabled", getSetting("testing-enabled")))
+
+if getSetting("testing-enabled") == "1" then
+	applySettings([=[
+		Server.EnableMonkeyTestLayers true
+		add-debug-entity true
+		scripted-input true
+		use-script-input true
+		Juice.logClientTestingEvents true
+	]=])
+end
+[/version]
+
+[version]
+2022 (Need For Speed Unbound)
+[notes]
+NFS-specific thin-client + online mode integration.
+
+New Features:
+- Extensive thin-client customization with NFS_START/NFS_END divergence tags
+- Online mode support in thin-client: Origin.Enabled, Blaze.ForceDirectLogin
+- Login credential support for automated testing
+- Hardware profile changed to Hardware_LowEnd
+- Permissive error handling: Core.AllowSettingsParseErrors true
+
+Changes from BF2042:
+- Single thin-client mode (mode 2 and 3 removed)
+- Custom automation framework replacing standard testing
+- Platform-specific RenderDevice.EnableDriverWarning handling
+- Testing framework replaced with NFS-specific automation
+
+Why: Ghost Games needed selective system enabling for open-world streaming in thin-client mode.
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G) end
+	
+-- helpers
+
+local function getSetting(key)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		return _G[container][field]
+	else
+		return _G[key]
+	end
+end
+
+local function setSetting(key, value)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		_G[container][field] = value
+	else
+		_G[key] = value
+	end
+end
+
+-- thin-client settings: 0=Off 1=Console
+
+setSetting("thin-client", cmdLineOption("thinClient", getSetting("thin-client")))
+
+if getSetting("thin-client") == "1" then
+	applySettings([=[
+		-- NFS_START - 2022-03-22 - EU\toliver - [DIVERGENCE] - Made thin clients work with Excalibur.
+		Audio.Enable false
+		Client.VegetationEnabled false
+		Client.EffectsEnabled false
+		Core.AllowSettingsParseErrors true
+		Core.HardwareCpuBias -1
+		Core.HardwareGpuBias -1
+		Core.HardwareProfile Hardware_LowEnd
+		DebrisSystem.Enable false
+		EI.Sequences.ReadyToPlayTimeout 0
+		EmitterSystem.Enable false
+		Enlighten.Enable false
+		GameRender.DebugRendererEnable false
+		GameRender.Enable false
+		GameRender.NullRendererEnable true
+		GameTime.ForceUseSleepTimer true
+		HeartbeatEnabled false
+		Input.ReadMouseInBackground true
+		Mesh.LoadingEnabled false
+		MeshStreaming.Enable false
+		Pedestrians.Enable false
+		PerformanceTracker.Enabled false
+		Render.DebugRendererEnable false
+		Render.Enable false
+		Render.NullRendererEnable true
+		RenderDevice.CreateMinimalWindow true
+		RenderDevice.NullDriverEnable true
+		Rime.UpdateEnable false
+		ShaderSystem.DatabaseLoadingEnable false
+		ShaderSystem.FrameMemoryBufferSize 16
+		SimulationTime.ForceUseSleepTimer true
+		Texture.LoadingEnabled false
+		Texture.RenderTexturesEnabled false
+		UI.DrawEnable false
+		UI.UpdateEnable false
+		disable-audio-loading true
+		disable-camera true
+		disable-client-animations true
+		disable-client-correction true
+		-- NFS_END
+	]=])
+
+	-- NFS_START - 2022-03-29 - EU\cumay - [DIVERGENCE] - Add online settings for thin client
+	if getSetting("Online.ClientIsPresenceEnabled") == "true" then
+		applySettings([=[
+			Origin.Enabled 0
+			Blaze.ForceDirectLogin 1
+			Online.BlazeClientAutoAccountCreation 1
+			Game.Level levels/quickmatchmake/quickmatchmake/quickmatchmake
+
+			-- Also set these when running a thin client
+			--Login.Email someEmail@email.com
+			--Login.Password somePass
+			--Login.PersonaName somePersona
+		]=])
+	end
+	-- NFS_END
+end
+
+-- testingEnabled 0=Off, 1=On, 2=DebuggerAttached , these include lower levels
+
+setSetting("testing-enabled", cmdLineOption("testingEnabled", getSetting("testing-enabled")))
+
+testingLevel = tonumber(getSetting("testing-enabled")) or 0
+
+if testingLevel >= 1 then
+	applySettings([=[
+		-- NFS_START - DIVERGENCE - DICE\acarlson - 2019-01-18 - GM2875832 - Tracker for all Ghost changes to game configs
+		-- add-debug-entity true
+		-- Juice.logClientTestingEvents true
+		-- Core.DisplayAsserts false
+		-- Window.AllowWindowsLargerThanDesktop true
+		-- Window.StartFocused false
+		-- Core.AssertLimit 10
+		-- Core.LimitedAssertRate 100
+		
+		
+		# Game teams may not want this change
+		# BugSentry is not very reliable in ExampleGame as it lacks a online layer by default
+		# Thus the connection to EA servers is established on a crash which is risky
+		-- BugSentry.IsEnabledDebug false
+
+		Automation.Enabled true
+		Automation.NavigateBootflow true
+		Features.FeatureConfig testing
+		Persistence.ResetAll true
+		Tweakable.DebugChapterState 10
+
+		Memory.DrawStats True
+		-- NFS_END
+	]=])
+	if platform == 'Win32' then
+		applySettings([=[
+			RenderDevice.EnableDriverWarning false
+		]=])
+	end
+end
+
+-- If we are testing exception handling ensure BugSentry is enabled
+if ExceptionHandlingTestingEnabled then
+	applySettings([=[
+		BugSentry.IsEnabledDebug true
+	]=])
+end
+
+-- Debugger attached options
+if testingLevel >= 2 then
+	applySettings([=[
+		Core.BreakDebuggerOnAssert true
+	]=])
+end
+[/version]
+
+[version]
+2023 (Dead Space Remake, PGA Tour)
+[notes]
+Dead Space/BioWare testing enhancements.
+
+New Features:
+- forcePresenceAutotest flag - Force-enable online presence for specific tests
+- BugSentry.Enabled control (changed from BugSentry.IsEnabledDebug)
+- Core.IgnoreAlways for autotest stability
+- Game.LogFileEnable false to prevent disk space issues on PS4
+
+Changes from NFS Unbound:
+- Simplified thin-client (removed NFS-specific customizations)
+- Enhanced testing mode with additional controls
+- BYD_START/BYD_END divergence tags (Motive Studio/BioWare)
+- Input.ReadMouseInBackground added
+
+Testing Improvements:
+- Assert limiting: Core.AssertLimit 10, Core.LimitedAssertRate 100
+- Presence disabling for stability
+- Selective BugSentry enabling based on test requirements
+
+Why: Dead Space needed robust automation for extensive QA testing cycles.
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString("DebugSettings.lua", settings, _G) end
+	
+-- helpers
+
+local function getSetting(key)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		return _G[container][field]
+	else
+		return _G[key]
+	end
+end
+
+local function setSetting(key, value)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		_G[container][field] = value
+	else
+		_G[key] = value
+	end
+end
+
+-- thin-client settings: 0=Off 1=Console
+
+setSetting("thin-client", cmdLineOption("thinClient", getSetting("thin-client")))
+
+if getSetting("thin-client") == "1" then
+	applySettings([=[
+		RenderDevice.NullDriverEnable true
+		RenderDevice.CreateMinimalWindow true
+		Core.HardwareProfile Hardware_LowEnd
+		Core.HardwareGpuBias -1
+		Client.WorldRenderEnabled false
+		Client.TerrainEnabled false
+		Client.OvergrowthEnabled false
+		Render.DebugRendererEnable false
+		UI.System UISystem_None
+		EmitterSystem.Enable false
+		Render.Enable false
+		Render.NullRendererEnable true
+		disable-client-correction true
+		disable-client-animations true
+		Sound.Enable false
+		disable-camera true
+		Texture.LoadingEnabled false
+		Texture.RenderTexturesEnabled false
+		Mesh.LoadingEnabled false
+		ShaderSystem.DatabaseLoadingEnable false
+		disable-audio-loading true
+		SimulationTime.ForceUseSleepTimer true
+		ShaderSystem.DxFrameVertexBufferPoolSize 16
+		PerformanceTracker.Enabled false
+		Input.ReadMouseInBackground true
+	]=])
+end
+
+-- testingEnabled 0=Off, 1=On, 2=DebuggerAttached , these include lower levels
+
+setSetting("testing-enabled", cmdLineOption("testingEnabled", getSetting("testing-enabled")))
+
+testingLevel = tonumber(getSetting("testing-enabled")) or 0
+
+if testingLevel >= 1 then
+	applySettings([=[
+		add-debug-entity true
+		Juice.logClientTestingEvents true
+		Core.DisplayAsserts false
+		Window.AllowWindowsLargerThanDesktop true
+		Window.StartFocused false
+		Core.AssertLimit 10
+		Core.LimitedAssertRate 100
+
+		# Disable log file since we are sending log to ensemble instead.
+		# Reason it was turned off was to prevent out of space on ps4 disks (don't know why this happens)
+		Game.LogFileEnable false
+		
+		
+		# Game teams may not want this change
+		# BugSentry is not very reliable in ExampleGame as it lacks a online layer by default
+		# Thus the connection to EA servers is established on a crash which is risky
+		# BYD_START - 2021/05/12 - blakeg - [DIVERGENCE] Enable BugSentry for autotests
+		BugSentry.Enabled true
+		# BYD_END
+
+		# BYD_START - 2021/05/12 - blakeg - [DIVERGENCE] Disable presence for autotests
+		# With presence enabled, we'll crash on startup for any test not using the 
+		# BeyondGameConfiguration (e.g. those tests that are part of extension data modules)
+		Online.ClientIsPresenceEnabled false
+		Online.ServerIsPresenceEnabled false
+		# BYD_END
+
+		# BYD_START - 2022/05/27 - pgaumond - [DIVERGENCE] Add Core.IgnoreAlways to autotests
+		Core.IgnoreAlways True
+		# BYD_END		
+	]=])
+	if platform == 'Win32' then
+		applySettings([=[
+			RenderDevice.EnableDriverWarning false
+		]=])
+	end
+end
+
+-- If we are testing exception handling ensure BugSentry is enabled
+if ExceptionHandlingTestingEnabled then
+	applySettings([=[
+		BugSentry.Enabled true
+	]=])
+end
+
+--BYD_START - 2022/01/25 - hmunoz - [DIVERGENCE] Added a force enable presence setting for autotests 
+-- force-presence-autotest 
+setSetting("force-presence-autotest", cmdLineOption("forcePresenceAutotest", getSetting("force-presence-autotest")))
+
+if getSetting("force-presence-autotest") == "1" then
+	applySettings([=[
+		Online.ClientIsPresenceEnabled true
+		Online.ServerIsPresenceEnabled true
+	]=])
+end
+-- BYD END
+
+-- Debugger attached options
+if testingLevel >= 2 then
+	applySettings([=[
+		Core.BreakDebuggerOnAssert true
+	]=])
+end
+[/version]
+
+[version]
+2024 (Madden NFL 25)
+[notes]
+EA Sports headless rendering mode.
+
+Major New Feature:
+- headless-render mode (separate from thin-client) - Optimized for AI simulation
+- FootballExport.ForceUseOptimizedRendering for fast processing
+- FootballGameClock simulation controls for deterministic replay
+- ThreeLaneTimeRegulator.ForceNoRenderSleep for maximum speed
+
+Headless Render Mode:
+- Used for AI player simulation and gameplay analysis
+- Runs at 60Hz max with no vsync
+- Minimal window (360x192)
+- Grass, swarm, and environment effects disabled
+- Low quality settings forced
+
+Changes from Dead Space:
+- Reverted to 2-level testing (removed Level 2 debugger mode)
+- Simplified thin-client configuration
+- Added Sports-specific performance optimizations
+
+Why: Madden needed high-speed simulation for AI training and play testing.
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G) end
+	
+-- helpers
+
+local function getSetting(key)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		return _G[container][field]
+	else
+		return _G[key]
+	end
+end
+
+local function setSetting(key, value)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		_G[container][field] = value
+	else
+		_G[key] = value
+	end
+end
+
+-- headless-render settings: 0=Off 1=Console
+
+setSetting("headless-render", cmdLineOption("headlessRender", getSetting("headless-render")))
+
+if getSetting("headless-render") == "1" then
+	applySettings([=[
+ 		RenderDevice.NullDriverEnable true
+		RenderDevice.CreateMinimalWindow true
+		Render.NullRendererEnable true
+		Texture.LoadingEnabled false
+		Mesh.LoadingEnabled false
+		Decal.SystemEnable false
+		ShaderSystem.DatabaseLoadingEnable false
+		Render.DebugRendererEnable false
+		FootballExport.ForceUseOptimizedRendering 1
+		FootballGameClock.RunSimulationAsFastAsPossible true
+		FootballGameClock.RunSimulationMaxFrequencyHz 60
+		FootballGameConfig.DetReplayActive false
+		FootballGameConfig.DetReplayEnable false
+		ThreeLaneTimeRegulator.ForceNoRenderSleep true
+		Render.MovieVSyncEnable false
+		Grass.DrawEnable false
+		Grass.Enable false
+		Swarm.DrawEnable false
+		Window.Width 360
+		Window.Height 192
+		WorldRender.EnvironmentDecalVolumesEnabled false
+		DebugRender.DebugTextEnabled false
+		PerfOverlay.Enable false
+		Model.DrawEnable False
+		Client.WorldRenderEnabled false
+		Render.EntityRenderEnable false
+		Sports.TransformSpace.RigamateEnable false
+		FootballRenderUserSettings.DefaultQualityLevel FootballRenderUserSettingsQualityLevel_Low
+		FootballRenderUserSettings.ReadUserConfig false
+		BundleManager.DrawStats 0
+	]=])
+end
+
+
+-- thin-client settings: 0=Off 1=Console
+
+setSetting("thin-client", cmdLineOption("thinClient", getSetting("thin-client")))
+
+if getSetting("thin-client") == "1" then
+	applySettings([=[
+		RenderDevice.NullDriverEnable true
+		RenderDevice.CreateMinimalWindow true
+		Core.HardwareProfile Hardware_Low
+		Core.HardwareGpuBias -1
+		DebrisSystem.Enable false
+		Client.WorldRenderEnabled false
+		Client.EmittersEnabled false
+		Client.TerrainEnabled false
+		Client.MeshMergingEnabled false
+		Client.OvergrowthEnabled false
+		Client.OccludersEnabled true
+		Decal.SystemEnable false
+		Render.DebugRendererEnable false
+		UI.HudEnable false
+		UI.System UISystem_None		
+		EmitterSystem.Enable false
+		Window.Fullscreen false
+		Render.Enable false
+		Render.NullRendererEnable true
+		disable-input true
+		scripted-input true
+		use-script-input true
+		disable-client-correction true
+		disable-client-animations true
+		Sound.Enable false
+		disable-camera true
+		Texture.LoadingEnabled false
+		Texture.RenderTexturesEnabled false
+		Mesh.LoadingEnabled false
+		ShaderSystem.DatabaseLoadingEnable false
+		disable-audio-loading true
+		GameTime.ForceUseSleepTimer true
+		ShaderSystem.DxFrameVertexBufferPoolSize 16
+		PerformanceTracker.Enabled false
+	]=])
+end
+
+-- testingEnabled 0=Off, 1=On, 2=DebuggerAttached , these include lower levels
+
+setSetting("testing-enabled", cmdLineOption("testingEnabled", getSetting("testing-enabled")))
+
+testingLevel = tonumber(getSetting("testing-enabled")) or 0
+
+if testingLevel >= 1 then
+	applySettings([=[
+		Server.EnableMonkeyTestLayers true
+		add-debug-entity true
+		scripted-input true
+		use-script-input true
+		Juice.logClientTestingEvents true
+		RenderDevice.EnableDriverWarning false
+		Core.DisplayAsserts false
+		HeartbeatEnabled true
+		HeartbeatInterval 20.0
+		Window.AllowWindowsLargerThanDesktop true
+	]=])
+end
+
+-- Debugger attached options
+if testingLevel >= 2 then
+	applySettings([=[
+		Core.BreakDebuggerOnAssert true
+	]=])
+end
+[/version]
+
+[version]
+2025 (Madden NFL 26)
+[notes]
+Modular football-specific settings.
+
+Major Architectural Change:
+- core.import("Scripts/Game/Football/DebugSettings.lua") - Shared EA Sports settings
+- Licensee-specific customization block
+- Simplified script structure
+
+Why: EA Sports wanted shared debug settings across all sports titles (Madden, NHL, FIFA) with licensee-specific overrides.
+[content]
+core = require "Frost.Core"
+
+-- Read the debug settings common to football games
+core.import("Scripts/Game/Football/DebugSettings.lua")
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString("Game/DebugSettings.lua", settings, _G)
+end
+
+applySettings [=[
+-- Put the debug settings specific to a particular licensee here.
+]=]
+[/version]
+
+[version]
+2025+ (Battlefield 6, Skate, Current Mainline)
+[notes]
+FINAL STANDARDIZATION: Modern debug configuration template.
+
+This is the culmination of 14 years of Frostbite debug configuration evolution. This template represents the 'gold standard' for all future Frostbite games.
+
+Major Changes:
+- core.getSetting() / core.setSetting() - Moved to core module
+- applyNonRetailVars() - Separate function for non-retail-safe settings
+- parseKeyValueCfgString with location parameter: 'DebugSettings.lua'
+- parseKeyValueCfgString with allowAssignVar parameter (third param)
+- Config-aware settings: if (config:lower() ~= 'retail') checks
+- forceLogfileEnabled flag - Override log file disabling
+- Core.UseLocalBundleCache for testing builds
+- Removed Level 2 debugger mode (simplified to binary on/off)
+- BugSentry.Enabled (standardized from BugSentry.IsEnabledDebug)
+
+Architectural Philosophy:
+- Retail-safe vs non-retail separation
+- Config-aware conditional logic
+- Centralized helper functions in core module
+- Explicit allowAssignVar tracking for runtime modification
+
+Key Improvements from 2011:
+- Better retail build safety
+- Runtime variable tracking
+- Config-specific behavior
+- Flexible logging control
+- Cleaner code organization
+
+This is the template that will carry Frostbite debug settings into the next generation of games.
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString("DebugSettings.lua", settings, _G) 
+end
+local function applyNonRetailVars(settings)
+	core.parseKeyValueCfgString("DebugSettings.lua", settings, _G, true)
+end
+
+-- thin-client settings: 0=Off 1=Console
+core.setSetting("thin-client", core.cmdLineOption("thinClient", core.getSetting("thin-client")))
+
+if core.getSetting("thin-client") == "1" then
+	applySettings([=[
+		RenderDevice.NullDriverEnable true
+		RenderDevice.CreateMinimalWindow true
+		Core.HardwareProfile Hardware_LowEnd
+		Core.HardwareGpuBias -1
+		Client.WorldRenderEnabled false
+		Client.TerrainEnabled false
+		Client.OvergrowthEnabled false
+		Render.DebugRendererEnable false
+		EmitterSystem.Enable false
+		Render.Enable false
+		Render.NullRendererEnable true
+		disable-client-animations true
+		Sound.Enable false
+		disable-camera true
+		Texture.LoadingEnabled false
+		Texture.RenderTexturesEnabled false
+		Mesh.LoadingEnabled false
+		ShaderSystem.DatabaseLoadingEnable false
+		disable-audio-loading true
+		SimulationTime.ForceUseSleepTimer true
+		ShaderSystem.DxFrameVertexBufferPoolSize 16
+		PerformanceTracker.Enabled false
+	]=])
+	applyNonRetailVars([=[
+		disable-client-correction true
+		Input.ReadMouseInBackground true
+	]=])
+end
+
+-- testingEnabled 0=Off, 1=On, 2=DebuggerAttached , these include lower levels
+
+core.setSetting("testing-enabled", core.cmdLineOption("testingEnabled", core.getSetting("testing-enabled")))
+
+testingLevel = tonumber(core.getSetting("testing-enabled")) or 0
+
+core.setSetting("force-logfile-enabled", core.cmdLineOption("forceLogfileEnabled", core.getSetting("force-logfile-enabled")))
+
+forceLogfileEnabled = tonumber(core.getSetting("force-logfile-enabled")) or 0
+
+if testingLevel >= 1 then
+	if (config:lower() ~= 'retail') and (config:lower() ~= 'final') then
+		applySettings([=[
+			Core.UseLocalBundleCache true
+		]=])
+	end
+	applySettings([=[
+		add-debug-entity true
+		Juice.logClientTestingEvents true
+		Core.DisplayAsserts false
+		Window.AllowWindowsLargerThanDesktop true
+		Window.StartFocused false
+		Core.AssertLimit 10
+		Core.LimitedAssertRate 100
+		
+		
+		# Game teams may not want this change
+		# BugSentry is not very reliable in ExampleGame as it lacks a online layer by default
+		# Thus the connection to EA servers is established on a crash which is risky
+		BugSentry.Enabled false
+	]=])
+	if platform == 'Win32' and config ~= 'Retail' then
+		applySettings([=[
+			RenderDevice.EnableDriverWarning false
+		]=])
+	end
+	if forceLogfileEnabled == 0 then
+		applySettings([=[
+			# Disable log file since we are sending log to ensemble instead.
+			# Reason it was turned off was to prevent out of space on ps4 disks (don't know why this happens)
+			Game.LogFileEnable false
+		]=])
+	end
+end
+
+-- If we are testing exception handling ensure BugSentry is enabled
+if ExceptionHandlingTestingEnabled then
+	applySettings([=[
+		BugSentry.Enabled true
+	]=])
+end
+
+-- Debugger attached options
+if testingLevel >= 2 then
+	applySettings([=[
+		Core.BreakDebuggerOnAssert true
+	]=])
+end
+[/version]

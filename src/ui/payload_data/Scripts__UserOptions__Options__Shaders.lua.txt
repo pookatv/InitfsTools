@@ -1,0 +1,145 @@
+[description]
+Shader quality presets - controls rendering features including shadows, anti-aliasing, post-processing, and MSAA (removed after Battlefield 3 Alpha).
+
+[version]
+2011 (Battlefield 3 Alpha)
+[notes]
+Alpha-only shader quality system with 4-tier preset system.
+
+Common Settings (Applied to All Quality Levels):
+- PostProcess.FilmicTonemappingEnable 1 - Cinematic color grading
+- WorldRender.MultisampleCount 1 - MSAA disabled by default (overridden at Quality 4)
+- WorldRender.TransparencyShadowmapsEnable 0 - Transparent object shadows off by default
+- WorldRender.ShadowmapsEnable true - Basic shadows always enabled
+- WorldRender.ShadowmapQuality 0 - Lowest shadow quality baseline
+- WorldRender.ShadowmapViewDistance 100 - 100m shadow draw distance
+- MovieTexture.Enable 0 - Video textures disabled (performance)
+- PostProcess.DynamicAOEnable 0 - Ambient occlusion off by default
+
+HBAO (Horizon-Based Ambient Occlusion) Performance Settings:
+- PostProcess.HbaoStepCount 3 - Ray march steps (lower = faster)
+- PostProcess.HbaoRandomTextureWidth 4 - Noise texture resolution
+- PostProcess.HbaoBilateralBlurSharpness 8 - Edge-preserving blur
+- PostProcess.HbaoDirCount 7 - Sampling directions
+Note: Artist/visual values configured separately in VisualEnvironments
+
+Quality Level 1 (Low):
+- Empty preset - only common settings applied
+- No enhancements beyond baseline
+
+Quality Level 2 (Medium):
+- WorldRender.FxaaEnable 1 - Fast post-process anti-aliasing
+- WorldRender.ShadowmapQuality 1 - Improved shadow filtering
+- VegetationSystem.ForceShadowLod 0 - Vegetation casts shadows at proper LOD
+
+Quality Level 3 (High):
+- WorldRender.TransparencyShadowmapsEnable 1 - Shadows from transparent surfaces
+- WorldRender.ShadowmapViewDistance 200 - Doubled to 200m
+- WorldRender.ShadowmapResolution 2048 - 2K shadow maps
+- WorldRender.ShadowmapQuality 1 - Enhanced filtering
+- WorldRender.FxaaEnable 1 - Anti-aliasing
+- WorldRender.MotionBlurEnable 1 - Camera motion blur
+- PostProcess.DynamicAOEnable 1 - Real-time ambient occlusion
+- ShaderSystem.MaxAnisotropy 16 - 16x anisotropic texture filtering
+- VegetationSystem.ForceShadowLod 0 - Full vegetation shadows
+
+Quality Level 4 (Ultra):
+- All Quality 3 settings PLUS:
+- WorldRender.MultisampleCount 4 - 4x MSAA (highest quality anti-aliasing)
+
+Why This Was Removed:
+1. Too Granular: 4-tier system provided in Alpha, later games simplified to 3 tiers or auto-detection
+2. MSAA Issues: MultisampleCount 4 was extremely expensive on consoles, removed from user control
+3. Preset Evolution: Later builds split these into separate toggles (Shadows, Effects, Post-Process)
+4. Console Optimization: Many settings needed per-platform hardcoding, not user control
+5. Performance Testing: Alpha revealed which settings were too expensive for user configuration
+
+Technical Evolution:
+After BF3 Alpha, shader settings were split into:
+- Separate shadow quality slider
+- Separate effects quality slider  
+- Separate post-processing options
+- Platform-specific presets (console vs PC)
+- Auto-detection based on GPU capability
+
+This monolithic shader preset system was too inflexible for the diverse PC hardware landscape and console limitations.
+[content]
+local quality = settings['ShaderQuality']
+
+local commonSettings = [=[
+
+	PostProcess.FilmicTonemappingEnable 1
+
+	WorldRender.MultisampleCount 1
+	WorldRender.TransparencyShadowmapsEnable 0
+	WorldRender.ShadowmapsEnable true
+	WorldRender.ShadowmapQuality 0
+	WorldRender.ShadowmapViewDistance 100
+
+	MovieTexture.Enable 0
+	PostProcess.DynamicAOEnable 0
+
+	// HBAO -	Performance-centric values
+	//			Artist/Visual values are in the VisualEnvironments
+	PostProcess.HbaoStepCount 3
+	PostProcess.HbaoRandomTextureWidth 4
+	PostProcess.HbaoBilateralBlurSharpness 8
+	PostProcess.HbaoDirCount 7	
+	
+]=]
+
+local qualitySettings = {
+	[1]=[=[
+
+	]=],
+
+
+	[2]=[=[
+
+		-- All default
+
+		WorldRender.FxaaEnable 1
+		WorldRender.ShadowmapQuality 1
+
+		VegetationSystem.ForceShadowLod 0
+
+	]=],
+
+	[3]=[=[
+		
+		WorldRender.TransparencyShadowmapsEnable 1
+		WorldRender.ShadowmapViewDistance 200
+		WorldRender.ShadowmapResolution 2048
+		WorldRender.ShadowmapQuality 1
+		WorldRender.FxaaEnable 1
+		WorldRender.MotionBlurEnable 1
+		PostProcess.DynamicAOEnable 1
+		ShaderSystem.MaxAnisotropy 16
+
+		VegetationSystem.ForceShadowLod 0
+
+	]=],
+
+	[4]=[=[
+
+		WorldRender.TransparencyShadowmapsEnable 1
+		WorldRender.ShadowmapViewDistance 200
+		WorldRender.ShadowmapResolution 2048
+		WorldRender.ShadowmapQuality 1
+		WorldRender.FxaaEnable 1
+		WorldRender.MotionBlurEnable 1
+		PostProcess.DynamicAOEnable 1		
+		ShaderSystem.MaxAnisotropy 16
+		
+		WorldRender.MultisampleCount 4
+
+		VegetationSystem.ForceShadowLod 0
+
+	]=]
+}
+
+log:info("setting shader quality : "..quality)
+
+applySettings(commonSettings)
+applySettings(qualitySettings[quality] or ")
+[/version]

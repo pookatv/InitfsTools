@@ -1,0 +1,44 @@
+[description]
+Core service module - handles core engine functionality requests.
+
+[version]
+2013 (Command & Conquer: Generals 2)
+[notes]
+Module for routing core engine requests to native code.
+
+Module Declaration:
+- module('shellmodules.core', package.seeall)
+
+Function: executeOriginRequest(requestArgs)
+Note: Function name 'executeOriginRequest' appears to be copy-paste error, should likely be 'executeCoreRequest'
+- Sets requestArgs._module = 'core'
+- Passes request to executeNativeShellModuleRequest()
+- Native engine handles core functionality
+
+Route Registration:
+- Pattern: /core/(.*)
+- Captures everything after /core/ as '_resource'
+- Example: /core/system/info → _resource = 'system/info'
+
+Core Services:
+Engine-level functionality not specific to other modules, such as:
+- System information
+- Performance metrics
+- Engine state queries
+- General utility functions
+[content]
+-- ShellModules.Core
+module( "shellmodules.core", package.seeall)
+
+function executeOriginRequest( requestArgs )
+  requestArgs._module = "core"
+
+  -- You could do some extra argument processing/filtering here before passing to the native engine to handle the actual origin request
+  -- Transfer to native code
+  executeNativeShellModuleRequest( requestArgs )
+end
+
+AddServiceRoutes( executeOriginRequest, {
+  { "/core/(.*)", {"_resource"} }
+})
+[/version]

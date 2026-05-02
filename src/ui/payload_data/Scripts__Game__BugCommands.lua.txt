@@ -1,0 +1,2055 @@
+[description]
+Bug reporting templates and QA debug commands - configures the in-game bug reporting system (B4Bug/BugDrone).
+
+[version]
+2011 (Battlefield 3)
+[notes]
+Original B4Bug implementation for Battlefield 3.
+
+Features:
+- StandardB4BugBug - Default bug template
+- Basic JIRA field mapping (Issue Type, Priority, Assignee, Language)
+- Player position tracking (soldier + camera positions)
+- PC hardware info collection (OS, GPU, driver version)
+- Changelist tracking (game + Frostbite versions)
+- Juice Session ID integration (EA's telemetry system)
+- Test commands for QA (rendering, animation, weapon debugging)
+
+Why it was simple: Early Battlefield games focused on PC with basic bug tracking needs.
+[content]
+Commands =
+{	
+	-- Bug needed for when using Trigger bug in B4Bug, info is used for all bugs
+	StandardB4BugBug =
+	{
+		Name = "Standard B4Bug bug",
+		Title = "Venice",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		IsStandardBug = true,
+		
+		Information =
+		{
+			"Field" , "Issue Type" , "Bug",
+			"Field" , "Priority" , "Minor (C, V3, L3)",
+			"Field" , "Assignee" , "Automatic",
+			"Field" , "Report Method" , "B4Bug",
+			"Field" , "Milestone Hindering" , "None",
+			"Field" , "Language" , "English",
+			"Field" , "User Path" , "Probable",
+			"RPCGet", "Game Level" , "LocalPlayer.getClientLevelName",
+			
+			"Field" , "Description" , "\nSoldier position: ",
+			"RPCGet", "Description" , "LocalPlayer.getPlayerPosition",
+			"Field" , "Description" , "\nCurrent camera position: ",
+			"RPCGet", "Description" , "DebugCam.getCurrentCameraPosition",
+			
+			"Field" , "Environment" , "\nOS Version: ",
+			"RPCGet", "Environment" , "BugManager.getOSInfo",
+			"Field" , "Environment" , "\nGPU description: ",
+			"RPCGet", "Environment" , "DxRenderer.AdapterDescription",
+			"Field" , "Environment" , "\nGPU driver version: ",
+			"RPCGet", "Environment" , "DxRenderer.AdapterDriverVersion",
+			
+			"RPCGet", "Platform" , "BugManager.getPlatform",
+			"RPCGet", "Reported By (Game Team)" , "BugManager.getReportedBy",
+			"RPCGet", "Found in Change List (Game)" , "BugManager.getChangelist",
+			"RPCGet", "Found in Change List (Frostbite)" , "BugManager.getFrostbiteChangelist",
+			"RPCGet" , "Juice Session ID" , "BugManager.getjuiceSessionId",
+		}
+	},
+		
+	TestBug1 =
+	{
+		Name = "Testbug",
+		Title = "Venice",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		
+		Information =
+		{
+		},
+		
+		RPCs =
+		{
+		},
+	},
+	
+	TestCommand1 = 
+	{
+		Name = "Testcommand 1",
+		Title = "Venice",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"DebugRender.DrawStatsEnable 1",
+			"UI.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"DebugRender.DrawStatsEnable 0",
+			"UI.DrawEnable 1",
+		},
+	},
+
+	TestCommand2 = 
+	{
+		Name = "Testcommand 2",
+		Title = "Venice",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"Debug.DrawScreenCenterHelper 1",
+			"Render.ForceFov 100",
+		},
+		
+		ReverseRPCs =
+		{
+			"Debug.DrawScreenCenterHelper 0",
+			"Render.ForceFov 65",
+		},
+	},
+	
+	AnimationCommand1 = 
+	{
+		Name = "Animation Test",
+		Title = "Venice",
+		Menu = "Animation",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"AntDebug.DrawSignals 1",
+			"UI.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"AntDebug.DrawSignals 0",
+			"UI.DrawEnable 1",
+		},
+	},
+
+	WeaponCommand1 = 
+	{
+		Name = "Show weapon info",
+		Title = "Venice",
+		Menu = "Weapons",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"Debug.DrawScreenCenterHelper 1",
+			"clientsoldier.debug.firingstats 1",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"Debug.DrawScreenCenterHelper 0",
+			"clientsoldier.debug.firingStats 0",
+		},
+	},	
+}
+[/version]
+
+[version]
+2012 (Need For Speed: The Run)
+[notes]
+Racing game adaptation - vehicle/track context instead of soldier positions.
+
+Changes from BF3:
+- Title changed: 'Venice' → 'NFS12'
+- Added Severity field: 'B - Major'
+- Added Build Type field
+- Removed: Assignee, Milestone Hindering
+- Racing-specific fields:
+  - LastCarType - Which car was being driven
+  - LastLocation - Track/location context
+  - juiceusertype - User type classification
+- Changed: 'Found in Change List' → 'Found CL'
+- Removed: Player position tracking (not relevant for racing)
+
+Why: Racing games needed vehicle/track context instead of soldier positions.
+[content]
+Commands =
+{	
+	-- Bug needed for when using Trigger bug in B4Bug, info is used for all bugs
+	StandardB4BugBug =
+	{
+		Name = "Standard B4Bug bug",
+		Title = "NFS12",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		IsStandardBug = true,
+		
+		Information =
+		{
+			"Field" , "Issue Type" , "Bug",
+			"Field" , "Priority" , "High",
+			"Field" , "Severity" , "B - Major",
+			"Field" , "Report Method" , "B4Bug",
+			"Field" , "User Path" , "Probable",
+			"Field" , "Build Type" , ",
+				
+			"RPCGet", "Platform" , "BugManager.getPlatform",
+			"RPCGet", "Found CL" , "BugManager.getChangelist",
+			"RPCGet", "Juice ID" , "BugManager.getJuiceSessionId",
+			"RPCGet", "juice session id" , "BugManager.getJuiceSessionId",
+			"RPCGet", "juiceusertype" , "BugManager.getJuiceUserType",
+			"RPCGet", "LastCarType" , "BugManager.getLastCarType",
+			"RPCGet", "LastLocation" , "BugManager.getLastLocation",
+		}
+	},
+		
+	TestBug1 =
+	{
+		Name = "Testbug",
+		Title = "Venice",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		
+		Information =
+		{
+		},
+		
+		RPCs =
+		{
+		},
+	},
+	
+	TestCommand1 = 
+	{
+		Name = "Testcommand 1",
+		Title = "Venice",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"DebugRender.DrawStatsEnable 1",
+			"UI.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"DebugRender.DrawStatsEnable 0",
+			"UI.DrawEnable 1",
+		},
+	},
+
+	TestCommand2 = 
+	{
+		Name = "Testcommand 2",
+		Title = "Venice",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"Debug.DrawScreenCenterHelper 1",
+			"Render.ForceFov 100",
+		},
+		
+		ReverseRPCs =
+		{
+			"Debug.DrawScreenCenterHelper 0",
+			"Render.ForceFov 65",
+		},
+	},
+	
+	AnimationCommand1 = 
+	{
+		Name = "Animation Test",
+		Title = "Venice",
+		Menu = "Animation",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"AntDebug.DrawSignals 1",
+			"UI.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"AntDebug.DrawSignals 0",
+			"UI.DrawEnable 1",
+		},
+	},
+
+	WeaponCommand1 = 
+	{
+		Name = "Show weapon info",
+		Title = "Venice",
+		Menu = "Weapons",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"Debug.DrawScreenCenterHelper 1",
+			"clientsoldier.debug.firingstats 1",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"Debug.DrawScreenCenterHelper 0",
+			"clientsoldier.debug.firingStats 0",
+		},
+	},	
+}
+[/version]
+
+[version]
+2012 (Medal of Honor: Warfighter)
+[notes]
+EA LA's custom template - massive QA field expansion.
+
+Major Changes:
+- Renamed: StandardB4BugBug → MOHWB4BugBug (studio-specific)
+- Title: 'Venice' → 'MOHW'
+- Added extensive QA metadata fields:
+  - Bug Type: 'QA Bug'
+  - Coverage Pillar: 'Functionality'
+  - Progress Status: 'Confirmed'
+  - Milestone Blocker: 'none'
+  - SKU Details: 'NA - English'
+  - Reproduction Rate: '100%'
+  - Times Attempted: '1'
+  - Mode: 'Global'
+  - Location: 'Global'
+  - Dev Priority: '5'
+- Template text added to Description:
+  'Found:\n- \n\nSteps to reproduce:\n- \n\nResult:\n- \n\nExpected result:\n- \n\nKeywords:\n- '
+- Restored player position tracking
+- Commented out old StandardB4BugBug template
+- Studio attribution: --//eala-begin / --//eala-end tags
+
+Why: EA Los Angeles had stricter QA processes requiring detailed bug classification and consistent formatting.
+[content]
+Commands =
+{	
+	-- Bug needed for when using Trigger bug in B4Bug, info is used for all bugs
+	--//eala-begin: numate - Creating new template for MOHW and commenting out unused Bug templates for safety
+	MOHWB4BugBug =
+	{
+		Name = "MOHW B4Bug bug",
+		Title = "MOHW",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		IsStandardBug = true,
+		
+		Information =
+		{
+			"Field" , "Issue Type" , "QA Bug",
+			"Field" , "Bug Type" , "QA Bug",
+			"Field" , "Severity" , "TBD",
+			"Field" , "Coverage Pillar" , "Functionality",
+			"Field" , "Assignee" , "Automatic",
+			"Field" , "Report Method" , "B4Bug",
+			"Field" , "Progress Status" , "Confirmed",
+			"Field" , "Milestone Blocker" , "none",
+			"Field" , "SKU Details" , "NA - English",
+			"Field" , "User Path" , "2 - Probable",
+			"Field" , "Dev Priority" , "5",
+			"Field" , "Mode" , "Global",
+			"Field" , "Location" , "Global",
+			"Field" , "Reproduction Rate" , "100%",
+			"Field" , "Times Attempted" , "1",
+
+			"Field" , "Description" , "Level Name: ",
+			"RPCGet", "Description" , "LocalPlayer.getClientLevelName",			
+			"Field" , "Description" , "\nSoldier position: ",
+			"RPCGet", "Description" , "LocalPlayer.getPlayerPosition",
+			"Field" , "Description" , "\nCurrent camera position: ",
+			"RPCGet", "Description" , "DebugCam.getCurrentCameraPosition",
+			
+			-- Print Environment
+			"Field" , "Description" , "\nOS Version: ",
+			"RPCGet", "Description" , "BugManager.getOSInfo",
+			"Field" , "Description" , "\nGPU description: ",
+			"RPCGet", "Description" , "DxRenderer.AdapterDescription",
+			"Field" , "Description" , "\nGPU driver version: ",
+			"RPCGet", "Description" , "DxRenderer.AdapterDriverVersion",
+
+			-- Print Template
+			"Field" , "Description" , "\n\nFound:\n- \n\nSteps to reproduce:\n- \n\nResult:\n- \n\nExpected result:\n- \n\nKeywords:\n- ",
+
+			-- Save Environment
+			"Field" , "Environment" , "OS Version: ",
+			"RPCGet", "Environment" , "BugManager.getOSInfo",
+			"Field" , "Environment" , "\nGPU description: ",
+			"RPCGet", "Environment" , "DxRenderer.AdapterDescription",
+			"Field" , "Environment" , "\nGPU driver version: ",
+			"RPCGet", "Environment" , "DxRenderer.AdapterDriverVersion",
+			
+			"RPCGet", "Platform" , "BugManager.getPlatform",
+			"RPCGet", "Reported By (Game Team)" , "BugManager.getReportedBy",
+			"RPCGet", "Version Found" , "BugManager.getChangelist",
+			"RPCGet", "Found in Change List (Frostbite)" , "BugManager.getFrostbiteChangelist",
+			"RPCGet", "Juice Session ID" , "BugManager.getjuiceSessionId",
+		}
+	},
+	--[[
+	StandardB4BugBug =
+	{
+		Name = "Standard B4Bug bug",
+		Title = "MOHW",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		IsStandardBug = true,
+		
+		Information =
+		{
+			"Field" , "Issue Type" , "Bug",
+			"Field" , "Priority" , "Minor (C, V3, L3)",
+			"Field" , "Assignee" , "Automatic",
+			"Field" , "Report Method" , "B4Bug",
+			"Field" , "Milestone Hindering" , "None",
+			"Field" , "Language" , "English",
+			"Field" , "User Path" , "Probable",
+			"RPCGet", "Game Level" , "LocalPlayer.getClientLevelName",
+
+			"Field" , "Description" , "\nSoldier position: ",
+			"RPCGet", "Description" , "LocalPlayer.getPlayerPosition",
+			"Field" , "Description" , "\nCurrent camera position: ",
+			"RPCGet", "Description" , "DebugCam.getCurrentCameraPosition",
+			
+			"Field" , "Environment" , "\nOS Version: ",
+			"RPCGet", "Environment" , "BugManager.getOSInfo",
+			"Field" , "Environment" , "\nGPU description: ",
+			"RPCGet", "Environment" , "DxRenderer.AdapterDescription",
+			"Field" , "Environment" , "\nGPU driver version: ",
+			"RPCGet", "Environment" , "DxRenderer.AdapterDriverVersion",
+			
+			"RPCGet", "Platform" , "BugManager.getPlatform",
+			"RPCGet", "Reported By (Game Team)" , "BugManager.getReportedBy",
+			"RPCGet", "Found in Change List (Game)" , "BugManager.getChangelist",
+			"RPCGet", "Found in Change List (Frostbite)" , "BugManager.getFrostbiteChangelist",
+			"RPCGet", "Juice Session ID" , "BugManager.getjuiceSessionId",
+		}
+	},
+		
+	TestBug1 =
+	{
+		Name = "Testbug",
+		Title = "MOHW",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		
+		Information =
+		{
+		},
+		
+		RPCs =
+		{
+		},
+	},
+	--]]
+	--//eala-end
+	TestCommand1 = 
+	{
+		Name = "Testcommand 1",
+		Title = "MOHW",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"DebugRender.DrawStatsEnable 1",
+			"UI.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"DebugRender.DrawStatsEnable 0",
+			"UI.DrawEnable 1",
+		},
+	},
+
+	TestCommand2 = 
+	{
+		Name = "Testcommand 2",
+		Title = "MOHW",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"Debug.DrawScreenCenterHelper 1",
+			"Render.ForceFov 100",
+		},
+		
+		ReverseRPCs =
+		{
+			"Debug.DrawScreenCenterHelper 0",
+			"Render.ForceFov 65",
+		},
+	},
+	
+	AnimationCommand1 = 
+	{
+		Name = "Animation Test",
+		Title = "MOHW",
+		Menu = "Animation",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"AntDebug.DrawSignals 1",
+			"UI.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"AntDebug.DrawSignals 0",
+			"UI.DrawEnable 1",
+		},
+	},
+
+	WeaponCommand1 = 
+	{
+		Name = "Show weapon info",
+		Title = "MOHW",
+		Menu = "Weapons",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"Debug.DrawScreenCenterHelper 1",
+			"clientsoldier.debug.firingstats 1",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"Debug.DrawScreenCenterHelper 0",
+			"clientsoldier.debug.firingStats 0",
+		},
+	},	
+}
+[/version]
+
+[version]
+2013 (Command & Conquer: Generals 2)
+[notes]
+Simplified template - reverted MOHW complexity.
+
+Changes from MOHW:
+- Back to StandardB4BugBug naming
+- Title: 'CNCO_DL' (Generals 2 codename)
+- Removed most MOHW complexity
+- Changed Issue Type: 'Bug' → 'QA Bug'
+- Added Sub Project field: 'Back to the Future'
+- Changed 'Game Level' → 'Description' with 'Game.level' API
+- Simplified bug template in Description field
+- Changed 'Found in Change List (Game)' → 'Version Found'
+- Removed extensive QA metadata fields
+
+Why: C&C was cancelled mid-development; they reverted to a simpler system.
+[content]
+Commands =
+{	
+	-- Bug needed for when using Trigger bug in B4Bug, info is used for all bugs
+	StandardB4BugBug =
+	{
+		Name = "B4Bug",
+		Title = "CNCO_DL",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		IsStandardBug = true,
+		
+		Information =
+		{
+			"Field" , "Issue Type" , "QA Bug",
+			"Field" , "Severity" , "C - Minor",
+			"Field" , "Assigned To" , "+QA Leadership",
+			"Field" , "Progress Status" , "Unconfirmed",
+			"Field" , "Report Method" , "B4Bug",
+			"Field" , "Milestone Hindering" , "None",
+			"Field" , "Language" , "English",
+			"Field" , "User Path" , "3 - Common",
+			"RPCGet", "Version Found" , "BugManager.getChangelist",
+			"RPCGet", "Game Level" , "LocalPlayer.getClientLevelName",
+			
+			"Field" , "Description" , "Found:\n\nSteps to Reproduce:\n-\n-\n-\n\nResults:\n\nExpectation:\n\nKeywords:\n",
+
+			"Field" , "Description" , "ChangeList: ",
+			"RPCGet", "Description" , "BugManager.getChangelist",
+			
+			"Field" , "Description" , "\n",
+			
+			"Field" , "Description" , "\nGameConfig: ",
+			"Field" , "Description" , "\nCurrent Level: ",
+			"RPCGet", "Description" , "Game.level",
+			
+
+			"Field" , "Environment" , "\nOS Version: ",
+			"RPCGet", "Environment" , "BugManager.getOSInfo",
+			"Field" , "Environment" , "\nGPU description: ",
+			"RPCGet", "Environment" , "DxRenderer.AdapterDescription",
+			"Field" , "Environment" , "\nGPU driver version: ",
+			"RPCGet", "Environment" , "DxRenderer.AdapterDriverVersion",
+			
+			"Field" , "Sub Project" , "Back to the Future",
+			
+			"RPCGet", "Platform" , "BugManager.getPlatform",
+			"RPCGet", "Reported By (Game Team)" , "BugManager.getReportedBy",
+			"RPCGet", "Found in Change List (Game)" , "BugManager.getChangelist",
+			"RPCGet", "Found in Change List (Frostbite)" , "BugManager.getFrostbiteChangelist",
+			"RPCGet" , "Juice Session ID" , "BugManager.getjuiceSessionId",
+		}
+	},
+		
+	TestBug1 =
+	{
+		Name = "Testbug",
+		Title = "CNCO_DL",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		
+		Information =
+		{
+		},
+		
+		RPCs =
+		{
+		},
+	},
+	
+	TestCommand1 = 
+	{
+		Name = "Testcommand 1",
+		Title = "CNCO_DL",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"DebugRender.DrawStatsEnable 1",
+			"UI.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"DebugRender.DrawStatsEnable 0",
+			"UI.DrawEnable 1",
+		},
+	},
+
+	TestCommand2 = 
+	{
+		Name = "Testcommand 2",
+		Title = "CNCO_DL",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"Debug.DrawScreenCenterHelper 1",
+			"Render.ForceFov 100",
+		},
+		
+		ReverseRPCs =
+		{
+			"Debug.DrawScreenCenterHelper 0",
+			"Render.ForceFov 65",
+		},
+	},
+	
+	AnimationCommand1 = 
+	{
+		Name = "Animation Test",
+		Title = "CNCO_DL",
+		Menu = "Animation",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"AntDebug.DrawSignals 1",
+			"UI.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"AntDebug.DrawSignals 0",
+			"UI.DrawEnable 1",
+		},
+	},
+
+	WeaponCommand1 = 
+	{
+		Name = "Show weapon info",
+		Title = "CNCO_DL",
+		Menu = "Weapons",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"Debug.DrawScreenCenterHelper 1",
+			"clientsoldier.debug.firingstats 1",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"Debug.DrawScreenCenterHelper 0",
+			"clientsoldier.debug.firingStats 0",
+		},
+	},	
+}
+[/version]
+
+[version]
+2013 (Battlefield 4)
+[notes]
+Session tracking + forward tracing era.
+
+New Features:
+- SessionOId tracking in Description (online session ID)
+- Frostbite Release version in Description
+- Forward tracing via RPCs: 'BugManager.forwardTrace'
+- TestBug2 (Biometricsbug) with RPCHandler
+- WeaponCommand2: 'LocalPlayer.setNextAvailableWeaponFromSet'
+
+Why: BF4's online multiplayer focus required session tracking for debugging multiplayer bugs. Forward tracing captured complete game state at the moment of bug reporting.
+[content]
+Commands =
+{	
+	-- Bug needed for when using Trigger bug in B4Bug, info is used for all bugs
+	StandardB4BugBug =
+	{
+		Name = "Standard B4Bug bug",
+		Title = "Venice",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		IsStandardBug = true,
+		
+		Information =
+		{
+			"Field" , "Issue Type" , "Bug",
+			"Field" , "Priority" , "Minor (C, V3, L3)",
+			"Field" , "Assignee" , "Automatic",
+			"Field" , "Report Method" , "B4Bug",
+			"Field" , "Milestone Hindering" , "None",
+			"Field" , "Language" , "English",
+			"Field" , "User Path" , "Probable",
+			"RPCGet", "Game Level" , "LocalPlayer.getClientLevelName",
+			
+			"Field" , "Description" , "\nSessionOId: ",
+			"RPCGet", "Description" , "BugManager.getSessionOId",
+			"Field" , "Description" , "\nFrostbite Release: ",
+			"RPCGet", "Description" , "BugManager.getFrostbiteRelease",
+			"Field" , "Description" , "\nSoldier position: ",
+			"RPCGet", "Description" , "LocalPlayer.getPlayerPosition",
+			"Field" , "Description" , "\nCurrent camera position: ",
+			"RPCGet", "Description" , "DebugCam.getCurrentCameraPosition",
+			
+			"Field" , "Environment" , "\nOS Version: ",
+			"RPCGet", "Environment" , "BugManager.getOSInfo",
+			"Field" , "Environment" , "\nGPU description: ",
+			"RPCGet", "Environment" , "DxRenderer.AdapterDescription",
+			"Field" , "Environment" , "\nGPU driver version: ",
+			"RPCGet", "Environment" , "DxRenderer.AdapterDriverVersion",
+			
+			"RPCGet", "Platform" , "BugManager.getPlatform",
+			"RPCGet", "Reported By (Game Team)" , "BugManager.getReportedBy",
+			"RPCGet", "Found in Change List (Game)" , "BugManager.getChangelist",
+			"RPCGet", "Found in Change List (Frostbite)" , "BugManager.getFrostbiteChangelist",
+			"RPCGet" , "Juice Session ID" , "BugManager.getjuiceSessionId",
+		},
+		
+		RPCs =
+		{
+			"BugManager.forwardTrace",
+		},
+	},
+		
+	TestBug1 =
+	{
+		Name = "Testbug",
+		Title = "Venice",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		
+		Information =
+		{
+		},
+		
+		RPCs =
+		{
+		},
+	},
+	
+	TestBug2 =
+	{
+		Name = "Biometricsbug",
+		Title = "Warsaw",
+		Menu = "Bugs",
+		AutoB4Bug = false,
+		
+		Information =
+		{
+		},
+		
+		RPCs =
+		{
+			"BugManager.RPCHandler"
+		},
+	},
+	
+	TestCommand1 = 
+	{
+		Name = "Testcommand 1",
+		Title = "Venice",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"DebugRender.DrawStatsEnable 1",
+			"UI.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"DebugRender.DrawStatsEnable 0",
+			"UI.DrawEnable 1",
+		},
+	},
+
+	TestCommand2 = 
+	{
+		Name = "Testcommand 2",
+		Title = "Venice",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"Debug.DrawScreenCenterHelper 1",
+			"Render.ForceFov 100",
+		},
+		
+		ReverseRPCs =
+		{
+			"Debug.DrawScreenCenterHelper 0",
+			"Render.ForceFov 65",
+		},
+	},
+	
+	AnimationCommand1 = 
+	{
+		Name = "Animation Test",
+		Title = "Venice",
+		Menu = "Animation",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"AntDebug.DrawSignals 1",
+			"UI.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"AntDebug.DrawSignals 0",
+			"UI.DrawEnable 1",
+		},
+	},
+
+	WeaponCommand1 = 
+	{
+		Name = "Show weapon info",
+		Title = "Venice",
+		Menu = "Weapons",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"Debug.DrawScreenCenterHelper 1",
+			"clientsoldier.debug.firingstats 1",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"Debug.DrawScreenCenterHelper 0",
+			"clientsoldier.debug.firingStats 0",
+		},
+	},	
+
+	WeaponCommand2 = 
+	{
+		Name = "Set next weapon",
+		Title = "Venice",
+		Menu = "Weapons",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+		    "LocalPlayer.setNextAvailableWeaponFromSet",
+		},
+		
+		ReverseRPCs =
+		{
+		},
+	},	
+}
+[/version]
+
+[version]
+2013 (Need For Speed Rivals)
+[notes]
+Crash detection system - revolutionary feature.
+
+New Features:
+- CrashOnlyInformation block - Severity 'A' for crashes
+- NotCrashOnlyInformation block - Severity 'C' for non-crashes
+- Racing-specific position APIs:
+  - Co-ordinates: 'Client.debugPrintPlayerPos'
+  - Camera Position: 'Client.debugPrintCameraTransform'
+- Pre-filled bug template with formatting guidelines
+- Changed Issue Type to 'QA Bug'
+- Progress Status: 'Unconfirmed'
+- Assigned To: '+Unconfirmed'
+
+Why: NFS Rivals had major crash issues at launch. This system automatically classified severity and improved crash reporting quality.
+[content]
+Commands =
+{	
+	-- Bug needed for when using Trigger bug in B4Bug, info is used for all bugs
+	StandardB4BugBug =
+	{
+		Name = "Standard B4Bug bug",
+		Title = "Jupiter",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		IsStandardBug = true,
+		
+		-- Information to be used in all bugs
+		Information =
+		{
+			"Field" , "Issue Type" , "QA Bug",
+			"Field" , "Progress Status" , "Unconfirmed",
+			"Field" , "Assigned To" , "+Unconfirmed",
+			"Field" , "Language" , "English",
+			"RPCGet", "Platform" , "BugManager.getPlatform",
+
+			"Field" , "Description" , "\nFrostbite Release: ",
+			"RPCGet", "Description" , "BugManager.getFrostbiteRelease",
+			"Field" , "Summary" , "Sub-Project - Area - Concise description of the bug",
+			
+			"Field" , "Description" , "Copy and Paste Summary here\n\n",
+			"Field" , "Description" , "- Enter lines of description. Add or delete lines as needed but ensure you keep the \"-\" at the start\n",
+			"Field" , "Description" , "- Enter lines of description. Add or delete lines as needed but ensure you keep the \"-\" at the start\n",
+			"Field" , "Description" , "- Enter lines of description. Add or delete lines as needed but ensure you keep the \"-\" at the start\n",
+			"Field" , "Description" , "* Write the resulting Bug here and include the expected result if appropriate\n\n",
+			"Field" , "Description" , "- Car Used\n- Track / Event\n",
+			
+			
+			"RPCGet", "Co-ordinates" , "Client.debugPrintPlayerPos",
+			"RPCGet", "Camera Position" , "Client.debugPrintCameraTransform",
+		},
+
+		-- Information which should only be sent on crash bugs
+		CrashOnlyInformation = 
+		{
+			"Field" , "Severity" , "A",
+			
+		},
+
+		-- Information which should only be sent on non-crash bugs
+		NotCrashOnlyInformation = 
+		{
+			"Field" , "Severity" , "C",
+		},
+		
+		RPCs =
+		{
+			"BugManager.forwardTrace",
+		},
+	},
+		
+	TestBug1 =
+	{
+		Name = "Testbug",
+		Title = "Jupiter",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		
+		Information =
+		{
+		},
+		
+		RPCs =
+		{
+		},
+	},
+	
+	TestCommand1 = 
+	{
+		Name = "Testcommand 1",
+		Title = "Venice",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"DebugRender.DrawStatsEnable 1",
+			"UI.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"DebugRender.DrawStatsEnable 0",
+			"UI.DrawEnable 1",
+		},
+	},
+
+	TestCommand2 = 
+	{
+		Name = "Testcommand 2",
+		Title = "Venice",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"Debug.DrawScreenCenterHelper 1",
+			"Render.ForceFov 100",
+		},
+		
+		ReverseRPCs =
+		{
+			"Debug.DrawScreenCenterHelper 0",
+			"Render.ForceFov 65",
+		},
+	},
+	
+	AnimationCommand1 = 
+	{
+		Name = "Animation Test",
+		Title = "Venice",
+		Menu = "Animation",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"AntDebug.DrawSignals 1",
+			"UI.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"AntDebug.DrawSignals 0",
+			"UI.DrawEnable 1",
+		},
+	},
+
+	WeaponCommand1 = 
+	{
+		Name = "Show weapon info",
+		Title = "Venice",
+		Menu = "Weapons",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"Debug.DrawScreenCenterHelper 1",
+			"clientsoldier.debug.firingstats 1",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"Debug.DrawScreenCenterHelper 0",
+			"clientsoldier.debug.firingStats 0",
+		},
+	},	
+}
+[/version]
+
+[version]
+2014 (Battlefield Hardline - Gamescom)
+[notes]
+Structured bug templates + camera URL tracking.
+
+New Features:
+- Structured bug template in Description:
+  '\n\nTo reproduce: '
+  '\n\nResult: '
+  '\n\nExpected: '
+- Camera URL: 'DebugCam.getCameraURL'
+- Dev Priority field: '0 - Not Set'
+- Platform API changed: 'BugManager.getPlatform' → 'BugManager.getB4BugPlatform'
+- Version Found field added
+- 'ENTERED VIA B4BUG' marker in Description
+
+Why: Pre-release Gamescom demo needed better bug communication. Template enforced clear reproduction steps, results, and expectations.
+[content]
+Commands =
+{	
+	-- Bug needed for when using Trigger bug in B4Bug, info is used for all bugs
+	StandardB4BugBug =
+	{
+		Name = "Standard B4Bug bug",
+		Title = "Havana",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		IsStandardBug = true,
+		
+		Information =
+		{
+			"Field" , "Issue Type" , "Bug",
+			"Field" , "Priority" , "Minor (C, V3, L3)",
+			"Field" , "Assignee" , "Automatic",
+			"Field" , "Report Method" , "B4Bug",
+			"Field" , "Milestone Hindering" , "None",
+			"Field" , "Language" , "English",
+			"Field" , "User Path" , "Probable",
+			"Field" , "Dev Priority" , "0 - Not Set",
+			"RPCGet", "Game Level" , "LocalPlayer.getClientLevelName",
+			
+			"RPCGet", "Version Found" , "BugManager.getChangelist",
+			
+			"Field" , "Description" , "\n\nTo reproduce: ",
+			"Field" , "Description" , "\n\nResult: ",
+			"Field" , "Description" , "\n\nExpected: ",
+
+			"Field" , "Description" , "\n\nENTERED VIA B4BUG",
+			"Field" , "Description" , "\nJuice Session ID: ",
+			"RPCGet", "Description" , "BugManager.getjuiceSessionId",
+			"Field" , "Description" , "\nSessionOId: ",
+			"RPCGet", "Description" , "BugManager.getSessionOId",
+			"Field" , "Description" , "\nFrostbite Release: ",
+			"RPCGet", "Description" , "BugManager.getFrostbiteRelease",
+			"Field" , "Description" , "\nSoldier position: ",
+			"RPCGet", "Description" , "LocalPlayer.getPlayerPosition",
+			"Field" , "Description" , "\nCurrent camera position: ",
+			"RPCGet", "Description" , "DebugCam.getCurrentCameraPosition",
+			"Field" , "Description" , "\nCurrent camera URL: ",
+			"RPCGet", "Description" , "DebugCam.getCameraURL",
+
+			"Field" , "Environment" , "\nOS Version: ",
+			"RPCGet", "Environment" , "BugManager.getOSInfo",
+			"Field" , "Environment" , "\nGPU description: ",
+			"RPCGet", "Environment" , "DxRenderer.AdapterDescription",
+			"Field" , "Environment" , "\nGPU driver version: ",
+			"RPCGet", "Environment" , "DxRenderer.AdapterDriverVersion",
+			
+			"RPCGet", "Platform" , "BugManager.getB4BugPlatform",
+			"RPCGet", "Reported By (Game Team)" , "BugManager.getReportedBy",
+			"RPCGet", "Found in Change List (Game)" , "BugManager.getChangelist",
+			"RPCGet", "Found in Change List (Frostbite)" , "BugManager.getFrostbiteChangelist",
+		},
+		
+		RPCs =
+		{
+			"BugManager.forwardTrace",
+		},
+	},
+		
+	TestBug1 =
+	{
+		Name = "Testbug",
+		Title = "Havana",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		
+		Information =
+		{
+		},
+		
+		RPCs =
+		{
+		},
+	},
+	
+	TestBug2 =
+	{
+		Name = "Biometricsbug",
+		Title = "Havana",
+		Menu = "Bugs",
+		AutoB4Bug = false,
+		
+		Information =
+		{
+		},
+		
+		RPCs =
+		{
+			"BugManager.RPCHandler"
+		},
+	},
+	
+	TestCommand1 = 
+	{
+		Name = "Testcommand 1",
+		Title = "Havana",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"DebugRender.DrawStatsEnable 1",
+			"UI.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"DebugRender.DrawStatsEnable 0",
+			"UI.DrawEnable 1",
+		},
+	},
+
+	TestCommand2 = 
+	{
+		Name = "Testcommand 2",
+		Title = "Havana",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"Debug.DrawScreenCenterHelper 1",
+			"Render.ForceFov 100",
+		},
+		
+		ReverseRPCs =
+		{
+			"Debug.DrawScreenCenterHelper 0",
+			"Render.ForceFov 65",
+		},
+	},
+	
+	AnimationCommand1 = 
+	{
+		Name = "Animation Test",
+		Title = "Havana",
+		Menu = "Animation",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"AntDebug.DrawSignals 1",
+			"UI.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"AntDebug.DrawSignals 0",
+			"UI.DrawEnable 1",
+		},
+	},
+
+	WeaponCommand1 = 
+	{
+		Name = "Show weapon info",
+		Title = "Havana",
+		Menu = "Weapons",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"Debug.DrawScreenCenterHelper 1",
+			"clientsoldier.debug.firingstats 1",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"Debug.DrawScreenCenterHelper 0",
+			"clientsoldier.debug.firingStats 0",
+		},
+	},	
+
+	WeaponCommand2 = 
+	{
+		Name = "Set next weapon",
+		Title = "Venice",
+		Menu = "Weapons",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+		    "LocalPlayer.setNextAvailableWeaponFromSet",
+		},
+		
+		ReverseRPCs =
+		{
+		},
+	},	
+}
+[/version]
+
+[version]
+2014 (Battlefield Hardline - Retail)
+[notes]
+Clickable error log URL - massive QA time-saver.
+
+Critical Addition:
+- Auto-generated clickable Errorlog URL to EA's biometrics system:
+  'http://visbiometrics.rws.ad.ea.com/Havana/?CurrentPlugin=EA.ErrorLogPlugin.ErrorSummary&ErrorRange=last4hours&BuildRange=all&JuiceSessionId='
+- ErrorLog Location: 'BugManager.getErrorLogLocation'
+
+Why: This automatically created a direct link to error logs in EA's telemetry system, saving QA massive amounts of time tracking down crash data.
+[content]
+Commands =
+{	
+	-- Bug needed for when using Trigger bug in B4Bug, info is used for all bugs
+	StandardB4BugBug =
+	{
+		Name = "Standard B4Bug bug",
+		Title = "Havana",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		IsStandardBug = true,
+		
+		Information =
+		{
+			"Field" , "Issue Type" , "Bug",
+			"Field" , "Priority" , "Minor (C, V3, L3)",
+			"Field" , "Assignee" , "Automatic",
+			"Field" , "Report Method" , "B4Bug",
+			"Field" , "Milestone Hindering" , "None",
+			"Field" , "Language" , "English",
+			"Field" , "User Path" , "Probable",
+			"Field" , "Dev Priority" , "0 - Not Set",
+			"RPCGet", "Game Level" , "LocalPlayer.getClientLevelName",
+			
+			"RPCGet", "Version Found" , "BugManager.getChangelist",
+			
+			"Field" , "Description" , "\n\nTo reproduce: ",
+			"Field" , "Description" , "\n\nResult: ",
+			"Field" , "Description" , "\n\nExpected: ",
+
+			"Field" , "Description" , "\n\nENTERED VIA B4BUG",
+			"Field" , "Description" , "\nJuice Session ID: ",
+			"RPCGet", "Description" , "BugManager.getjuiceSessionId",
+			"Field" , "Description" , "\nErrorlog URL:  http://visbiometrics.rws.ad.ea.com/Havana/?CurrentPlugin=EA.ErrorLogPlugin.ErrorSummary&ErrorRange=last4hours&BuildRange=all&JuiceSessionId=",
+			"RPCGet", "Description" , "BugManager.getjuiceSessionId",
+			"Field" , "Description" , "&Location=",
+			"RPCGet", "Description" , "BugManager.getErrorLogLocation",
+
+			"Field" , "Description" , "\nSessionOId: ",
+			"RPCGet", "Description" , "BugManager.getSessionOId",
+			"Field" , "Description" , "\nFrostbite Release: ",
+			"RPCGet", "Description" , "BugManager.getFrostbiteRelease",
+			"Field" , "Description" , "\nSoldier position: ",
+			"RPCGet", "Description" , "LocalPlayer.getPlayerPosition",
+			"Field" , "Description" , "\nCurrent camera position: ",
+			"RPCGet", "Description" , "DebugCam.getCurrentCameraPosition",
+			"Field" , "Description" , "\nCurrent camera URL: ",
+			"RPCGet", "Description" , "DebugCam.getCameraURL",
+			
+			"Field" , "Environment" , "\nOS Version: ",
+			"RPCGet", "Environment" , "BugManager.getOSInfo",
+			"Field" , "Environment" , "\nGPU description: ",
+			"RPCGet", "Environment" , "DxRenderer.AdapterDescription",
+			"Field" , "Environment" , "\nGPU driver version: ",
+			"RPCGet", "Environment" , "DxRenderer.AdapterDriverVersion",
+			
+			"RPCGet", "Platform" , "BugManager.getB4BugPlatform",
+			"RPCGet", "Reported By (Game Team)" , "BugManager.getReportedBy",
+			"RPCGet", "Found in Change List (Game)" , "BugManager.getChangelist",
+			"RPCGet", "Found in Change List (Frostbite)" , "BugManager.getFrostbiteChangelist",
+		},
+		
+		RPCs =
+		{
+			"BugManager.forwardTrace",
+		},
+	},
+		
+	TestBug1 =
+	{
+		Name = "Testbug",
+		Title = "Havana",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		
+		Information =
+		{
+		},
+		
+		RPCs =
+		{
+		},
+	},
+	
+	TestBug2 =
+	{
+		Name = "Biometricsbug",
+		Title = "Havana",
+		Menu = "Bugs",
+		AutoB4Bug = false,
+		
+		Information =
+		{
+		},
+		
+		RPCs =
+		{
+			"BugManager.RPCHandler"
+		},
+	},
+	
+	TestCommand1 = 
+	{
+		Name = "Testcommand 1",
+		Title = "Havana",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"DebugRender.DrawStatsEnable 1",
+			"UI.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"DebugRender.DrawStatsEnable 0",
+			"UI.DrawEnable 1",
+		},
+	},
+
+	TestCommand2 = 
+	{
+		Name = "Testcommand 2",
+		Title = "Havana",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"Debug.DrawScreenCenterHelper 1",
+			"Render.ForceFov 100",
+		},
+		
+		ReverseRPCs =
+		{
+			"Debug.DrawScreenCenterHelper 0",
+			"Render.ForceFov 65",
+		},
+	},
+	
+	AnimationCommand1 = 
+	{
+		Name = "Animation Test",
+		Title = "Havana",
+		Menu = "Animation",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"AntDebug.DrawSignals 1",
+			"UI.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"AntDebug.DrawSignals 0",
+			"UI.DrawEnable 1",
+		},
+	},
+
+	WeaponCommand1 = 
+	{
+		Name = "Show weapon info",
+		Title = "Havana",
+		Menu = "Weapons",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"Debug.DrawScreenCenterHelper 1",
+			"clientsoldier.debug.firingstats 1",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"Debug.DrawScreenCenterHelper 0",
+			"clientsoldier.debug.firingStats 0",
+		},
+	},	
+
+	WeaponCommand2 = 
+	{
+		Name = "Set next weapon",
+		Title = "Venice",
+		Menu = "Weapons",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+		    "LocalPlayer.setNextAvailableWeaponFromSet",
+		},
+		
+		ReverseRPCs =
+		{
+		},
+	},	
+}
+[/version]
+
+[version]
+2014-2016 (Mainline Standardization)
+[notes]
+Unified template for all Frostbite games.
+
+Games Using This Version:
+- Plants vs Zombies: Garden Warfare (2014)
+- Dragon Age: Inquisition (2014)
+- Need For Speed (2015)
+- PGA Tour (2015)
+- Star Wars Battlefront (2015)
+- Battlefield 1 (2016)
+- Battlefield V (2018)
+- Battlefield 2042 (2021)
+- Mirror's Edge Catalyst (2016)
+
+Changes from Hardline:
+- Removed error log URL (game-specific)
+- Removed structured template text
+- Removed camera URL
+- Removed Dev Priority
+- Removed TestBug2 and WeaponCommand2
+- Back to 'BugManager.getPlatform' (from getB4BugPlatform)
+- Title reverted to 'Venice'
+
+Why: EA wanted consistency across all studios. One unified bug format for all games - removed game-specific customizations for simplicity.
+[content]
+Commands =
+{	
+	-- Bug needed for when using Trigger bug in B4Bug, info is used for all bugs
+	StandardB4BugBug =
+	{
+		Name = "Standard B4Bug bug",
+		Title = "Venice",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		IsStandardBug = true,
+		
+		Information =
+		{
+			"Field" , "Issue Type" , "Bug",
+			"Field" , "Priority" , "Minor (C, V3, L3)",
+			"Field" , "Assignee" , "Automatic",
+			"Field" , "Report Method" , "B4Bug",
+			"Field" , "Milestone Hindering" , "None",
+			"Field" , "Language" , "English",
+			"Field" , "User Path" , "Probable",
+			"RPCGet", "Game Level" , "LocalPlayer.getClientLevelName",
+			
+			"Field" , "Description" , "\nSessionOId: ",
+			"RPCGet", "Description" , "BugManager.getSessionOId",
+			"Field" , "Description" , "\nFrostbite Release: ",
+			"RPCGet", "Description" , "BugManager.getFrostbiteRelease",
+			"Field" , "Description" , "\nSoldier position: ",
+			"RPCGet", "Description" , "LocalPlayer.getPlayerPosition",
+			"Field" , "Description" , "\nCurrent camera position: ",
+			"RPCGet", "Description" , "DebugCam.getCurrentCameraPosition",
+			
+			"Field" , "Environment" , "\nOS Version: ",
+			"RPCGet", "Environment" , "BugManager.getOSInfo",
+			"Field" , "Environment" , "\nGPU description: ",
+			"RPCGet", "Environment" , "DxRenderer.AdapterDescription",
+			"Field" , "Environment" , "\nGPU driver version: ",
+			"RPCGet", "Environment" , "DxRenderer.AdapterDriverVersion",
+			
+			"RPCGet", "Platform" , "BugManager.getPlatform",
+			"RPCGet", "Reported By (Game Team)" , "BugManager.getReportedBy",
+			"RPCGet", "Found in Change List (Game)" , "BugManager.getChangelist",
+			"RPCGet", "Found in Change List (Frostbite)" , "BugManager.getFrostbiteChangelist",
+			"RPCGet" , "Juice Session ID" , "BugManager.getjuiceSessionId",
+		},
+		
+		RPCs =
+		{
+			"BugManager.forwardTrace",
+		},
+	},
+		
+	TestBug1 =
+	{
+		Name = "Testbug",
+		Title = "Venice",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		
+		Information =
+		{
+		},
+		
+		RPCs =
+		{
+		},
+	},
+	
+	TestCommand1 = 
+	{
+		Name = "Testcommand 1",
+		Title = "Venice",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"DebugRender.DrawStatsEnable 1",
+			"UI.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"DebugRender.DrawStatsEnable 0",
+			"UI.DrawEnable 1",
+		},
+	},
+
+	TestCommand2 = 
+	{
+		Name = "Testcommand 2",
+		Title = "Venice",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"Debug.DrawScreenCenterHelper 1",
+			"Render.ForceFov 100",
+		},
+		
+		ReverseRPCs =
+		{
+			"Debug.DrawScreenCenterHelper 0",
+			"Render.ForceFov 65",
+		},
+	},
+	
+	AnimationCommand1 = 
+	{
+		Name = "Animation Test",
+		Title = "Venice",
+		Menu = "Animation",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"AntDebug.DrawSignals 1",
+			"UI.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"AntDebug.DrawSignals 0",
+			"UI.DrawEnable 1",
+		},
+	},
+
+	WeaponCommand1 = 
+	{
+		Name = "Show weapon info",
+		Title = "Venice",
+		Menu = "Weapons",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"Debug.DrawScreenCenterHelper 1",
+			"clientsoldier.debug.firingstats 1",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"Debug.DrawScreenCenterHelper 0",
+			"clientsoldier.debug.firingStats 0",
+		},
+	},	
+}
+[/version]
+
+[version]
+2017-2024 (BugDrone Rebrand)
+[notes]
+Marketing rebrand - zero functional changes.
+
+Games Using This Version:
+- Mass Effect Andromeda (2017)
+- FIFA 17-24
+- Madden NFL 18-25
+- NHL 18-24
+- Need For Speed Payback (2017)
+- Need For Speed Heat (2019)
+- Star Wars Battlefront II (2017)
+- Anthem (2019)
+- Plants vs Zombies: Battle for Neighborville (2019)
+
+The Big Rename:
+- StandardB4BugBug → StandardBugDroneBug
+- 'B4Bug' → 'BugDrone' (EA rebranded the tool)
+- Report Method field still says 'B4Bug' (backend didn't change)
+
+Why: Pure marketing/branding decision. The tool was renamed 'BugDrone' but the underlying system remained identical. Zero technical changes.
+[content]
+Commands =
+{	
+	-- Bug needed for when using Trigger bug in BugDrone, info is used for all bugs
+	StandardBugDroneBug =
+	{
+		Name = "Standard BugDrone bug",
+		Title = "Venice",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		IsStandardBug = true,
+		
+		Information =
+		{
+			"Field" , "Issue Type" , "Bug",
+			"Field" , "Priority" , "Minor (C, V3, L3)",
+			"Field" , "Assignee" , "Automatic",
+			"Field" , "Report Method" , "B4Bug",
+			"Field" , "Milestone Hindering" , "None",
+			"Field" , "Language" , "English",
+			"Field" , "User Path" , "Probable",
+			"RPCGet", "Game Level" , "LocalPlayer.getClientLevelName",
+			
+			"Field" , "Description" , "\nSessionOId: ",
+			"RPCGet", "Description" , "BugManager.getSessionOId",
+			"Field" , "Description" , "\nFrostbite Release: ",
+			"RPCGet", "Description" , "BugManager.getFrostbiteRelease",
+			"Field" , "Description" , "\nSoldier position: ",
+			"RPCGet", "Description" , "LocalPlayer.getPlayerPosition",
+			"Field" , "Description" , "\nCurrent camera position: ",
+			"RPCGet", "Description" , "DebugCam.getCurrentCameraPosition",
+			
+			"Field" , "Environment" , "\nOS Version: ",
+			"RPCGet", "Environment" , "BugManager.getOSInfo",
+			"Field" , "Environment" , "\nGPU description: ",
+			"RPCGet", "Environment" , "DxRenderer.AdapterDescription",
+			"Field" , "Environment" , "\nGPU driver version: ",
+			"RPCGet", "Environment" , "DxRenderer.AdapterDriverVersion",
+			
+			"RPCGet", "Platform" , "BugManager.getPlatform",
+			"RPCGet", "Reported By (Game Team)" , "BugManager.getReportedBy",
+			"RPCGet", "Found in Change List (Game)" , "BugManager.getChangelist",
+			"RPCGet", "Found in Change List (Frostbite)" , "BugManager.getFrostbiteChangelist",
+			"RPCGet" , "Juice Session ID" , "BugManager.getjuiceSessionId",
+		},
+		
+		RPCs =
+		{
+			"BugManager.forwardTrace",
+		},
+	},
+		
+	TestBug1 =
+	{
+		Name = "Testbug",
+		Title = "Venice",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		
+		Information =
+		{
+		},
+		
+		RPCs =
+		{
+		},
+	},
+	
+	TestCommand1 = 
+	{
+		Name = "Testcommand 1",
+		Title = "Venice",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"DebugRender.DrawStatsEnable 1",
+			"UI.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"DebugRender.DrawStatsEnable 0",
+			"UI.DrawEnable 1",
+		},
+	},
+
+	TestCommand2 = 
+	{
+		Name = "Testcommand 2",
+		Title = "Venice",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"Debug.DrawScreenCenterHelper 1",
+			"Render.ForceFov 100",
+		},
+		
+		ReverseRPCs =
+		{
+			"Debug.DrawScreenCenterHelper 0",
+			"Render.ForceFov 65",
+		},
+	},
+	
+	AnimationCommand1 = 
+	{
+		Name = "Animation Test",
+		Title = "Venice",
+		Menu = "Animation",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"AntDebug.DrawSignals 1",
+			"UI.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"AntDebug.DrawSignals 0",
+			"UI.DrawEnable 1",
+		},
+	},
+
+	WeaponCommand1 = 
+	{
+		Name = "Show weapon info",
+		Title = "Venice",
+		Menu = "Weapons",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"Debug.DrawScreenCenterHelper 1",
+			"clientsoldier.debug.firingstats 1",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"Debug.DrawScreenCenterHelper 0",
+			"clientsoldier.debug.firingStats 0",
+		},
+	},	
+}
+[/version]
+
+[version]
+2025+ (Next-Gen UI Framework)
+[notes]
+Rime UI framework migration for next-gen consoles.
+
+Games Using This Version:
+- Battlefield 6 (2025)
+- Madden NFL 26 (2025)
+- Skate (2025)
+- Future Frostbite titles
+
+UI System Change:
+- TestCommand1: 'UI.DrawEnable' → 'RimeSettings.DrawEnable'
+- AnimationCommand1: 'UI.DrawEnable' → 'RimeSettings.DrawEnable'
+- All other commands unchanged
+
+Why: Frostbite's UI system was completely rebuilt for PS5/Xbox Series X generation. 'Rime' is the new UI framework replacing the legacy 'UI' system. Only the UI toggle commands needed updating.
+
+Note: Bug reporting template remains 100% identical to 2017-2024 version.
+[content]
+Commands =
+{	
+	-- Bug needed for when using Trigger bug in BugDrone, info is used for all bugs
+	StandardBugDroneBug =
+	{
+		Name = "Standard BugDrone bug",
+		Title = "Venice",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		IsStandardBug = true,
+		
+		Information =
+		{
+			"Field" , "Issue Type" , "Bug",
+			"Field" , "Priority" , "Minor (C, V3, L3)",
+			"Field" , "Assignee" , "Automatic",
+			"Field" , "Report Method" , "B4Bug",
+			"Field" , "Milestone Hindering" , "None",
+			"Field" , "Language" , "English",
+			"Field" , "User Path" , "Probable",
+			"RPCGet", "Game Level" , "LocalPlayer.getClientLevelName",
+			
+			"Field" , "Description" , "\nSessionOId: ",
+			"RPCGet", "Description" , "BugManager.getSessionOId",
+			"Field" , "Description" , "\nFrostbite Release: ",
+			"RPCGet", "Description" , "BugManager.getFrostbiteRelease",
+			"Field" , "Description" , "\nSoldier position: ",
+			"RPCGet", "Description" , "LocalPlayer.getPlayerPosition",
+			"Field" , "Description" , "\nCurrent camera position: ",
+			"RPCGet", "Description" , "DebugCam.getCurrentCameraPosition",
+			
+			"Field" , "Environment" , "\nOS Version: ",
+			"RPCGet", "Environment" , "BugManager.getOSInfo",
+			"Field" , "Environment" , "\nGPU description: ",
+			"RPCGet", "Environment" , "DxRenderer.AdapterDescription",
+			"Field" , "Environment" , "\nGPU driver version: ",
+			"RPCGet", "Environment" , "DxRenderer.AdapterDriverVersion",
+			
+			"RPCGet", "Platform" , "BugManager.getPlatform",
+			"RPCGet", "Reported By (Game Team)" , "BugManager.getReportedBy",
+			"RPCGet", "Found in Change List (Game)" , "BugManager.getChangelist",
+			"RPCGet", "Found in Change List (Frostbite)" , "BugManager.getFrostbiteChangelist",
+			"RPCGet" , "Juice Session ID" , "BugManager.getjuiceSessionId",
+		},
+		
+		RPCs =
+		{
+			"BugManager.forwardTrace",
+		},
+	},
+		
+	TestBug1 =
+	{
+		Name = "Testbug",
+		Title = "Venice",
+		Menu = "Bugs",
+		AutoB4Bug = true,
+		
+		Information =
+		{
+		},
+		
+		RPCs =
+		{
+		},
+	},
+	
+	TestCommand1 = 
+	{
+		Name = "Testcommand 1",
+		Title = "Venice",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"DebugRender.DrawStatsEnable 1",
+			"RimeSettings.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"DebugRender.DrawStatsEnable 0",
+			"RimeSettings.DrawEnable 1",
+		},
+	},
+
+	TestCommand2 = 
+	{
+		Name = "Testcommand 2",
+		Title = "Venice",
+		Menu = "QA Commands",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"Debug.DrawScreenCenterHelper 1",
+			"Render.ForceFov 100",
+		},
+		
+		ReverseRPCs =
+		{
+			"Debug.DrawScreenCenterHelper 0",
+			"Render.ForceFov 65",
+		},
+	},
+	
+	AnimationCommand1 = 
+	{
+		Name = "Animation Test",
+		Title = "Venice",
+		Menu = "Animation",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"AntDebug.DrawSignals 1",
+			"RimeSettings.DrawEnable 0",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"AntDebug.DrawSignals 0",
+			"RimeSettings.DrawEnable 1",
+		},
+	},
+
+	WeaponCommand1 = 
+	{
+		Name = "Show weapon info",
+		Title = "Venice",
+		Menu = "Weapons",
+		AutoB4Bug = false,
+		
+		RPCs =
+		{
+			"AntDebug.DrawDebugInfo 1",
+			"Debug.DrawScreenCenterHelper 1",
+			"clientsoldier.debug.firingstats 1",
+		},
+		
+		ReverseRPCs =
+		{
+			"AntDebug.DrawDebugInfo 0",
+			"Debug.DrawScreenCenterHelper 0",
+			"clientsoldier.debug.firingStats 0",
+		},
+	},	
+}
+[/version]

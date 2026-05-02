@@ -1,0 +1,162 @@
+[description]
+Battlefield Hardline multiplayer map testing - cycles through Havana engine build maps.
+
+[version]
+2015 (Battlefield Hardline)
+[notes]
+Automated testing for Hardline's 9 base multiplayer maps.
+
+Script Structure:
+Each map follows identical 4-phase test sequence:
+1. server.loadLevel [path] - Load map
+2. sleep 60 - Wait 60 seconds
+3. server.restartLevel - Restart map
+4. sleep 60 - Wait 60 seconds
+5. server.endRound 0 - End with team 0 win
+6. sleep 60 - Wait 60 seconds
+7. server.endRound 1 - End with team 1 win
+8. sleep 60 - Wait 60 seconds
+
+Initial Command:
+- Core.LogLevel FatalAssert
+
+Final Command:
+- main.playCommands Scripts/Debug/cycleMpLevelsHavana - Loop
+
+Maps Tested (Havana Engine Build):
+1. MP_Bank (Bank Job)
+2. MP_Downtown (Downtown)
+3. MP_Eastside (Eastside)
+4. MP_Glades (The Glades)
+5. MP_Bloodout (Blood Out)
+6. MP_Desert05 (Dust Bowl)
+7. MP_Growhouse (Growhouse) - Listed twice
+8. MP_Hills (Hollywood Heights)
+9. MP_Offshore (Riptide)
+
+Path Format:
+- Havana/Levels/MP/[MapName]/[MapName]
+- 'Havana' prefix indicates engine/project codename
+
+Duplicate Map:
+MP_Growhouse appears twice in sequence (positions 7 and 9). This may be:
+- Copy-paste error
+- Intentional stress test of specific map
+- MP_Offshore was meant to be different map
+
+Total Cycle Duration:
+240 seconds per map × 9 maps = 36 minutes per full cycle
+
+Map Names (Retail):
+- MP_Bank = Bank Job
+- MP_Downtown = Downtown
+- MP_Eastside = Eastside
+- MP_Glades = The Glades
+- MP_Bloodout = Blood Out
+- MP_Desert05 = Dust Bowl
+- MP_Growhouse = Growhouse
+- MP_Hills = Hollywood Heights
+- MP_Offshore = Riptide
+
+Testing Coverage:
+- Map loading from Havana build structure
+- Map restart functionality
+- Round end for both factions (Cops vs Criminals)
+- Level transition system
+- Memory stability across all launch maps
+- Havana engine build compatibility
+[content]
+Core.LogLevel FatalAssert
+
+server.loadLevel Havana/Levels/MP/MP_Bank/MP_Bank
+sleep 60
+server.restartLevel
+sleep 60
+server.endRound 0
+sleep 60
+server.endRound 1
+sleep 60
+
+server.loadLevel Havana/Levels/MP/MP_Downtown/MP_Downtown
+sleep 60
+server.restartLevel
+sleep 60
+server.endRound 0
+sleep 60
+server.endRound 1
+sleep 60
+
+server.loadLevel Havana/Levels/MP/MP_Eastside/MP_Eastside
+sleep 60
+server.restartLevel
+sleep 60
+server.endRound 0
+sleep 60
+server.endRound 1
+sleep 60
+
+server.loadLevel Havana/Levels/MP/MP_Glades/MP_Glades
+sleep 60
+server.restartLevel
+sleep 60
+server.endRound 0
+sleep 60
+server.endRound 1
+sleep 60
+
+server.loadLevel Havana/Levels/MP/MP_Bloodout/MP_Bloodout
+sleep 60
+server.restartLevel
+sleep 60
+server.endRound 0
+sleep 60
+server.endRound 1
+sleep 60
+
+server.loadLevel Havana/Levels/MP/MP_Desert05/MP_Desert05
+sleep 60
+server.restartLevel
+sleep 60
+server.endRound 0
+sleep 60
+server.endRound 1
+sleep 60
+
+server.loadLevel Havana/Levels/MP/MP_Growhouse/MP_Growhouse
+sleep 60
+server.restartLevel
+sleep 60
+server.endRound 0
+sleep 60
+server.endRound 1
+sleep 60
+
+server.loadLevel Havana/Levels/MP/MP_Hills/MP_Hills
+sleep 60
+server.restartLevel
+sleep 60
+server.endRound 0
+sleep 60
+server.endRound 1
+sleep 60
+
+server.loadLevel Havana/Levels/MP/MP_Growhouse/MP_Growhouse
+sleep 60
+server.restartLevel
+sleep 60
+server.endRound 0
+sleep 60
+server.endRound 1
+sleep 60
+
+server.loadLevel Havana/Levels/MP/MP_Offshore/MP_Offshore
+sleep 60
+server.restartLevel
+sleep 60
+server.endRound 0
+sleep 60
+server.endRound 1
+sleep 60
+
+main.playCommands Scripts/Debug/cycleMpLevelsHavana
+[/version]

@@ -1,0 +1,2574 @@
+[description]
+Hardware detection and graphics quality auto-configuration - detects CPU, GPU, memory specs and sets appropriate quality presets based on detected hardware capabilities.
+
+[version]
+2011 (Battlefield 3 Alpha)
+[notes]
+INITIAL HARDWARE DETECTION - Basic GPU/CPU quality rating system.
+
+Core Features:
+1. getGpuQuality() - Returns 1-4 based on GPU name string matching
+   - GeForce 8/9: Quality 1 (Low)
+   - GeForce GTX 26x: Quality 2 (Medium)
+   - GeForce GTX 2/4/5, AMD HD 4870 X2, HD 5800/5900, HD 69xx: Quality 3-4 (High/Ultra)
+   - Multi-GPU bonus: Returns 4 if gpuCount > 1
+
+2. getCpuQuality() - Formula: (cpuSpeed-1.2)*(cpuCount-1)
+   - 2 cores @ 3.0 GHz = 1.8
+   - 4 cores @ 3.2 GHz = 6.0
+   - 8 cores @ 3.2 GHz = 14.0 (marked "awesome")
+
+3. hardwareSpecs Array - 5 profiles indexed [0-4]
+   - [0] = Auto-detect using detected hardware
+   - [1-4] = Faked profiles for testing (GeForce 9, GTX 2, GTX 295, GTX 4xx)
+
+Memory Specs (in bytes):
+- Low: 1GB RAM, 512MB VRAM
+- Medium: 1GB RAM, 768MB VRAM
+- High: 2GB RAM, 1GB VRAM
+- Ultra: 2GB RAM, 2GB VRAM
+
+Limitations:
+- No vendor database system
+- No device ID lookup
+- Simple string matching only
+- No platform-specific handling
+[content]
+function getGpuQuality(gpuName, gpuCount)
+    if string.find(gpuName, "GeForce 8") or 
+       string.find(gpuName, "GeForce 9") then
+        return 1
+    elseif string.find(gpuName, "GeForce GTX 26") then
+        return 2
+    elseif string.find(gpuName, "GeForce GTX 2") or 
+		   string.find(gpuName, "ATI Radeon HD 4870 X2") or 
+		   string.find(gpuName, "ATI Radeon HD 5800 Series") or 
+		   string.find(gpuName, "ATI Radeon HD 5900 Series") or 
+		   string.find(gpuName, "AMD Radeon HD 69") or 
+		   string.find(gpuName, "GeForce GTX 4") or 
+		   string.find(gpuName, "GeForce GTX 5") then
+		if gpuCount > 1 then
+			return 4
+		else
+			return 3
+		end
+    else
+        return 1
+    end
+end
+
+function getCpuQuality(cpuCount, cpuSpeed)
+	return (cpuSpeed-1.2)*(cpuCount-1)
+end
+
+-- 2 cores, 3.0 gHz : 1.8
+-- 2 cores, 3.6 gHz : 2.4
+-- 4 cores, 2.0 gHz : 2.4
+-- 4 cores, 3.2 gHz : 6
+-- 8 cores, 1.8 gHz : 4.2
+-- 8 cores, 3.2 gHz : 14!! awesome
+
+hardwareSpecs = {
+	[0] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = detectedAvailableMemory,
+		adapterName = detectedAdapterName,
+		gpuCount = detectedGpuCount,
+		adapterQuality = getGpuQuality(detectedAdapterName, detectedGpuCount),
+		availableGpuMemory = detectedAvailableGpuMemory
+	},
+
+	[1] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 2.3),
+		availableMemory = 1*1024*1024*1024,
+		adapterName = "Geforce 9 (Faked)",
+		gpuCount = 1,
+		adapterQuality = getGpuQuality("Geforce 9 (Faked)", 1),
+		availableGpuMemory = 512*1024*1024
+	},
+
+	[2] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 3),
+		availableMemory = 1*1024*1024*1024,
+		adapterName = "GeForce GTX 2 (Faked)",
+		gpuCount = 1,
+		adapterQuality = getGpuQuality("GeForce GTX 2 (Faked)", 1),
+		availableGpuMemory = 768*1024*1024
+	},
+
+	[3] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(4, 3),
+		availableMemory = 2*1024*1024*1024,
+		adapterName = "Geforce GTX 295 (Faked)",
+		gpuCount = 2,
+		adapterQuality = getGpuQuality("Geforce GTX 295 (Faked)", 2),
+		availableGpuMemory = 1*1024*1024*1024
+	},
+
+	[4] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(8, 3),
+		availableMemory = 2*1024*1024*1024,
+		adapterName = "GeForce GTX 4xx (Faked)",
+		gpuCount = 1,
+		adapterQuality = getGpuQuality("GeForce GTX 4xx (Faked)", 1),
+		availableGpuMemory = 2*1024*1024*1024
+	},
+}
+[/version]
+
+[version]
+2011-2015 (BF3/4, NFS The Run/Rivals/Edge, Medal Of Honor, C&C, GW1, SWBF)
+[notes]
+VENDOR DATABASE ARCHITECTURE - Major expansion with modular vendor files and device ID lookup.
+
+Revolutionary Changes:
+1. vendorDB System - External Lua files per vendor
+   - [0x1002] = ATI.lua (AMD Radeon cards)
+   - [0x10DE] = nVidia.lua (GeForce cards)
+   - [0x8086] = Intel.lua (Intel integrated graphics)
+
+2. getDeviceSettings() Function - Device ID-based quality detection
+   - Console detection: "Xenon" (Xbox 360) → Medium, "PS3" → High
+   - Vendor lookup: vendorDB[vendorId][deviceId] returns quality preset
+   - Fallback: Medium quality if device not found
+
+3. deviceSettings Structure - New quality preset system
+   {
+     baseQualityLevel = Quality.Low/Medium/High/Ultra,
+     defaultSettings = {},
+     consoleOverrides = "
+   }
+
+4. Enhanced GPU Detection - Added AMD Radeon HD 68xx series support
+   - Now covers GeForce 8/9, GTX 2xx-5xx
+   - AMD HD 4870 X2, HD 5800/5900, HD 6800/6900
+
+5. Faked Profile Improvements
+   - Descriptive names: "Faked Low", "Faked Medium", "Faked High", "Faked Ultra"
+   - Explicit adapterQuality values (0-4)
+   - Memory: 512MB to 2GB RAM, 512MB to 2GB VRAM
+
+Architecture Impact:
+- Separation of concerns: Core logic vs. vendor-specific data
+- Extensibility: New GPU support via external files
+- Platform awareness: Console-specific quality presets
+- Quality enum: Standardized Low/Medium/High/Ultra levels
+
+vendorDB = nil at end (cleanup after initialization)
+[content]
+function getGpuQuality(gpuName, gpuCount)
+    if string.find(gpuName, "GeForce 8") or 
+       string.find(gpuName, "GeForce 9") then
+        return 1
+    elseif string.find(gpuName, "GeForce GTX 26") then
+        return 2
+    elseif string.find(gpuName, "GeForce GTX 2") or 
+		   string.find(gpuName, "ATI Radeon HD 4870 X2") or 
+		   string.find(gpuName, "ATI Radeon HD 5800 Series") or 
+		   string.find(gpuName, "ATI Radeon HD 5900 Series") or 
+		   string.find(gpuName, "AMD Radeon HD 68") or 
+		   string.find(gpuName, "AMD Radeon HD 69") or 
+		   string.find(gpuName, "GeForce GTX 4") or 
+		   string.find(gpuName, "GeForce GTX 5") then
+		if gpuCount > 1 then
+			return 4
+		else
+			return 3
+		end
+    else
+        return 1
+    end
+end
+
+function getCpuQuality(cpuCount, cpuSpeed)
+	return (cpuSpeed-1.2)*(cpuCount-1)
+end
+
+vendorDB = {
+	[0x1002] = dofile("Scripts/UserOptions/HardwareProfiles/ATI.lua"),
+	[0x10DE] = dofile("Scripts/UserOptions/HardwareProfiles/nVidia.lua"),
+	[0x8086] = dofile("Scripts/UserOptions/HardwareProfiles/Intel.lua")
+}
+
+function getDeviceSettings(vendorId, deviceId, adapterName)
+	if adapterName == "Xenon" then
+		return { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "PS3" then
+		return { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	else
+		return (vendorDB[vendorId] and vendorDB[vendorId][deviceId]) or { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	end
+end
+
+hardwareSpecs = {
+	[0] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = detectedAvailableMemory,
+		adapterName = detectedAdapterName,
+		gpuCount = detectedGpuCount,
+		adapterQuality = getGpuQuality(detectedAdapterName, detectedGpuCount),
+		availableGpuMemory = detectedAvailableGpuMemory,
+		deviceSettings = getDeviceSettings(detectedVendorId, detectedDeviceId, detectedAdapterName)
+	},
+
+	[1] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 2.3),
+		availableMemory = 512*1024*1024,
+		adapterName = "Faked Low",
+		gpuCount = 1,
+		adapterQuality = 0,
+		availableGpuMemory = 512*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[2] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 3),
+		availableMemory = 1*1024*1024*1024,
+		adapterName = "Faked Medium",
+		gpuCount = 1,
+		adapterQuality = 1,
+		availableGpuMemory = 768*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[3] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(4, 3),
+		availableMemory = 1.5*1024*1024*1024,
+		adapterName = "Faked High",
+		gpuCount = 1,
+		adapterQuality = 3,
+		availableGpuMemory = 1*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[4] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(8, 3),
+		availableMemory = 2*1024*1024*1024,
+		adapterName = "Faked Ultra",
+		gpuCount = 2,
+		adapterQuality = 4,
+		availableGpuMemory = 2*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Ultra, defaultSettings = {}, consoleOverrides = " }
+	},
+}
+
+vendorDB = nil
+[/version]
+
+[version]
+2013 (Army of Two)
+[notes]
+SIMPLIFIED GPU DETECTION - Removed multi-GPU bonus, added decimal quality ratings.
+
+Key Changes:
+1. Removed gpuCount Parameter - getGpuQuality() now takes only gpuName
+   - No more multi-GPU detection bonus
+   - Simpler function signature
+
+2. Decimal Quality Values - More granular GPU ratings
+   - GeForce 8: Quality 1.0
+   - GeForce 9: Quality 2.0
+   - GeForce GTX 26x: Quality 2.8 (new intermediate value)
+   - High-end cards: Quality 3.0
+
+3. Expanded AMD Detection - More architecture codenames
+   - Added "EG JUNIPER" (Evergreen architecture)
+   - Added HD 5600/5700 Series
+   - Added HD 6800/6900 Series
+   - Added GeForce GTX 3xx series
+
+4. Six Faked Profiles - Added extra testing profile [5]
+   - [1]: GeForce 8, 2 cores @ 1.8 GHz, 512MB RAM/VRAM
+   - [2]: GeForce 9, 2 cores @ 2.3 GHz, 1GB RAM, 512MB VRAM
+   - [3]: GTX 2, 2 cores @ 3.0 GHz, 1GB RAM, 768MB VRAM
+   - [4]: GTX 295, 4 cores @ 3.0 GHz, 2GB RAM, 1GB VRAM
+   - [5]: GTX 4xx, 8 cores @ 3.0 GHz, 2GB RAM, 2GB VRAM (2 GPUs)
+
+5. Removed Vendor Database - No external Lua files
+   - No getDeviceSettings() function
+   - No deviceSettings structure
+   - Direct adapterQuality values only
+
+Design Philosophy:
+- Simplified for single-player focused game
+- No console platform support needed
+- Testing-oriented with 6 profiles
+[content]
+function getGpuQuality(gpuName)
+    if string.find(gpuName, "GeForce 8") then
+        return 1
+    elseif string.find(gpuName, "GeForce 9") then
+        return 2
+    elseif string.find(gpuName, "GeForce GTX 26") then
+        return 2.8
+    elseif string.find(gpuName, "EG JUNIPER") or 
+			string.find(gpuName, "ATI Radeon HD 4870 X2") or 
+			string.find(gpuName, "ATI Radeon HD 5600 Series") or 
+			string.find(gpuName, "ATI Radeon HD 5700 Series") or 
+			string.find(gpuName, "ATI Radeon HD 5800 Series") or 
+			string.find(gpuName, "ATI Radeon HD 5900 Series") or 
+			string.find(gpuName, "AMD Radeon HD 6800 Series") or 
+			string.find(gpuName, "AMD Radeon HD 6900 Series") or 
+			string.find(gpuName, "GeForce GTX 2") or 
+			string.find(gpuName, "GeForce GTX 3") or 
+			string.find(gpuName, "GeForce GTX 4") or 
+			string.find(gpuName, "GeForce GTX 5") then
+        return 3
+    else
+        return 1
+    end
+end
+
+function getCpuQuality(cpuCount, cpuSpeed)
+	return (cpuSpeed-1.2)*(cpuCount-1)
+end
+
+hardwareSpecs = {
+	[0] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = detectedAvailableMemory,
+		adapterName = detectedAdapterName,
+		adapterQuality = getGpuQuality(detectedAdapterName),
+		gpuCount = detectedGpuCount,
+		availableGpuMemory = detectedAvailableGpuMemory
+	},
+
+	[1] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 1.8),
+		availableMemory = 512*1024*1024,
+		adapterName = "Geforce 8 (Faked)",
+		adapterQuality = getGpuQuality("Geforce 8 (Faked)"),
+		gpuCount = 1,
+		availableGpuMemory = 512*1024*1024
+	},
+
+	[2] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 2.3),
+		availableMemory = 1*1024*1024*1024,
+		adapterName = "Geforce 9 (Faked)",
+		adapterQuality = getGpuQuality("Geforce 9 (Faked)"),
+		gpuCount = 1,
+		availableGpuMemory = 512*1024*1024
+	},
+
+	[3] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 3),
+		availableMemory = 1*1024*1024*1024,
+		adapterName = "GeForce GTX 2 (Faked)",
+		adapterQuality = getGpuQuality("GeForce GTX 2 (Faked)"),
+		gpuCount = 1,
+		availableGpuMemory = 768*1024*1024
+	},
+
+	[4] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(4, 3),
+		availableMemory = 2*1024*1024*1024,
+		adapterName = "Geforce GTX 295 (Faked)",
+		adapterQuality = getGpuQuality("Geforce GTX 295 (Faked)"),
+		gpuCount = 1,
+		availableGpuMemory = 1*1024*1024*1024
+	},
+
+	[5] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(8, 3),
+		availableMemory = 2*1024*1024*1024,
+		adapterName = "GeForce GTX 4xx (Faked)",
+		adapterQuality = getGpuQuality("GeForce GTX 4xx (Faked)"),
+		gpuCount = 2,
+		availableGpuMemory = 2*1024*1024*1024
+	},
+}
+[/version]
+
+[version]
+2013 (Battlefield 4 Latest/Hardline)
+[notes]
+X86 ARCHITECTURE DETECTION - Added 32-bit system handling.
+
+Key Addition:
+1. isX86 Parameter - New architecture detection
+   - getDeviceSettings(vendorId, deviceId, adapterName, isX86)
+   - if isX86 == 1 → Force Quality.Low preset
+   - Protects 32-bit systems from high memory usage
+
+2. Restored Features from 2011
+   - vendorDB system returns
+   - Multi-GPU bonus (gpuCount > 1 → Quality 4)
+   - Console platform detection (Xenon, PS3)
+
+3. GPU Detection Updates
+   - Restored AMD Radeon HD 68xx series
+   - Removed intermediate series (5600, 5700, 6800)
+   - Back to quality ratings 1-4 (no decimals)
+
+Architecture Impact:
+- Memory-aware: 32-bit systems limited to Low quality
+- Prevents >4GB memory allocation on x86
+- Console + PC + architecture detection in one system
+
+Design Rationale:
+- BF4/Hardline needed x86 support for legacy systems
+- Minimum spec enforcement via architecture check
+- Unified codebase for BF4 retail and Hardline
+[content]
+function getGpuQuality(gpuName, gpuCount)
+    if string.find(gpuName, "GeForce 8") or 
+       string.find(gpuName, "GeForce 9") then
+        return 1
+    elseif string.find(gpuName, "GeForce GTX 26") then
+        return 2
+    elseif string.find(gpuName, "GeForce GTX 2") or 
+		   string.find(gpuName, "ATI Radeon HD 4870 X2") or 
+		   string.find(gpuName, "ATI Radeon HD 5800 Series") or 
+		   string.find(gpuName, "ATI Radeon HD 5900 Series") or 
+		   string.find(gpuName, "AMD Radeon HD 68") or 
+		   string.find(gpuName, "AMD Radeon HD 69") or 
+		   string.find(gpuName, "GeForce GTX 4") or 
+		   string.find(gpuName, "GeForce GTX 5") then
+		if gpuCount > 1 then
+			return 4
+		else
+			return 3
+		end
+    else
+        return 1
+    end
+end
+
+function getCpuQuality(cpuCount, cpuSpeed)
+	return (cpuSpeed-1.2)*(cpuCount-1)
+end
+
+vendorDB = {
+	[0x1002] = dofile("Scripts/UserOptions/HardwareProfiles/ATI.lua"),
+	[0x10DE] = dofile("Scripts/UserOptions/HardwareProfiles/nVidia.lua"),
+	[0x8086] = dofile("Scripts/UserOptions/HardwareProfiles/Intel.lua")
+}
+
+function getDeviceSettings(vendorId, deviceId, adapterName, isX86)
+	if adapterName == "Xenon" then
+		return { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "PS3" then
+		return { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	elseif isX86 == 1 then
+		return { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	else
+		return (vendorDB[vendorId] and vendorDB[vendorId][deviceId]) or { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	end
+end
+
+hardwareSpecs = {
+	[0] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = detectedAvailableMemory,
+		adapterName = detectedAdapterName,
+		gpuCount = detectedGpuCount,
+		adapterQuality = getGpuQuality(detectedAdapterName, detectedGpuCount),
+		availableGpuMemory = detectedAvailableGpuMemory,
+		deviceSettings = getDeviceSettings(detectedVendorId, detectedDeviceId, detectedAdapterName, isX86)
+	},
+
+	[1] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 2.3),
+		availableMemory = 512*1024*1024,
+		adapterName = "Faked Low",
+		gpuCount = 1,
+		adapterQuality = 0,
+		availableGpuMemory = 512*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[2] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 3),
+		availableMemory = 1*1024*1024*1024,
+		adapterName = "Faked Medium",
+		gpuCount = 1,
+		adapterQuality = 1,
+		availableGpuMemory = 768*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[3] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(4, 3),
+		availableMemory = 1.5*1024*1024*1024,
+		adapterName = "Faked High",
+		gpuCount = 1,
+		adapterQuality = 3,
+		availableGpuMemory = 1*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[4] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(8, 3),
+		availableMemory = 2*1024*1024*1024,
+		adapterName = "Faked Ultra",
+		gpuCount = 2,
+		adapterQuality = 4,
+		availableGpuMemory = 2*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Ultra, defaultSettings = {}, consoleOverrides = " }
+	},
+}
+
+vendorDB = nil
+[/version]
+
+[version]
+2014 (Dragon Age: Inquisition)
+[notes]
+NEXT-GEN CONSOLE SUPPORT - Added PS4/Xbox One detection with BioWare-specific handling.
+
+Key Changes:
+1. Next-Gen Console Detection
+   - Added GEN4A (Xbox One) detection → Quality.High
+   - Added GEN4B (PS4) detection → Quality.High
+   - BioWare-specific platform handling
+
+2. GPU Updates
+   - Added GeForce GTX 6xx series support
+   - Maintained quality ratings 1-4 system
+   - Kept multi-GPU bonus (gpuCount > 1 → Quality 4)
+
+3. Architecture Support
+   - Retained vendorDB system from 2011
+   - No x86 detection (removed from BF4)
+   - Console detection: Xenon, PS3, GEN4A, GEN4B
+
+Design Rationale:
+- Dragon Age: Inquisition launch title for Xbox One/PS4
+- BioWare needed distinct Gen4 console identification
+- High quality settings for next-gen console baseline
+- Cross-generation support (360, PS3, One, PS4, PC)
+[content]
+function getGpuQuality(gpuName, gpuCount)
+    if string.find(gpuName, "GeForce 8") or 
+       string.find(gpuName, "GeForce 9") then
+        return 1
+    elseif string.find(gpuName, "GeForce GTX 26") then
+        return 2
+    elseif string.find(gpuName, "GeForce GTX 2") or 
+		   string.find(gpuName, "ATI Radeon HD 4870 X2") or 
+		   string.find(gpuName, "ATI Radeon HD 5800 Series") or 
+		   string.find(gpuName, "ATI Radeon HD 5900 Series") or 
+		   string.find(gpuName, "AMD Radeon HD 68") or 
+		   string.find(gpuName, "AMD Radeon HD 69") or 
+		   string.find(gpuName, "GeForce GTX 4") or 
+			-- BWDA_START - Dec 05, 2012 - Hoyle, Ryan - Add new nVidia cards
+		   string.find(gpuName, "GeForce GTX 5") or
+		   string.find(gpuName, "GeForce GTX 6") then
+			-- BWDA_END
+		if gpuCount > 1 then
+			return 4
+		else
+			return 3
+		end
+    else
+        return 1
+    end
+end
+
+function getCpuQuality(cpuCount, cpuSpeed)
+	return (cpuSpeed-1.2)*(cpuCount-1)
+end
+
+vendorDB = {
+	[0x1002] = dofile("Scripts/UserOptions/HardwareProfiles/ATI.lua"),
+	[0x10DE] = dofile("Scripts/UserOptions/HardwareProfiles/nVidia.lua"),
+	[0x8086] = dofile("Scripts/UserOptions/HardwareProfiles/Intel.lua")
+}
+
+function getDeviceSettings(vendorId, deviceId, adapterName)
+	if adapterName == "Xenon" then
+		return { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "PS3" then
+		return { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	-- BWDA_START - Dec 05, 2012 - Hoyle, Ryan - Fix Gen4 using low quality settings
+	elseif adapterName == "GEN4A" then
+		return { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "GEN4B" then
+		return { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	-- BWDA_END
+	else
+		return (vendorDB[vendorId] and vendorDB[vendorId][deviceId]) or { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	end
+end
+
+hardwareSpecs = {
+	[0] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = detectedAvailableMemory,
+		adapterName = detectedAdapterName,
+		gpuCount = detectedGpuCount,
+		adapterQuality = getGpuQuality(detectedAdapterName, detectedGpuCount),
+		availableGpuMemory = detectedAvailableGpuMemory,
+		deviceSettings = getDeviceSettings(detectedVendorId, detectedDeviceId, detectedAdapterName)
+	},
+
+	[1] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 2.3),
+		availableMemory = 512*1024*1024,
+		adapterName = "Faked Low",
+		gpuCount = 1,
+		adapterQuality = 0,
+		availableGpuMemory = 512*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[2] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 3),
+		availableMemory = 1*1024*1024*1024,
+		adapterName = "Faked Medium",
+		gpuCount = 1,
+		adapterQuality = 1,
+		availableGpuMemory = 768*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[3] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(4, 3),
+		availableMemory = 1.5*1024*1024*1024,
+		adapterName = "Faked High",
+		gpuCount = 1,
+		adapterQuality = 3,
+		availableGpuMemory = 1*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[4] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(8, 3),
+		availableMemory = 2*1024*1024*1024,
+		adapterName = "Faked Ultra",
+		gpuCount = 2,
+		adapterQuality = 4,
+		availableGpuMemory = 2*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Ultra, defaultSettings = {}, consoleOverrides = " }
+	},
+}
+
+vendorDB = nil
+[/version]
+
+[version]
+2015 (Need For Speed)
+[notes]
+MOBILE PLATFORM SUPPORT - Added iOS and Android device detection.
+
+Key Changes:
+1. Mobile Platform Detection
+   - Added mobileVendorDB system
+   - iOS device generation parsing (substring extraction)
+   - Android device name lookup
+   - Mobile defaults to Quality.Low if device unknown
+
+2. Platform Hierarchy
+   - Console: Xenon (Medium), PS3 (High)
+   - Mobile: iOS/Android (device-specific or Low)
+   - PC: vendorDB lookup (Medium default)
+
+3. Code Structure
+   - Maintained 2011 GPU quality system
+   - No x86 architecture detection
+   - vendorDB + mobileVendorDB pattern
+
+Design Rationale:
+- Need For Speed franchise expanding to mobile
+- Device-specific quality profiles for iOS/Android
+- Graceful fallback for unknown mobile devices
+- Cross-platform codebase (console + PC + mobile)
+[content]
+function getGpuQuality(gpuName, gpuCount)
+    if string.find(gpuName, "GeForce 8") or 
+       string.find(gpuName, "GeForce 9") then
+        return 1
+    elseif string.find(gpuName, "GeForce GTX 26") then
+        return 2
+    elseif string.find(gpuName, "GeForce GTX 2") or 
+		   string.find(gpuName, "ATI Radeon HD 4870 X2") or 
+		   string.find(gpuName, "ATI Radeon HD 5800 Series") or 
+		   string.find(gpuName, "ATI Radeon HD 5900 Series") or 
+		   string.find(gpuName, "AMD Radeon HD 68") or 
+		   string.find(gpuName, "AMD Radeon HD 69") or 
+		   string.find(gpuName, "GeForce GTX 4") or 
+		   string.find(gpuName, "GeForce GTX 5") then
+		if gpuCount > 1 then
+			return 4
+		else
+			return 3
+		end
+    else
+        return 1
+    end
+end
+
+function getCpuQuality(cpuCount, cpuSpeed)
+	return (cpuSpeed-1.2)*(cpuCount-1)
+end
+
+vendorDB = {
+	[0x1002] = dofile("Scripts/UserOptions/HardwareProfiles/ATI.lua"),
+	[0x10DE] = dofile("Scripts/UserOptions/HardwareProfiles/nVidia.lua"),
+	[0x8086] = dofile("Scripts/UserOptions/HardwareProfiles/Intel.lua")
+}
+
+mobileVendorDB = 
+{
+	["IOS"] 	= dofile("Scripts/UserOptions/HardwareProfiles/iOS.lua"),
+	["ANDROID"] = dofile("Scripts/UserOptions/HardwareProfiles/Android.lua")
+}
+
+function getDeviceSettings(vendorId, deviceId, adapterName)
+	if adapterName == "Xenon" then
+		return { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "PS3" then
+		return { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "IOS" then
+		deviceGeneration = string.sub(detectedDeviceName, 1, string.len(detectedDeviceName)-2)
+		return (mobileVendorDB["IOS"] and mobileVendorDB["IOS"][deviceGeneration]) or { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "ANDROID" then
+		return (mobileVendorDB["ANDROID"] and mobileVendorDB["ANDROID"][detectedDeviceName]) or { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	else
+		return (vendorDB[vendorId] and vendorDB[vendorId][deviceId]) or { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	end
+end
+
+hardwareSpecs = {
+	[0] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = detectedAvailableMemory,
+		adapterName = detectedAdapterName,
+		gpuCount = detectedGpuCount,
+		adapterQuality = getGpuQuality(detectedAdapterName, detectedGpuCount),
+		availableGpuMemory = detectedAvailableGpuMemory,
+		deviceSettings = getDeviceSettings(detectedVendorId, detectedDeviceId, detectedAdapterName)
+	},
+
+	[1] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 2.3),
+		availableMemory = 512*1024*1024,
+		adapterName = "Faked Low",
+		gpuCount = 1,
+		adapterQuality = 0,
+		availableGpuMemory = 512*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[2] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 3),
+		availableMemory = 1*1024*1024*1024,
+		adapterName = "Faked Medium",
+		gpuCount = 1,
+		adapterQuality = 1,
+		availableGpuMemory = 768*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[3] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(4, 3),
+		availableMemory = 1.5*1024*1024*1024,
+		adapterName = "Faked High",
+		gpuCount = 1,
+		adapterQuality = 3,
+		availableGpuMemory = 1*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[4] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(8, 3),
+		availableMemory = 2*1024*1024*1024,
+		adapterName = "Faked Ultra",
+		gpuCount = 2,
+		adapterQuality = 4,
+		availableGpuMemory = 2*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Ultra, defaultSettings = {}, consoleOverrides = " }
+	},
+}
+
+vendorDB = nil
+[/version]
+
+[version]
+2015-2021 (PGA, GW2, BF1, MEC, FIFA, NHL, NFS Payback/Heat, SWBF2, Anthem)
+[notes]
+X86 ARCHITECTURE + MOBILE UNIFIED - Combined mobile platform support with x86 detection.
+
+Key Changes:
+1. X86 Architecture Detection Returns
+   - isX86 parameter added back to getDeviceSettings
+   - Forces Quality.Low for 32-bit systems
+   - Positioned after mobile checks, before PC vendorDB
+
+2. Platform Detection Order
+   - Console (Xenon, PS3)
+   - Mobile (iOS, Android)
+   - Architecture (x86 → Low)
+   - PC (vendorDB lookup)
+
+3. Wide Game Coverage
+   - Frostbite engine titles (BF1, Battlefront 2, Anthem)
+   - Sports titles (PGA, FIFA 18, NHL 22)
+   - Shared codebase across multiple franchises
+
+Design Rationale:
+- Long-term support version across many titles (2015-2021)
+- Unified architecture: console + mobile + PC + x86
+- Memory protection for 32-bit systems
+- Standard configuration for EA's cross-platform releases
+[content]
+function getGpuQuality(gpuName, gpuCount)
+    if string.find(gpuName, "GeForce 8") or 
+       string.find(gpuName, "GeForce 9") then
+        return 1
+    elseif string.find(gpuName, "GeForce GTX 26") then
+        return 2
+    elseif string.find(gpuName, "GeForce GTX 2") or 
+		   string.find(gpuName, "ATI Radeon HD 4870 X2") or 
+		   string.find(gpuName, "ATI Radeon HD 5800 Series") or 
+		   string.find(gpuName, "ATI Radeon HD 5900 Series") or 
+		   string.find(gpuName, "AMD Radeon HD 68") or 
+		   string.find(gpuName, "AMD Radeon HD 69") or 
+		   string.find(gpuName, "GeForce GTX 4") or 
+		   string.find(gpuName, "GeForce GTX 5") then
+		if gpuCount > 1 then
+			return 4
+		else
+			return 3
+		end
+    else
+        return 1
+    end
+end
+
+function getCpuQuality(cpuCount, cpuSpeed)
+	return (cpuSpeed-1.2)*(cpuCount-1)
+end
+
+vendorDB = {
+	[0x1002] = dofile("Scripts/UserOptions/HardwareProfiles/ATI.lua"),
+	[0x10DE] = dofile("Scripts/UserOptions/HardwareProfiles/nVidia.lua"),
+	[0x8086] = dofile("Scripts/UserOptions/HardwareProfiles/Intel.lua")
+}
+
+mobileVendorDB = 
+{
+	["IOS"] 	= dofile("Scripts/UserOptions/HardwareProfiles/iOS.lua"),
+	["ANDROID"] = dofile("Scripts/UserOptions/HardwareProfiles/Android.lua")
+}
+
+function getDeviceSettings(vendorId, deviceId, adapterName)
+	if adapterName == "Xenon" then
+		return { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "PS3" then
+		return { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "IOS" then
+		deviceGeneration = string.sub(detectedDeviceName, 1, string.len(detectedDeviceName)-2)
+		return (mobileVendorDB["IOS"] and mobileVendorDB["IOS"][deviceGeneration]) or { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "ANDROID" then
+		return (mobileVendorDB["ANDROID"] and mobileVendorDB["ANDROID"][detectedDeviceName]) or { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	elseif isX86 == 1 then
+		return { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	else
+		return (vendorDB[vendorId] and vendorDB[vendorId][deviceId]) or { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	end
+end
+
+hardwareSpecs = {
+	[0] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = detectedAvailableMemory,
+		adapterName = detectedAdapterName,
+		gpuCount = detectedGpuCount,
+		adapterQuality = getGpuQuality(detectedAdapterName, detectedGpuCount),
+		availableGpuMemory = detectedAvailableGpuMemory,
+		deviceSettings = getDeviceSettings(detectedVendorId, detectedDeviceId, detectedAdapterName, isX86)
+	},
+
+	[1] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 2.3),
+		availableMemory = 512*1024*1024,
+		adapterName = "Faked Low",
+		gpuCount = 1,
+		adapterQuality = 0,
+		availableGpuMemory = 512*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[2] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 3),
+		availableMemory = 1*1024*1024*1024,
+		adapterName = "Faked Medium",
+		gpuCount = 1,
+		adapterQuality = 1,
+		availableGpuMemory = 768*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[3] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(4, 3),
+		availableMemory = 1.5*1024*1024*1024,
+		adapterName = "Faked High",
+		gpuCount = 1,
+		adapterQuality = 3,
+		availableGpuMemory = 1*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[4] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(8, 3),
+		availableMemory = 2*1024*1024*1024,
+		adapterName = "Faked Ultra",
+		gpuCount = 2,
+		adapterQuality = 4,
+		availableGpuMemory = 2*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Ultra, defaultSettings = {}, consoleOverrides = " }
+	},
+}
+
+vendorDB = nil
+[/version]
+
+[version]
+2017 (Mass Effect)
+[notes]
+X86 ONLY ARCHITECTURE - Simplified PC-only detection.
+
+Key Changes:
+1. Removed Console Support
+   - No Xenon/PS3 checks
+   - Pure PC architecture detection
+
+2. X86 Architecture Priority
+   - isX86 check moved to first position
+   - Forces Quality.Low for 32-bit systems
+   - Simplifies detection flow
+
+3. Streamlined Platform Detection
+   - X86 check first
+   - PC vendorDB lookup second
+   - No mobile platform support
+
+Design Rationale:
+- PC-exclusive title (Mass Effect: Andromeda)
+- Focus on 64-bit systems
+- Removed legacy console code
+- Simplified architecture for BioWare's requirements
+[content]
+function getGpuQuality(gpuName, gpuCount)
+    if string.find(gpuName, "GeForce 8") or 
+       string.find(gpuName, "GeForce 9") then
+        return 1
+    elseif string.find(gpuName, "GeForce GTX 26") then
+        return 2
+    elseif string.find(gpuName, "GeForce GTX 2") or 
+		   string.find(gpuName, "ATI Radeon HD 4870 X2") or 
+		   string.find(gpuName, "ATI Radeon HD 5800 Series") or 
+		   string.find(gpuName, "ATI Radeon HD 5900 Series") or 
+		   string.find(gpuName, "AMD Radeon HD 68") or 
+		   string.find(gpuName, "AMD Radeon HD 69") or 
+		   string.find(gpuName, "GeForce GTX 4") or 
+		   string.find(gpuName, "GeForce GTX 5") then
+		if gpuCount > 1 then
+			return 4
+		else
+			return 3
+		end
+    else
+        return 1
+    end
+end
+
+function getCpuQuality(cpuCount, cpuSpeed)
+	return (cpuSpeed-1.2)*(cpuCount-1)
+end
+
+vendorDB = {
+	[0x1002] = dofile("Scripts/UserOptions/HardwareProfiles/ATI.lua"),
+	[0x10DE] = dofile("Scripts/UserOptions/HardwareProfiles/nVidia.lua"),
+	[0x8086] = dofile("Scripts/UserOptions/HardwareProfiles/Intel.lua")
+}
+
+function getDeviceSettings(vendorId, deviceId, adapterName)
+	if isX86 == 1 then
+		return { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	else
+		return (vendorDB[vendorId] and vendorDB[vendorId][deviceId]) or { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	end
+end
+
+hardwareSpecs = {
+	[0] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = detectedAvailableMemory,
+		adapterName = detectedAdapterName,
+		gpuCount = detectedGpuCount,
+		adapterQuality = getGpuQuality(detectedAdapterName, detectedGpuCount),
+		availableGpuMemory = detectedAvailableGpuMemory,
+		deviceSettings = getDeviceSettings(detectedVendorId, detectedDeviceId, detectedAdapterName, isX86)
+	},
+
+	[1] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 2.3),
+		availableMemory = 512*1024*1024,
+		adapterName = "Faked Low",
+		gpuCount = 1,
+		adapterQuality = 0,
+		availableGpuMemory = 512*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[2] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 3),
+		availableMemory = 1*1024*1024*1024,
+		adapterName = "Faked Medium",
+		gpuCount = 1,
+		adapterQuality = 1,
+		availableGpuMemory = 768*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[3] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(4, 3),
+		availableMemory = 1.5*1024*1024*1024,
+		adapterName = "Faked High",
+		gpuCount = 1,
+		adapterQuality = 3,
+		availableGpuMemory = 1*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[4] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(8, 3),
+		availableMemory = 2*1024*1024*1024,
+		adapterName = "Faked Ultra",
+		gpuCount = 2,
+		adapterQuality = 4,
+		availableGpuMemory = 2*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Ultra, defaultSettings = {}, consoleOverrides = " }
+	},
+}
+
+vendorDB = nil
+[/version]
+
+[version]
+2018 (Battlefield V, Mirror's Edge (Latest Version))
+[notes]
+SYSTEM MEMORY TRACKING + MOBILE REINTRODUCTION - Enhanced memory management with mobile platform return.
+
+Key Changes:
+1. System Memory Tracking Added
+   - systemMemory field introduced
+   - Separate from availableMemory
+   - Tracks total system RAM
+
+2. Vendor Enum Migration
+   - Changed from hex values to Vendors enum
+   - Vendors.AMD, Vendors.NVIDIA, Vendors.INTEL
+   - More maintainable codebase
+
+3. Mobile Platforms Return
+   - iOS and Android support restored
+   - mobileVendorDB reintroduced
+   - Full cross-platform coverage
+
+4. GPU Memory Divergence
+   - PAMPLONA divergence comments
+   - availableGpuMemory uses detected values for fake profiles
+   - Dynamic GPU memory allocation
+
+5. Cinematic Quality Level
+   - New [5] hardware spec added
+   - Quality.Cinematic introduced
+   - Highest visual fidelity preset
+
+6. Memory Specification Changes
+   - Faked profiles use realistic system memory values
+   - 4GB Low, 8GB Medium, 16GB High/Ultra/Cinematic
+   - Reflects modern hardware requirements
+
+Design Rationale:
+- Support for Battlefield V's higher system requirements
+- Enhanced memory tracking for better performance optimization
+- Return of mobile platforms for Mirror's Edge mobile
+- Cinematic quality for high-end PC configurations
+- Preparation for ray tracing and advanced rendering
+[content]
+function getGpuQuality(gpuName, gpuCount)
+    if string.find(gpuName, "GeForce 8") or 
+       string.find(gpuName, "GeForce 9") then
+        return 1
+    elseif string.find(gpuName, "GeForce GTX 26") then
+        return 2
+    elseif string.find(gpuName, "GeForce GTX 2") or 
+		   string.find(gpuName, "ATI Radeon HD 4870 X2") or 
+		   string.find(gpuName, "ATI Radeon HD 5800 Series") or 
+		   string.find(gpuName, "ATI Radeon HD 5900 Series") or 
+		   string.find(gpuName, "AMD Radeon HD 68") or 
+		   string.find(gpuName, "AMD Radeon HD 69") or 
+		   string.find(gpuName, "GeForce GTX 4") or 
+		   string.find(gpuName, "GeForce GTX 5") then
+		if gpuCount > 1 then
+			return 4
+		else
+			return 3
+		end
+    else
+        return 1
+    end
+end
+
+function getCpuQuality(cpuCount, cpuSpeed)
+	return (cpuSpeed-1.2)*(cpuCount-1)
+end
+
+vendorDB = {
+	[Vendors.AMD] = dofile("Scripts/UserOptions/HardwareProfiles/ATI.lua"),
+	[Vendors.NVIDIA] = dofile("Scripts/UserOptions/HardwareProfiles/nVidia.lua"),
+	[Vendors.INTEL] = dofile("Scripts/UserOptions/HardwareProfiles/Intel.lua")
+}
+
+mobileVendorDB = 
+{
+	["IOS"] 	= dofile("Scripts/UserOptions/HardwareProfiles/iOS.lua"),
+	["ANDROID"] = dofile("Scripts/UserOptions/HardwareProfiles/Android.lua")
+}
+
+function getDeviceSettings(vendorId, deviceId, adapterName)
+	if adapterName == "Xenon" then
+		return { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "PS3" then
+		return { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "IOS" then
+		deviceGeneration = string.sub(detectedDeviceName, 1, string.len(detectedDeviceName)-2)
+		return (mobileVendorDB["IOS"] and mobileVendorDB["IOS"][deviceGeneration]) or { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "ANDROID" then
+		return (mobileVendorDB["ANDROID"] and mobileVendorDB["ANDROID"][detectedDeviceName]) or { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	elseif isX86 == 1 then
+		return { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	else
+		return (vendorDB[vendorId] and vendorDB[vendorId][deviceId]) or { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	end
+end
+
+hardwareSpecs = {
+	[0] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = detectedAvailableMemory,
+		systemMemory = detectedSystemMemory,
+		adapterName = detectedAdapterName,
+		gpuCount = detectedGpuCount,
+		adapterQuality = getGpuQuality(detectedAdapterName, detectedGpuCount),
+		availableGpuMemory = detectedAvailableGpuMemory,
+		deviceSettings = getDeviceSettings(detectedVendorId, detectedDeviceId, detectedAdapterName, isX86)
+	},
+
+	[1] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 2.3),
+		availableMemory = 4*1024*1024*1024,
+		systemMemory = 4*1024*1024*1024,
+		adapterName = "Faked Low",
+		gpuCount = 1,
+		adapterQuality = 0,
+		availableGpuMemory = detectedAvailableGpuMemory,
+		deviceSettings = { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[2] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 3),
+		availableMemory = 8*1024*1024*1024,
+		systemMemory = 8*1024*1024*1024,
+		adapterName = "Faked Medium",
+		gpuCount = 1,
+		adapterQuality = 1,
+		availableGpuMemory = detectedAvailableGpuMemory,
+		deviceSettings = { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[3] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(4, 3),
+		availableMemory = 16*1024*1024*1024,
+		systemMemory = 16*1024*1024*1024,
+		adapterName = "Faked High",
+		gpuCount = 1,
+		adapterQuality = 3,
+		availableGpuMemory = detectedAvailableGpuMemory,
+		deviceSettings = { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[4] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(8, 3),
+		availableMemory = 16*1024*1024*1024,
+		systemMemory = 16*1024*1024*1024,
+		adapterName = "Faked Ultra",
+		gpuCount = 2,
+		adapterQuality = 4,
+		availableGpuMemory = detectedAvailableGpuMemory,
+		deviceSettings = { baseQualityLevel = Quality.Ultra, defaultSettings = {}, consoleOverrides = " }
+	},
+	[5] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(8, 3),
+		availableMemory = 16*1024*1024*1024,
+		systemMemory = 16*1024*1024*1024,
+		adapterName = "Faked Cinematic",
+		gpuCount = 2,
+		adapterQuality = 4,
+		availableGpuMemory = detectedAvailableGpuMemory,
+		deviceSettings = { baseQualityLevel = Quality.Cinematic, defaultSettings = {}, consoleOverrides = " }
+	},
+}
+
+vendorDB = nil
+[/version]
+
+[version]
+2019 (Battle For Neighborville, Dead Space, PGA Tour)
+[notes]
+DEBUG LOGGING ADDITION - Enhanced debugging capabilities for hardware detection.
+
+Key Changes:
+1. Debug Logging Added
+   - Hex vendor and device ID logging
+   - string.format for hex conversion
+   - log:info calls for debugging
+   - Helps troubleshoot hardware detection issues
+
+2. Developer Attribution
+   - @dan: prefix in log messages
+   - Indicates debugging additions by Dan
+   - Maintains code history
+
+3. Same Hardware Detection Logic
+   - No functional changes to detection
+   - Same platform priority order
+   - Same quality level assignments
+
+Design Rationale:
+- Troubleshooting unrecognized GPUs
+- Field debugging for support team
+- Production environment logging
+- Helps identify new hardware requiring database updates
+[content]
+function getGpuQuality(gpuName, gpuCount)
+    if string.find(gpuName, "GeForce 8") or 
+       string.find(gpuName, "GeForce 9") then
+        return 1
+    elseif string.find(gpuName, "GeForce GTX 26") then
+        return 2
+    elseif string.find(gpuName, "GeForce GTX 2") or 
+		   string.find(gpuName, "ATI Radeon HD 4870 X2") or 
+		   string.find(gpuName, "ATI Radeon HD 5800 Series") or 
+		   string.find(gpuName, "ATI Radeon HD 5900 Series") or 
+		   string.find(gpuName, "AMD Radeon HD 68") or 
+		   string.find(gpuName, "AMD Radeon HD 69") or 
+		   string.find(gpuName, "GeForce GTX 4") or 
+		   string.find(gpuName, "GeForce GTX 5") then
+		if gpuCount > 1 then
+			return 4
+		else
+			return 3
+		end
+    else
+        return 1
+    end
+end
+
+function getCpuQuality(cpuCount, cpuSpeed)
+	return (cpuSpeed-1.2)*(cpuCount-1)
+end
+
+vendorDB = {
+	[0x1002] = dofile("Scripts/UserOptions/HardwareProfiles/ATI.lua"),
+	[0x10DE] = dofile("Scripts/UserOptions/HardwareProfiles/nVidia.lua"),
+	[0x8086] = dofile("Scripts/UserOptions/HardwareProfiles/Intel.lua")
+}
+
+mobileVendorDB = 
+{
+	["IOS"] 	= dofile("Scripts/UserOptions/HardwareProfiles/iOS.lua"),
+	["ANDROID"] = dofile("Scripts/UserOptions/HardwareProfiles/Android.lua")
+}
+
+function getDeviceSettings(vendorId, deviceId, adapterName)
+
+	local hexVendorId = string.format('%x',vendorId)
+	local hexDeviceId = string.format('%x',deviceId)
+	log:info("@dan:	vendorId : 0x" .. hexVendorId)
+	log:info("@dan:	deviceId : 0x" .. hexDeviceId)
+	
+	if adapterName == "Xenon" then
+		return { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "PS3" then
+		return { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "IOS" then
+		deviceGeneration = string.sub(detectedDeviceName, 1, string.len(detectedDeviceName)-2)
+		return (mobileVendorDB["IOS"] and mobileVendorDB["IOS"][deviceGeneration]) or { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "ANDROID" then
+		return (mobileVendorDB["ANDROID"] and mobileVendorDB["ANDROID"][detectedDeviceName]) or { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	elseif isX86 == 1 then
+		return { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	else
+		return (vendorDB[vendorId] and vendorDB[vendorId][deviceId]) or { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	end
+end
+
+hardwareSpecs = {
+	[0] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = detectedAvailableMemory,
+		adapterName = detectedAdapterName,
+		gpuCount = detectedGpuCount,
+		adapterQuality = getGpuQuality(detectedAdapterName, detectedGpuCount),
+		availableGpuMemory = detectedAvailableGpuMemory,
+		deviceSettings = getDeviceSettings(detectedVendorId, detectedDeviceId, detectedAdapterName, isX86)
+	},
+
+	[1] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 2.3),
+		availableMemory = 512*1024*1024,
+		adapterName = "Faked Low",
+		gpuCount = 1,
+		adapterQuality = 0,
+		availableGpuMemory = 512*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[2] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 3),
+		availableMemory = 1*1024*1024*1024,
+		adapterName = "Faked Medium",
+		gpuCount = 1,
+		adapterQuality = 1,
+		availableGpuMemory = 768*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[3] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(4, 3),
+		availableMemory = 1.5*1024*1024*1024,
+		adapterName = "Faked High",
+		gpuCount = 1,
+		adapterQuality = 3,
+		availableGpuMemory = 1*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[4] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(8, 3),
+		availableMemory = 2*1024*1024*1024,
+		adapterName = "Faked Ultra",
+		gpuCount = 2,
+		adapterQuality = 4,
+		availableGpuMemory = 2*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Ultra, defaultSettings = {}, consoleOverrides = " }
+	},
+}
+
+vendorDB = nil
+[/version]
+
+[version]
+2020 (Star Wars Squadrons)
+[notes]
+VR QUALITY SETTINGS - Virtual Reality support with separate quality profiles.
+
+Key Changes:
+1. VR Quality Level Introduction
+   - vrQualityLevel added to deviceSettings
+   - Separate quality settings for VR vs flat screen
+   - Allows different optimization for VR rendering
+
+2. GPU Quality Function Removed
+   - getGpuQuality function eliminated
+   - Relies entirely on vendorDB lookups
+   - Simplifies codebase
+
+3. INCOM Divergence Markers
+   - INCOM_START/INCOM_END markers throughout
+   - Fabien attribution (2018-03-26)
+   - Marks VR-specific code changes
+
+4. Vendor Enum Case Change
+   - Vendors.Nvidia (capital N, lowercase v)
+   - Inconsistent with other AMD/INTEL casing
+   - Likely project-specific naming
+
+5. System Memory Tracking
+   - Maintains systemMemory field from BFV
+   - availableMemory and systemMemory tracked separately
+
+6. VR-Specific GPU Memory
+   - Faked profiles specify exact GPU memory
+   - 1GB Low, 2GB Medium, 3GB High, 4GB Ultra
+   - VR requires more precise memory management
+
+Design Rationale:
+- First EA title with native VR support
+- VR requires different performance characteristics
+- Lower quality VR settings for consistent framerate
+- Separate tuning for VR vs monitor play
+- Critical for avoiding VR sickness from low framerates
+[content]
+function getCpuQuality(cpuCount, cpuSpeed)
+	return (cpuSpeed-1.2)*(cpuCount-1)
+end
+
+vendorDB = {
+	[Vendors.AMD] = dofile("Scripts/UserOptions/HardwareProfiles/ATI.lua"),
+	[Vendors.Nvidia] = dofile("Scripts/UserOptions/HardwareProfiles/nVidia.lua"),
+	[Vendors.Intel] = dofile("Scripts/UserOptions/HardwareProfiles/Intel.lua")
+}
+
+function getDeviceSettings(vendorId, deviceId, adapterName)
+	return (vendorDB[vendorId] and vendorDB[vendorId][deviceId]) or { baseQualityLevel = Quality.Low, vrQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+end
+
+hardwareSpecs = {
+	[0] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = detectedAvailableMemory,
+		systemMemory = detectedSystemMemory,
+		adapterName = detectedAdapterName,
+		gpuCount = detectedGpuCount,
+		availableGpuMemory = detectedAvailableGpuMemory,
+		deviceSettings = getDeviceSettings(detectedVendorId, detectedDeviceId, detectedAdapterName, isX86)
+	},
+
+	[1] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 2.3),
+		availableMemory = 4*1024*1024*1024,
+		systemMemory = 4*1024*1024*1024,
+		adapterName = "Faked Low",
+		gpuCount = 1,
+		availableGpuMemory = 1*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Low, vrQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[2] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 3),
+		availableMemory = 8*1024*1024*1024,
+		systemMemory = 8*1024*1024*1024,
+		adapterName = "Faked Medium",
+		gpuCount = 1,
+		availableGpuMemory = 2*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Medium, vrQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[3] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(4, 3),
+		availableMemory = 16*1024*1024*1024,
+		systemMemory = 16*1024*1024*1024,
+		adapterName = "Faked High",
+		gpuCount = 1,
+		availableGpuMemory = 3*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.High, vrQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[4] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(8, 3),
+		availableMemory = 16*1024*1024*1024,
+		systemMemory = 16*1024*1024*1024,
+		adapterName = "Faked Ultra",
+		gpuCount = 2,
+		availableGpuMemory = 4*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Ultra, vrQualityLevel = Quality.Ultra, defaultSettings = {}, consoleOverrides = " }
+	},
+}
+
+vendorDB = nil
+[/version]
+
+[version]
+2021 (Battlefield 2042, Need For Speed Unbound)
+[notes]
+PERFORMANCE RATINGS SYSTEM - TFLOPS-based GPU performance classification.
+
+Key Changes:
+1. TFLOPS Performance Ratings
+   - vendorPerfRatingsDB introduced
+   - getHardwarePerformanceRating function
+   - tflopsRating field for GPUs
+   - Objective performance measurement
+
+2. VRAM Quality Lookup Tables
+   - getVendorVRAMQualityTable function
+   - vramQualityLookup per vendor
+   - Quality level based on VRAM amount
+
+3. TFLOPS Quality Lookup Tables
+   - getVendorTFlopsQualityTable function
+   - tflopsQualityLookup per vendor
+   - Quality level based on compute performance
+
+4. Memory Unit Change to MiB
+   - detectedAvailableMemoryMiB
+   - detectedSystemMemoryMiB
+   - detectedAvailableGpuMemoryMiB
+   - More precise memory tracking
+
+5. MiB-based Faked Profiles
+   - Memory specified in MiB instead of bytes
+   - 4*1024 (4096 MiB), 8*1024 (8192 MiB), 16*1024 (16384 MiB)
+   - Cleaner notation
+
+6. Vendor Ratings Files
+   - nVidiaRatings.lua, AMDRatings.lua, IntelRatings.lua
+   - Separate files for GPU performance data
+   - Easier to update for new GPUs
+
+7. Mobile Platform Support Maintained
+   - iOS and Android still supported
+   - Full cross-platform detection
+   - Console support (Xenon, PS3) still present
+
+Design Rationale:
+- Objective performance metrics needed for BF2042
+- Modern GPU landscape too complex for name-based detection
+- TFLOPS provides quantifiable performance measure
+- VRAM requirements vary significantly by quality level
+- Enables better hardware classification
+- Supports wider range of GPUs without manual updates
+- Battlefield 2042's scalability requirements
+[content]
+function getGpuQuality(gpuName, gpuCount)
+    if string.find(gpuName, "GeForce 8") or 
+       string.find(gpuName, "GeForce 9") then
+        return 1
+    elseif string.find(gpuName, "GeForce GTX 26") then
+        return 2
+    elseif string.find(gpuName, "GeForce GTX 2") or 
+		   string.find(gpuName, "ATI Radeon HD 4870 X2") or 
+		   string.find(gpuName, "ATI Radeon HD 5800 Series") or 
+		   string.find(gpuName, "ATI Radeon HD 5900 Series") or 
+		   string.find(gpuName, "AMD Radeon HD 68") or 
+		   string.find(gpuName, "AMD Radeon HD 69") or 
+		   string.find(gpuName, "GeForce GTX 4") or 
+		   string.find(gpuName, "GeForce GTX 5") then
+		if gpuCount > 1 then
+			return 4
+		else
+			return 3
+		end
+    else
+        return 1
+    end
+end
+
+function getCpuQuality(cpuCount, cpuSpeed)
+	return (cpuSpeed-1.2)*(cpuCount-1)
+end
+
+vendorDB = {
+	[Vendors.AMD] = dofile("Scripts/UserOptions/HardwareProfiles/ATI.lua"),
+	[Vendors.NVIDIA] = dofile("Scripts/UserOptions/HardwareProfiles/nVidia.lua"),
+	[Vendors.INTEL] = dofile("Scripts/UserOptions/HardwareProfiles/Intel.lua")
+}
+
+mobileVendorDB = 
+{
+	["IOS"] 	= dofile("Scripts/UserOptions/HardwareProfiles/iOS.lua"),
+	["ANDROID"] = dofile("Scripts/UserOptions/HardwareProfiles/Android.lua")
+}
+
+function getDeviceSettings(vendorId, deviceId, adapterName)
+	if adapterName == "Xenon" then
+		return { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "PS3" then
+		return { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "IOS" then
+		deviceGeneration = string.sub(detectedDeviceName, 1, string.len(detectedDeviceName)-2)
+		return (mobileVendorDB["IOS"] and mobileVendorDB["IOS"][deviceGeneration]) or { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "ANDROID" then
+		return (mobileVendorDB["ANDROID"] and mobileVendorDB["ANDROID"][detectedDeviceName]) or { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	elseif isX86 == 1 then
+		return { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	else
+		return (vendorDB[vendorId] and vendorDB[vendorId][deviceId]) or { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	end
+end
+
+vendorPerfRatingsDB = {
+	[Vendors.NVIDIA] = dofile("Scripts/UserOptions/HardwareProfiles/nVidiaRatings.lua"),
+	[Vendors.AMD] = dofile("Scripts/UserOptions/HardwareProfiles/AMDRatings.lua"),
+	[Vendors.INTEL] = dofile("Scripts/UserOptions/HardwareProfiles/IntelRatings.lua")
+}
+
+function getHardwarePerformanceRating(vendorId, deviceId)
+	return (vendorPerfRatingsDB[vendorId] and vendorPerfRatingsDB[vendorId][deviceId]) or { tflopsRating = 0.0 }
+end
+
+function getVendorVRAMQualityTable(vendorId)
+	return (vendorPerfRatingsDB[vendorId] and vendorPerfRatingsDB[vendorId].vramQualityLookup) or nil
+end
+
+function getVendorTFlopsQualityTable(vendorId)
+	return (vendorPerfRatingsDB[vendorId] and vendorPerfRatingsDB[vendorId].tflopsQualityLookup) or nil
+end
+
+hardwareSpecs = {
+	[0] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = detectedAvailableMemoryMiB,
+		systemMemory = detectedSystemMemoryMiB,
+		adapterName = detectedAdapterName,
+		gpuCount = detectedGpuCount,
+		adapterQuality = getGpuQuality(detectedAdapterName, detectedGpuCount),
+		availableGpuMemory = detectedAvailableGpuMemoryMiB,
+		deviceSettings = getDeviceSettings(detectedVendorId, detectedDeviceId, detectedAdapterName, isX86)
+	},
+
+	[1] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 2.3),
+		availableMemory = 4*1024,
+		systemMemory = 4*1024,
+		adapterName = "Faked Low",
+		gpuCount = 1,
+		adapterQuality = 0,
+		availableGpuMemory = detectedAvailableGpuMemoryMiB,
+		deviceSettings = { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[2] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 3),
+		availableMemory = 8*1024,
+		systemMemory = 8*1024,
+		adapterName = "Faked Medium",
+		gpuCount = 1,
+		adapterQuality = 1,
+		availableGpuMemory = detectedAvailableGpuMemoryMiB,
+		deviceSettings = { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[3] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(4, 3),
+		availableMemory = 16*1024,
+		systemMemory = 16*1024,
+		adapterName = "Faked High",
+		gpuCount = 1,
+		adapterQuality = 3,
+		availableGpuMemory = detectedAvailableGpuMemoryMiB,
+		deviceSettings = { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[4] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(8, 3),
+		availableMemory = 16*1024,
+		systemMemory = 16*1024,
+		adapterName = "Faked Ultra",
+		gpuCount = 2,
+		adapterQuality = 4,
+		availableGpuMemory = detectedAvailableGpuMemoryMiB,
+		deviceSettings = { baseQualityLevel = Quality.Ultra, defaultSettings = {}, consoleOverrides = " }
+	},
+}
+
+vendorDB = nil
+[/version]
+
+[version]
+2023 (FC 24)
+[notes]
+STADIA CLOUD GAMING SUPPORT - Google Stadia integration for cloud platforms.
+
+Key Changes:
+1. Cloud Gaming Platform Support
+   - cloudVendorDB introduced
+   - Stadia.lua hardware profile
+   - Platform-specific quality settings
+
+2. Stadia Platform Detection
+   - adapterName == "STADIA" check
+   - platformMode-based quality lookup
+   - Resolution-dependent quality switching
+
+3. Dynamic Quality Adjustment
+   - Quality changes based on streaming resolution
+   - Optimized for cloud rendering
+   - Bandwidth-aware settings
+
+4. FIFA-Specific Divergence
+   - FIFA_BEGIN/FIFA_END markers
+   - ydemendeev@ea.com attribution
+   - 09/30/2020 date stamp
+
+5. Standard Detection Maintained
+   - All previous platform checks preserved
+   - Mobile, console, PC support unchanged
+   - x86 architecture detection intact
+
+Design Rationale:
+- Google Stadia launch partnership
+- Cloud gaming requires different optimization
+- Resolution changes affect quality settings
+- FIFA franchise early adopter of Stadia
+- Dynamic quality for streaming bandwidth
+- Prepares for future cloud gaming platforms
+[content]
+function getGpuQuality(gpuName, gpuCount)
+    if string.find(gpuName, "GeForce 8") or 
+       string.find(gpuName, "GeForce 9") then
+        return 1
+    elseif string.find(gpuName, "GeForce GTX 26") then
+        return 2
+    elseif string.find(gpuName, "GeForce GTX 2") or 
+		   string.find(gpuName, "ATI Radeon HD 4870 X2") or 
+		   string.find(gpuName, "ATI Radeon HD 5800 Series") or 
+		   string.find(gpuName, "ATI Radeon HD 5900 Series") or 
+		   string.find(gpuName, "AMD Radeon HD 68") or 
+		   string.find(gpuName, "AMD Radeon HD 69") or 
+		   string.find(gpuName, "GeForce GTX 4") or 
+		   string.find(gpuName, "GeForce GTX 5") then
+		if gpuCount > 1 then
+			return 4
+		else
+			return 3
+		end
+    else
+        return 1
+    end
+end
+
+function getCpuQuality(cpuCount, cpuSpeed)
+	return (cpuSpeed-1.2)*(cpuCount-1)
+end
+
+vendorDB = {
+	[0x1002] = dofile("Scripts/UserOptions/HardwareProfiles/ATI.lua"),
+	[0x10DE] = dofile("Scripts/UserOptions/HardwareProfiles/nVidia.lua"),
+	[0x8086] = dofile("Scripts/UserOptions/HardwareProfiles/Intel.lua")
+}
+
+mobileVendorDB = 
+{
+	["IOS"] 	= dofile("Scripts/UserOptions/HardwareProfiles/iOS.lua"),
+	["ANDROID"] = dofile("Scripts/UserOptions/HardwareProfiles/Android.lua")
+}
+
+cloudVendorDB = 
+{
+	["STADIA"] = dofile("Scripts/UserOptions/HardwareProfiles/Stadia.lua")
+}
+
+function getDeviceSettings(vendorId, deviceId, adapterName)
+	if adapterName == "Xenon" then
+		return { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "PS3" then
+		return { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "IOS" then
+		deviceGeneration = string.sub(detectedDeviceName, 1, string.len(detectedDeviceName)-2)
+		return (mobileVendorDB["IOS"] and mobileVendorDB["IOS"][deviceGeneration]) or { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "ANDROID" then
+		return (mobileVendorDB["ANDROID"] and mobileVendorDB["ANDROID"][detectedDeviceName]) or { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "STADIA" then
+		return (cloudVendorDB["STADIA"] and cloudVendorDB["STADIA"][platformMode]) or {baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	elseif isX86 == 1 then
+		return { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	else
+		return (vendorDB[vendorId] and vendorDB[vendorId][deviceId]) or { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	end
+end
+
+hardwareSpecs = {
+	[0] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = detectedAvailableMemory,
+		adapterName = detectedAdapterName,
+		gpuCount = detectedGpuCount,
+		adapterQuality = getGpuQuality(detectedAdapterName, detectedGpuCount),
+		availableGpuMemory = detectedAvailableGpuMemory,
+		deviceSettings = getDeviceSettings(detectedVendorId, detectedDeviceId, detectedAdapterName, isX86)
+	},
+
+	[1] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 2.3),
+		availableMemory = 512*1024*1024,
+		adapterName = "Faked Low",
+		gpuCount = 1,
+		adapterQuality = 0,
+		availableGpuMemory = 512*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[2] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 3),
+		availableMemory = 1*1024*1024*1024,
+		adapterName = "Faked Medium",
+		gpuCount = 1,
+		adapterQuality = 1,
+		availableGpuMemory = 768*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[3] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(4, 3),
+		availableMemory = 1.5*1024*1024*1024,
+		adapterName = "Faked High",
+		gpuCount = 1,
+		adapterQuality = 3,
+		availableGpuMemory = 1*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[4] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(8, 3),
+		availableMemory = 2*1024*1024*1024,
+		adapterName = "Faked Ultra",
+		gpuCount = 2,
+		adapterQuality = 4,
+		availableGpuMemory = 2*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Ultra, defaultSettings = {}, consoleOverrides = " }
+	},
+}
+
+vendorDB = nil
+[/version]
+
+[version]
+2024 (Dragon Age)
+[notes]
+ENHANCED ERROR HANDLING + CONSOLE OVERRIDES - BioWare's quality management improvements.
+
+Key Changes:
+1. GPU Recognition Error Logging
+   - Unrecognized GPU logging added
+   - Error message includes adapter name, device ID, vendor ID
+   - log:error call for production debugging
+   - "Defaulting to Medium settings" message
+
+2. Conditional Error Logging
+   - Only logs on Win32 platform
+   - Excludes thin client mode
+   - cmdLineOption check added
+   - Prevents unnecessary logging in special modes
+
+3. Console Overrides Propagation
+   - Faked profiles inherit consoleOverrides
+   - getDeviceSettings call in fake profile deviceSettings
+   - Maintains consistency across hardware levels
+   - BW_START/BW_END divergence markers
+
+4. Dynamic CPU Quality Calculation
+   - cpuQuality uses detected values in fake profiles
+   - getCpuQuality(detectedCpuCount, detectedCpuFreq)
+   - Tyler Sliwkanich attribution (2024/04/12)
+   - More accurate performance assessment
+
+5. Direct vendorDB Return
+   - Returns vendorDB result directly if exists
+   - Eliminates redundant checks
+   - Cleaner code flow
+
+6. BioWare Divergence Markers
+   - BW_START/BW_END throughout
+   - Roy, Thomas attribution (8/26/2021)
+   - Graphics mode (fidelity & performance) support
+   - Maintains code history
+
+Design Rationale:
+- Better production debugging for unrecognized GPUs
+- Console override inheritance for consistency
+- Dragon Age: The Veilguard's dual quality modes
+- Support team needs better error information
+- Dynamic CPU quality for varied hardware
+- Platform-specific error handling
+[content]
+function getGpuQuality(gpuName, gpuCount)
+    if string.find(gpuName, "GeForce 8") or 
+       string.find(gpuName, "GeForce 9") then
+        return 1
+    elseif string.find(gpuName, "GeForce GTX 26") then
+        return 2
+    elseif string.find(gpuName, "GeForce GTX 2") or 
+		   string.find(gpuName, "ATI Radeon HD 4870 X2") or 
+		   string.find(gpuName, "ATI Radeon HD 5800 Series") or 
+		   string.find(gpuName, "ATI Radeon HD 5900 Series") or 
+		   string.find(gpuName, "AMD Radeon HD 68") or 
+		   string.find(gpuName, "AMD Radeon HD 69") or 
+		   string.find(gpuName, "GeForce GTX 4") or 
+		   string.find(gpuName, "GeForce GTX 5") then
+		if gpuCount > 1 then
+			return 4
+		else
+			return 3
+		end
+    else
+        return 1
+    end
+end
+
+function getCpuQuality(cpuCount, cpuSpeed)
+	return (cpuSpeed-1.2)*(cpuCount-1)
+end
+
+vendorDB = {
+	[0x1002] = dofile("Scripts/UserOptions/HardwareProfiles/ATI.lua"),
+	[0x10DE] = dofile("Scripts/UserOptions/HardwareProfiles/nVidia.lua"),
+	[0x8086] = dofile("Scripts/UserOptions/HardwareProfiles/Intel.lua")
+}
+
+mobileVendorDB = 
+{
+	["IOS"] 	= dofile("Scripts/UserOptions/HardwareProfiles/iOS.lua"),
+	["ANDROID"] = dofile("Scripts/UserOptions/HardwareProfiles/Android.lua")
+}
+
+function getDeviceSettings(vendorId, deviceId, adapterName)
+	if adapterName == "Xenon" then
+		return { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "PS3" then
+		return { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "IOS" then
+		deviceGeneration = string.sub(detectedDeviceName, 1, string.len(detectedDeviceName)-2)
+		return (mobileVendorDB["IOS"] and mobileVendorDB["IOS"][deviceGeneration]) or { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "ANDROID" then
+		return (mobileVendorDB["ANDROID"] and mobileVendorDB["ANDROID"][detectedDeviceName]) or { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	elseif isX86 == 1 then
+		return { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	elseif (vendorDB[vendorId] and vendorDB[vendorId][deviceId]) then
+		return (vendorDB[vendorId] and vendorDB[vendorId][deviceId])
+	else
+		if platform == "Win32" and not cmdLineOption("thinClient", false) then
+			log:error("GPU " .. adapterName .. " (device=" .. deviceId .. ", vendor=" .. vendorId .. ") not recognized. Defaulting to Medium settings.")
+		end
+		return { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	end
+end
+
+hardwareSpecs = {
+	[0] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = detectedAvailableMemory,
+		adapterName = detectedAdapterName,
+		gpuCount = detectedGpuCount,
+		adapterQuality = getGpuQuality(detectedAdapterName, detectedGpuCount),
+		availableGpuMemory = detectedAvailableGpuMemory,
+		deviceSettings = getDeviceSettings(detectedVendorId, detectedDeviceId, detectedAdapterName, isX86)
+	},
+
+	[1] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = 512*1024*1024,
+		adapterName = "Faked Low",
+		gpuCount = 1,
+		adapterQuality = 0,
+		availableGpuMemory = 512*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = getDeviceSettings(detectedVendorId, detectedDeviceId, detectedAdapterName, isX86).consoleOverrides }
+	},
+
+	[2] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = 1*1024*1024*1024,
+		adapterName = "Faked Medium",
+		gpuCount = 1,
+		adapterQuality = 1,
+		availableGpuMemory = 768*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = getDeviceSettings(detectedVendorId, detectedDeviceId, detectedAdapterName, isX86).consoleOverrides }
+	},
+
+	[3] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = 1.5*1024*1024*1024,
+		adapterName = "Faked High",
+		gpuCount = 1,
+		adapterQuality = 3,
+		availableGpuMemory = 1*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = getDeviceSettings(detectedVendorId, detectedDeviceId, detectedAdapterName, isX86).consoleOverrides }
+	},
+
+	[4] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = 2*1024*1024*1024,
+		adapterName = "Faked Ultra",
+		gpuCount = 2,
+		adapterQuality = 4,
+		availableGpuMemory = 2*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Ultra, defaultSettings = {}, consoleOverrides = getDeviceSettings(detectedVendorId, detectedDeviceId, detectedAdapterName, isX86).consoleOverrides }
+	},
+}
+
+vendorDB = nil
+[/version]
+
+[version]
+2024 (FC 25, NFL 25)
+[notes]
+SPORTS FRANCHISE STANDARD - EA Sports unified hardware detection.
+
+Key Changes:
+1. Return to Standard Architecture
+   - Removed error logging from Dragon Age version
+   - Removed console override propagation
+   - Standard CPU quality calculation restored
+
+2. Simplified Device Settings
+   - Direct consoleOverrides = " in fake profiles
+   - No dynamic override inheritance
+   - Static configuration values
+
+3. Standard Sports Game Architecture
+   - Used across multiple EA Sports titles
+   - FC 25 (FIFA successor)
+   - NFL 25 (Madden)
+   - Consistent experience across franchises
+
+4. Legacy Console Support Maintained
+   - Xenon and PS3 checks preserved
+   - Mobile platform support (iOS, Android)
+   - x86 architecture detection
+
+5. Standard Quality Tiers
+   - Low, Medium, High, Ultra
+   - Traditional memory allocations
+   - Standard GPU quality detection
+
+Design Rationale:
+- EA Sports games share common codebase
+- No need for advanced error handling
+- Standardized across annual releases
+- Well-tested hardware detection
+- Focus on consistent performance
+- Multi-platform sports gaming requirements
+[content]
+function getGpuQuality(gpuName, gpuCount)
+    if string.find(gpuName, "GeForce 8") or 
+       string.find(gpuName, "GeForce 9") then
+        return 1
+    elseif string.find(gpuName, "GeForce GTX 26") then
+        return 2
+    elseif string.find(gpuName, "GeForce GTX 2") or 
+		   string.find(gpuName, "ATI Radeon HD 4870 X2") or 
+		   string.find(gpuName, "ATI Radeon HD 5800 Series") or 
+		   string.find(gpuName, "ATI Radeon HD 5900 Series") or 
+		   string.find(gpuName, "AMD Radeon HD 68") or 
+		   string.find(gpuName, "AMD Radeon HD 69") or 
+		   string.find(gpuName, "GeForce GTX 4") or 
+		   string.find(gpuName, "GeForce GTX 5") then
+		if gpuCount > 1 then
+			return 4
+		else
+			return 3
+		end
+    else
+        return 1
+    end
+end
+
+function getCpuQuality(cpuCount, cpuSpeed)
+	return (cpuSpeed-1.2)*(cpuCount-1)
+end
+
+vendorDB = {
+	[0x1002] = dofile("Scripts/UserOptions/HardwareProfiles/ATI.lua"),
+	[0x10DE] = dofile("Scripts/UserOptions/HardwareProfiles/nVidia.lua"),
+	[0x8086] = dofile("Scripts/UserOptions/HardwareProfiles/Intel.lua")
+}
+
+mobileVendorDB = 
+{
+	["IOS"] 	= dofile("Scripts/UserOptions/HardwareProfiles/iOS.lua"),
+	["ANDROID"] = dofile("Scripts/UserOptions/HardwareProfiles/Android.lua")
+}
+
+function getDeviceSettings(vendorId, deviceId, adapterName)
+	if adapterName == "Xenon" then
+		return { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "PS3" then
+		return { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "IOS" then
+		deviceGeneration = string.sub(detectedDeviceName, 1, string.len(detectedDeviceName)-2)
+		return (mobileVendorDB["IOS"] and mobileVendorDB["IOS"][deviceGeneration]) or { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "ANDROID" then
+		return (mobileVendorDB["ANDROID"] and mobileVendorDB["ANDROID"][detectedDeviceName]) or { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	elseif isX86 == 1 then
+		return { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	else
+		return (vendorDB[vendorId] and vendorDB[vendorId][deviceId]) or { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	end
+end
+
+hardwareSpecs = {
+	[0] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = detectedAvailableMemory,
+		adapterName = detectedAdapterName,
+		gpuCount = detectedGpuCount,
+		adapterQuality = getGpuQuality(detectedAdapterName, detectedGpuCount),
+		availableGpuMemory = detectedAvailableGpuMemory,
+		deviceSettings = getDeviceSettings(detectedVendorId, detectedDeviceId, detectedAdapterName, isX86)
+	},
+
+	[1] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 2.3),
+		availableMemory = 512*1024*1024,
+		adapterName = "Faked Low",
+		gpuCount = 1,
+		adapterQuality = 0,
+		availableGpuMemory = 512*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[2] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 3),
+		availableMemory = 1*1024*1024*1024,
+		adapterName = "Faked Medium",
+		gpuCount = 1,
+		adapterQuality = 1,
+		availableGpuMemory = 768*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[3] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(4, 3),
+		availableMemory = 1.5*1024*1024*1024,
+		adapterName = "Faked High",
+		gpuCount = 1,
+		adapterQuality = 3,
+		availableGpuMemory = 1*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[4] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(8, 3),
+		availableMemory = 2*1024*1024*1024,
+		adapterName = "Faked Ultra",
+		gpuCount = 2,
+		adapterQuality = 4,
+		availableGpuMemory = 2*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Ultra, defaultSettings = {}, consoleOverrides = " }
+	},
+}
+
+vendorDB = nil
+[/version]
+
+[version]
+2025 (FC 26)
+[notes]
+NEXT-GEN CONSOLE SUPPORT - Nintendo Switch 2 'Sprout' integration.
+
+Key Changes:
+1. Next-Gen Console Platform Added
+   - consoleVendorDB introduced
+   - Sprout.lua hardware profile
+   - Nintendo's next-generation console
+
+2. Sprout Platform Detection
+   - adapterName == "Sprout" check
+   - platformMode-based quality lookup
+   - Multiple performance modes support
+
+3. Platform Mode Architecture
+   - Different quality settings per mode
+   - Docked vs portable configurations
+   - Dynamic quality switching capability
+
+4. Console Quality Defaults
+   - Quality.High default for Sprout
+   - Optimized for Nintendo's hardware
+   - Fallback if platformMode not found
+
+5. Full Platform Coverage
+   - Legacy consoles (Xenon, PS3)
+   - Mobile platforms (iOS, Android)
+   - PC (x86 detection, vendorDB)
+   - Next-gen console (Sprout)
+
+Design Rationale:
+- Preparation for Nintendo Switch 2 launch
+- 'Sprout' internal codename for Switch 2
+- FIFA franchise early Nintendo partnership
+- Multiple performance modes for handheld/docked
+- Maintains backward compatibility
+- Future-proofing for next console generation
+[content]
+function getGpuQuality(gpuName, gpuCount)
+    if string.find(gpuName, "GeForce 8") or 
+       string.find(gpuName, "GeForce 9") then
+        return 1
+    elseif string.find(gpuName, "GeForce GTX 26") then
+        return 2
+    elseif string.find(gpuName, "GeForce GTX 2") or 
+		   string.find(gpuName, "ATI Radeon HD 4870 X2") or 
+		   string.find(gpuName, "ATI Radeon HD 5800 Series") or 
+		   string.find(gpuName, "ATI Radeon HD 5900 Series") or 
+		   string.find(gpuName, "AMD Radeon HD 68") or 
+		   string.find(gpuName, "AMD Radeon HD 69") or 
+		   string.find(gpuName, "GeForce GTX 4") or 
+		   string.find(gpuName, "GeForce GTX 5") then
+		if gpuCount > 1 then
+			return 4
+		else
+			return 3
+		end
+    else
+        return 1
+    end
+end
+
+function getCpuQuality(cpuCount, cpuSpeed)
+	return (cpuSpeed-1.2)*(cpuCount-1)
+end
+
+vendorDB = {
+	[0x1002] = dofile("Scripts/UserOptions/HardwareProfiles/ATI.lua"),
+	[0x10DE] = dofile("Scripts/UserOptions/HardwareProfiles/nVidia.lua"),
+	[0x8086] = dofile("Scripts/UserOptions/HardwareProfiles/Intel.lua")
+}
+
+mobileVendorDB = 
+{
+	["IOS"] 	= dofile("Scripts/UserOptions/HardwareProfiles/iOS.lua"),
+	["ANDROID"] = dofile("Scripts/UserOptions/HardwareProfiles/Android.lua")
+}
+
+consoleVendorDB = 
+{
+	["Sprout"] 	= dofile("Scripts/UserOptions/HardwareProfiles/Sprout.lua")
+}
+
+function getDeviceSettings(vendorId, deviceId, adapterName)
+	if adapterName == "Xenon" then
+		return { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "PS3" then
+		return { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "IOS" then
+		deviceGeneration = string.sub(detectedDeviceName, 1, string.len(detectedDeviceName)-2)
+		return (mobileVendorDB["IOS"] and mobileVendorDB["IOS"][deviceGeneration]) or { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "ANDROID" then
+		return (mobileVendorDB["ANDROID"] and mobileVendorDB["ANDROID"][detectedDeviceName]) or { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "Sprout" then
+		return (consoleVendorDB["Sprout"] and consoleVendorDB["Sprout"][platformMode]) or { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	elseif isX86 == 1 then
+		return { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	else
+		return (vendorDB[vendorId] and vendorDB[vendorId][deviceId]) or { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	end
+end
+
+hardwareSpecs = {
+	[0] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = detectedAvailableMemory,
+		adapterName = detectedAdapterName,
+		gpuCount = detectedGpuCount,
+		adapterQuality = getGpuQuality(detectedAdapterName, detectedGpuCount),
+		availableGpuMemory = detectedAvailableGpuMemory,
+		deviceSettings = getDeviceSettings(detectedVendorId, detectedDeviceId, detectedAdapterName, isX86)
+	},
+
+	[1] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 2.3),
+		availableMemory = 512*1024*1024,
+		adapterName = "Faked Low",
+		gpuCount = 1,
+		adapterQuality = 0,
+		availableGpuMemory = 512*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[2] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 3),
+		availableMemory = 1*1024*1024*1024,
+		adapterName = "Faked Medium",
+		gpuCount = 1,
+		adapterQuality = 1,
+		availableGpuMemory = 768*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[3] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(4, 3),
+		availableMemory = 1.5*1024*1024*1024,
+		adapterName = "Faked High",
+		gpuCount = 1,
+		adapterQuality = 3,
+		availableGpuMemory = 1*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[4] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(8, 3),
+		availableMemory = 2*1024*1024*1024,
+		adapterName = "Faked Ultra",
+		gpuCount = 2,
+		adapterQuality = 4,
+		availableGpuMemory = 2*1024*1024*1024,
+		deviceSettings = { baseQualityLevel = Quality.Ultra, defaultSettings = {}, consoleOverrides = " }
+	},
+}
+
+vendorDB = nil
+[/version]
+
+[version]
+2025 (Battlefield 6)
+[notes]
+DUAL TFLOPS QUALITY MODES - Balanced vs Performance quality profiles.
+
+Key Changes:
+1. Dual TFLOPS Quality Tables
+   - getVendorTFlopsQualityTableBalanced function
+   - getVendorTFlopsQualityTablePerformance function
+   - tflopsQualityLookupBalanced in ratings DB
+   - tflopsQualityLookupPerformance in ratings DB
+
+2. Graphics Mode Support
+   - Balanced mode: quality-focused
+   - Performance mode: framerate-focused
+   - Different TFLOPS thresholds per mode
+   - Player choice between fidelity/performance
+
+3. Advanced Performance Ratings
+   - Maintains all BF2042 rating functions
+   - getHardwarePerformanceRating preserved
+   - getVendorVRAMQualityTable preserved
+   - Enhanced with dual mode support
+
+4. Memory Management (MiB)
+   - Continues MiB-based memory tracking
+   - detectedAvailableMemoryMiB
+   - detectedSystemMemoryMiB
+   - detectedAvailableGpuMemoryMiB
+
+5. Full Platform Support
+   - Legacy consoles (Xenon, PS3)
+   - Mobile platforms (iOS, Android)
+   - x86 architecture detection
+   - PC vendorDB with TFLOPS ratings
+
+6. Vendor Enum Consistency
+   - Vendors.AMD, Vendors.NVIDIA, Vendors.INTEL
+   - Consistent casing throughout
+   - Proper enum usage
+
+Design Rationale:
+- Battlefield 6 next-gen graphics technology
+- Player choice: visual quality vs performance
+- 60 FPS performance mode for competitive play
+- Ray tracing and advanced effects in balanced mode
+- Different quality thresholds optimize for each mode
+- Console-style graphics mode selection on PC
+- Adaptive to various hardware capabilities
+[content]
+function getGpuQuality(gpuName, gpuCount)
+    if string.find(gpuName, "GeForce 8") or 
+       string.find(gpuName, "GeForce 9") then
+        return 1
+    elseif string.find(gpuName, "GeForce GTX 26") then
+        return 2
+    elseif string.find(gpuName, "GeForce GTX 2") or 
+		   string.find(gpuName, "ATI Radeon HD 4870 X2") or 
+		   string.find(gpuName, "ATI Radeon HD 5800 Series") or 
+		   string.find(gpuName, "ATI Radeon HD 5900 Series") or 
+		   string.find(gpuName, "AMD Radeon HD 68") or 
+		   string.find(gpuName, "AMD Radeon HD 69") or 
+		   string.find(gpuName, "GeForce GTX 4") or 
+		   string.find(gpuName, "GeForce GTX 5") then
+		if gpuCount > 1 then
+			return 4
+		else
+			return 3
+		end
+    else
+        return 1
+    end
+end
+
+function getCpuQuality(cpuCount, cpuSpeed)
+	return (cpuSpeed-1.2)*(cpuCount-1)
+end
+
+vendorDB = {
+	[Vendors.AMD] = dofile("Scripts/UserOptions/HardwareProfiles/ATI.lua"),
+	[Vendors.NVIDIA] = dofile("Scripts/UserOptions/HardwareProfiles/nVidia.lua"),
+	[Vendors.INTEL] = dofile("Scripts/UserOptions/HardwareProfiles/Intel.lua")
+}
+
+mobileVendorDB = 
+{
+	["IOS"] 	= dofile("Scripts/UserOptions/HardwareProfiles/iOS.lua"),
+	["ANDROID"] = dofile("Scripts/UserOptions/HardwareProfiles/Android.lua")
+}
+
+function getDeviceSettings(vendorId, deviceId, adapterName)
+	if adapterName == "Xenon" then
+		return { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "PS3" then
+		return { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "IOS" then
+		deviceGeneration = string.sub(detectedDeviceName, 1, string.len(detectedDeviceName)-2)
+		return (mobileVendorDB["IOS"] and mobileVendorDB["IOS"][deviceGeneration]) or { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	elseif adapterName == "ANDROID" then
+		return (mobileVendorDB["ANDROID"] and mobileVendorDB["ANDROID"][detectedDeviceName]) or { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	elseif isX86 == 1 then
+		return { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	else
+		return (vendorDB[vendorId] and vendorDB[vendorId][deviceId]) or { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	end
+end
+
+vendorPerfRatingsDB = {
+	[Vendors.NVIDIA] = dofile("Scripts/UserOptions/HardwareProfiles/nVidiaRatings.lua"),
+	[Vendors.AMD] = dofile("Scripts/UserOptions/HardwareProfiles/AMDRatings.lua"),
+	[Vendors.INTEL] = dofile("Scripts/UserOptions/HardwareProfiles/IntelRatings.lua")
+}
+
+function getHardwarePerformanceRating(vendorId, deviceId)
+	return (vendorPerfRatingsDB[vendorId] and vendorPerfRatingsDB[vendorId][deviceId]) or { tflopsRating = 0.0 }
+end
+
+function getVendorVRAMQualityTable(vendorId)
+	return (vendorPerfRatingsDB[vendorId] and vendorPerfRatingsDB[vendorId].vramQualityLookup) or nil
+end
+
+function getVendorTFlopsQualityTableBalanced(vendorId)
+	return (vendorPerfRatingsDB[vendorId] and vendorPerfRatingsDB[vendorId].tflopsQualityLookupBalanced) or nil
+end
+
+function getVendorTFlopsQualityTablePerformance(vendorId)
+	return (vendorPerfRatingsDB[vendorId] and vendorPerfRatingsDB[vendorId].tflopsQualityLookupPerformance) or nil
+end
+
+hardwareSpecs = {
+	[0] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(detectedCpuCount, detectedCpuFreq),
+		availableMemory = detectedAvailableMemoryMiB,
+		systemMemory = detectedSystemMemoryMiB,
+		adapterName = detectedAdapterName,
+		gpuCount = detectedGpuCount,
+		adapterQuality = getGpuQuality(detectedAdapterName, detectedGpuCount),
+		availableGpuMemory = detectedAvailableGpuMemoryMiB,
+		deviceSettings = getDeviceSettings(detectedVendorId, detectedDeviceId, detectedAdapterName, isX86)
+	},
+
+	[1] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 2.3),
+		availableMemory = 4*1024,
+		systemMemory = 4*1024,
+		adapterName = "Faked Low",
+		gpuCount = 1,
+		adapterQuality = 0,
+		availableGpuMemory = detectedAvailableGpuMemoryMiB,
+		deviceSettings = { baseQualityLevel = Quality.Low, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[2] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(2, 3),
+		availableMemory = 8*1024,
+		systemMemory = 8*1024,
+		adapterName = "Faked Medium",
+		gpuCount = 1,
+		adapterQuality = 1,
+		availableGpuMemory = detectedAvailableGpuMemoryMiB,
+		deviceSettings = { baseQualityLevel = Quality.Medium, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[3] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(4, 3),
+		availableMemory = 16*1024,
+		systemMemory = 16*1024,
+		adapterName = "Faked High",
+		gpuCount = 1,
+		adapterQuality = 3,
+		availableGpuMemory = detectedAvailableGpuMemoryMiB,
+		deviceSettings = { baseQualityLevel = Quality.High, defaultSettings = {}, consoleOverrides = " }
+	},
+
+	[4] = {
+		cpuCount = detectedCpuCount,
+		cpuQuality = getCpuQuality(8, 3),
+		availableMemory = 16*1024,
+		systemMemory = 16*1024,
+		adapterName = "Faked Ultra",
+		gpuCount = 2,
+		adapterQuality = 4,
+		availableGpuMemory = detectedAvailableGpuMemoryMiB,
+		deviceSettings = { baseQualityLevel = Quality.Ultra, defaultSettings = {}, consoleOverrides = " }
+	},
+}
+
+vendorDB = nil
+[/version]

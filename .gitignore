@@ -1,0 +1,30 @@
+# Build output
+out/
+build/
+CMakeUserPresets.json
+
+# Qt generated
+*.user
+moc_*
+ui_*
+qrc_*
+
+# VS files
+.vs/
+*.suo
+*.VC.db
+
+# Object files
+*.obj
+*.exe
+*.dll
+*.lib
+*.exp
+*.pdb
+
+# Ninja
+*.ninja
+.ninja_deps
+.ninja_log
+CMakeCache.txt
+CMakeFiles/

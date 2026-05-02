@@ -1,0 +1,119 @@
+[description]
+Configuration query module - provides display modes, colors, and core client information.
+
+[version]
+2013 (Command & Conquer: Generals 2)
+[notes]
+Module for retrieving game configuration data.
+
+Module Declaration:
+- module('shellmodules.config', package.seeall)
+
+Function: getAspect(width, height)
+- Calculates aspect ratio from resolution
+- Returns string representation or nil
+- Ratio mappings:
+  * 1.6 → '16:10'
+  * 1.7-1.8 → '16:9'
+  * 1.3-1.4 → '4:3'
+  * Other ratios return nil (filtered out)
+
+Function: executeConfigRequest(requestArgs)
+Handles three configGroup types:
+
+configGroup = 'display':
+- Calls getAdapterDisplayModes() (native function)
+- Filters resolutions: width >= 1024 only
+- Calculates aspect ratio for each mode
+- Only includes modes with recognized aspect ratios
+- Returns JSON: {status: 0, availableResolutions: [{width, height, aspect}, ...]}
+
+configGroup = 'houseColors':
+- Executes console command 'getSelectableHouseColors'
+- Parses comma-separated color list from command result
+- Returns JSON: {status: 0, houseColors: [colorArray]}
+
+configGroup = 'core':
+- Retrieves user options:
+  * RtsClientSettings.BlazeProtocolVersion
+  * RtsClientSettings.BlazeId
+  * RtsClientSettings.BlazePersona
+  * RtsClientSettings.UseOrigin
+  * RtsClientSettings.SpecialBuildTag
+- Executes console command 'RtsClient.version' for client version
+- Returns JSON with all core client information
+
+Response Format:
+- postJsonResult(callback, result) sends JSON to JavaScript
+
+Route Registration:
+- Pattern: /config/([^/]+)
+- Captures config group name as 'configGroup'
+- Example: /config/display → configGroup = 'display'
+
+House Colors:
+In C&C, 'house' refers to player faction/color. This retrieves available player colors for multiplayer matches.
+[content]
+-- ShellModules.UserOptions
+module( "shellmodules.config", package.seeall)
+
+function getAspect( width, height )
+  ratio = tonumber(width) / tonumber(height)
+  if( ratio == 1.6 ) then
+    return "16:10"
+  elseif( ratio > 1.7 and ratio < 1.8  ) then
+    return "16:9"
+  elseif( ratio > 1.3 and ratio < 1.4 ) then
+    return "4:3"
+  -- elseif( ratio == 1.25 ) then
+  --   return "5:4"
+  end
+  
+  return nil
+end
+
+
+    
+function executeConfigRequest( requestArgs )
+  print("Config: ".. requestArgs.configGroup)
+  
+  if( requestArgs.configGroup == "display" ) then
+    displayModesRaw = getAdapterDisplayModes()
+    displayModes = {}
+    for i,v in ipairs(displayModesRaw) do
+      width = v[1]
+      if( width >= 1024 ) then
+        height = v[2]
+        aspect = getAspect( width, height )
+        if( aspect ) then
+          table.insert(displayModes, { width=width, height=height, aspect=aspect } )
+        end
+      end
+    end
+    print(dump(myresult))
+    result = { status = 0, availableResolutions = displayModes }
+    
+    postJsonResult(requestArgs._response, result)
+
+  elseif( requestArgs.configGroup == "houseColors" ) then
+    consoleResult = executeConsoleCommand("getSelectableHouseColors");
+    colorArray = {consoleResult:match((consoleResult:gsub("[^,]*,", "([^,]*),")))
+}
+    result = { status = 0, houseColors = colorArray }
+    postJsonResult(requestArgs._response, result)
+    
+  elseif( requestArgs.configGroup == "core" ) then
+    -- These values are cached by the shellApi module in the shell pages each time the shell connects to the client    
+    userOptionsResult = getUserOptions( {"RtsClientSettings.BlazeProtocolVersion","RtsClientSettings.BlazeId","RtsClientSettings.BlazePersona","RtsClientSettings.UseOrigin","RtsClientSettings.SpecialBuildTag" } )
+    
+    result = { status = 0, clientVersion = executeConsoleCommand("RtsClient.version"), protocolVersion=userOptionsResult["RtsClientSettings.BlazeProtocolVersion"], playerID=userOptionsResult["RtsClientSettings.BlazeId"], persona=userOptionsResult["RtsClientSettings.BlazePersona"], useOrigin=userOptionsResult["RtsClientSettings.UseOrigin"], specialBuildTag=userOptionsResult["RtsClientSettings.SpecialBuildTag"]}
+    
+    postJsonResult( requestArgs._response, result)
+  end
+  
+end
+
+AddServiceRoutes( executeConfigRequest, {
+  {"/config/([^/]+)", {"configGroup"}}
+})
+[/version]

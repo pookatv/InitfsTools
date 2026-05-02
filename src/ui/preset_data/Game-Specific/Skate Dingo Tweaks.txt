@@ -1,0 +1,12 @@
+[notes]
+Designed for "Skate - Dingo (modern)": List of commands that enable hidden features and fixes for offline play!
+[/notes]
+
+DelMarGame.AllowBootPrompts false // This removes that annoying unskippable video tutorial in-game
+DelMarGame.OpticksEnabled true // Enables hidden Opticks feature - find this in the pause menu
+DingoOnline.ClientAutoLoginEnabled 1 // This will skip required black login screen
+DelMarUI.EnableWatermark false // Removes watermark
+Render.EnableWatermark false // Removes watermark
+Origin.Enabled 0 // Disables Origin/EA App from launching
+Input.UseMouseAndKeyboardSystem true // Enables Mouse/Keyboard support
+Input.DisableMouseKeyboard false // Enables Mouse/Keyboard support

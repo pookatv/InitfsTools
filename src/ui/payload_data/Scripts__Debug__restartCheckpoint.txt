@@ -1,0 +1,48 @@
+[description]
+Automated checkpoint reload testing - repeatedly restarts from last checkpoint save.
+
+[version]
+2011-2015 (Battlefield 4)
+[notes]
+Minimal script for checkpoint system stress testing.
+
+Script Structure:
+1. Core.LogLevel FatalAssert - Suppress non-critical logs
+2. client.restartFromLastCheckpoint - Reload last saved checkpoint
+3. sleep 30 - Wait 30 seconds
+4. main.playCommands Scripts/Debug/restartCheckpoint - Loop
+
+Commands Explained:
+
+client.restartFromLastCheckpoint:
+- Loads most recently saved checkpoint
+- Must be executed while in a campaign mission with existing checkpoint
+- Resets player state to checkpoint save data
+
+Sleep Duration:
+- 30 seconds: Allows checkpoint load, brief gameplay/observation, then repeat
+
+Cycle Duration:
+30 seconds per iteration
+
+Prerequisites:
+- Must be manually started while in a campaign mission
+- Checkpoint must already exist from previous gameplay
+- Does not create checkpoints, only loads existing ones
+
+Testing Coverage:
+- Checkpoint load system reliability
+- Save data integrity
+- Game state restoration
+- Player position/inventory restoration
+- Mission progress persistence
+- Memory management during rapid checkpoint reloads
+- Checkpoint system performance under stress
+[content]
+Core.LogLevel FatalAssert
+
+client.restartFromLastCheckpoint
+sleep 30
+
+main.playCommands Scripts/Debug/restartCheckpoint
+[/version]

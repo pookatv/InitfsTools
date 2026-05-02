@@ -1,0 +1,270 @@
+[description]
+Command and Conquer client configuration system - handles Origin integration, Blaze authentication, and environment-specific settings.
+
+[version]
+2013 (Command & Conquer: Generals 2)
+[notes]
+C&C-specific client settings with Origin and Blaze backend integration.
+
+Module Dependencies:
+- Frost.Core - Core Frostbite utilities
+- Frost.Logging - Logging system
+
+Helper Functions:
+
+commandLine:lookup(name, default):
+- Searches command-line arguments (case-insensitive)
+- Returns argument value or default if not found
+
+applySettings(settings):
+- Parses key-value configuration string
+- Applies settings to global namespace
+
+readCfg(name):
+- Reads key-value configuration file
+- Loads settings into global namespace
+
+getSetting(key):
+- Retrieves setting value from global namespace
+- Supports dotted notation (Container.Field)
+- Creates container table if doesn't exist
+
+setSetting(key, value):
+- Sets setting value in global namespace
+- Supports dotted notation
+- Logs override operation
+
+applyEnvVar(envVarName, settingKey):
+- Reads environment variable
+- Applies to specified setting if exists
+
+Environment Variable Mapping:
+- EAGenericAuthToken → RtsClientSettings.EAGenericAuthToken
+- EALaunchEAID → RtsClientSettings.EALaunchEAID
+- EALaunchEnv → RtsClientSettings.EALaunchEnv
+
+Origin Mode Detection:
+Triggered by: -originMode command line argument OR EALaunchEAID environment variable
+
+Origin Mode Settings Applied:
+- Core.ProfileDirectoryName 'Command & Conquer'
+- Core.LogLevel None
+- RtsClientSettings.UseBlaze true
+- RtsClientSettings.UseOrigin true
+- RtsClientSettings.BlazeEnvironment PROD
+- RtsClientSettings.WebBaseUrl https://prdwww.cnc.ea.com
+- RtsClientSettings.WebPathFrontend /shell/index.html
+- RtsClientSettings.WebPathIngameMenu /shell/gameOptionsInterface.html
+- RtsClientSettings.WebPathIngameChat /shell/messaging/gameMessageInterface.html
+- RtsClientSettings.WebPathRmtPage /shell/rmtWrapper.html
+- RtsClientSettings.WebParamsGameOver post=1
+- RenderDevice.Fullscreen true
+- DebugRender.DebugTextEnabled false
+- Client.DrawFps false
+- Render.DrawFPS false
+
+Protocol Override System:
+1. Reads /native_data/Scripts/protocol.cfg file
+2. Trims whitespace from protocol string
+3. Sets RtsClientSettings.BlazeProtocolVersion if valid
+
+Command Line Protocol Override:
+- -blazeprotocolversion argument sets RtsClientSettings.BlazeProtocolVersion
+
+Automatic Protocol Version:
+- If no protocol specified and buildChangelist > 0
+- Sets protocol to 'cncprod' + buildChangelist number
+- Example: cncprod12345
+
+Network Configuration Loading:
+- Reads /netconfig/[protocol].cfg if protocol version exists
+- Allows server-side configuration distribution
+
+Blaze Environment Enumeration Mapping:
+- 'PROD' → RtsClientSettings.BlazeEnvironmentEnum 3
+- 'CERT' → RtsClientSettings.BlazeEnvironmentEnum 2
+- 'DEV' → RtsClientSettings.BlazeEnvironmentEnum 0
+- Default/TEST → RtsClientSettings.BlazeEnvironmentEnum 1
+
+Origin Log Level Enumeration Mapping:
+- 'Severe' → OriginLogLevelEnum 1
+- 'Major' → OriginLogLevelEnum 2
+- 'Minor' → OriginLogLevelEnum 3
+- 'Trivial' → OriginLogLevelEnum 4
+- 'All' → OriginLogLevelEnum 5
+- Default/None → OriginLogLevelEnum 0
+
+Blaze System:
+- EA's multiplayer/authentication backend service
+- Handles matchmaking, player accounts, DRM
+- Environment determines server endpoints (dev/test/cert/prod)
+
+Web Paths:
+- Frontend: Main menu HTML interface
+- IngameMenu: Pause/options menu HTML
+- IngameChat: In-game messaging interface HTML
+- RmtPage: Real-money transaction (microtransactions) wrapper
+
+Profile Directory:
+- 'Command & Conquer' folder in user documents
+- Stores saves, settings, profiles
+[content]
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+log:info("Reading RtsClientSettings.lua")
+
+-- Local helper functions
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G) 
+end
+
+
+	
+-- helpers
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function getSetting(key)
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		return _G[container][field]
+	else
+		return _G[key]
+	end
+end
+
+local function setSetting(key, value)
+	log:debug('Rts: Overring setting ' .. key .. ' = ' .. value )
+	
+	container, field = string.match(key, "(%w+)%.(%w+)");
+	if container and field then
+		if not _G[container] then
+			_G[container] = {}
+		end
+		_G[container][field] = value
+	else
+		_G[key] = value
+	end
+end
+
+local function applyEnvVar( envVarName, settingKey )
+	local envVarValue = os.getenv(envVarName)
+	
+	if envVarValue then
+		setSetting( settingKey, envVarValue )
+	end
+end
+
+-- set up some settings based on Origin env vars
+applyEnvVar('EAGenericAuthToken','RtsClientSettings.EAGenericAuthToken')
+applyEnvVar('EALaunchEAID','RtsClientSettings.EALaunchEAID')
+applyEnvVar('EALaunchEnv','RtsClientSettings.EALaunchEnv')
+
+-- Apply Environment Settings if we are in "origin mode"
+-- amcdonald@ea.com 
+local originMode = commandLine:lookup("originMode") or os.getenv('EALaunchEAID') 
+if originMode then
+  applySettings([=[
+	Core.ProfileDirectoryName Command & Conquer
+	Core.LogLevel None
+	RtsClientSettings.UseBlaze true
+	RtsClientSettings.UseOrigin true
+	RtsClientSettings.BlazeEnvironment PROD
+	RtsClientSettings.WebBaseUrl https://prdwww.cnc.ea.com
+	RtsClientSettings.WebPathFrontend /shell/index.html
+	RtsClientSettings.WebPathIngameMenu /shell/gameOptionsInterface.html
+	RtsClientSettings.WebPathIngameChat /shell/messaging/gameMessageInterface.html
+	RtsClientSettings.WebPathRmtPage /shell/rmtWrapper.html
+	RtsClientSettings.WebParamsGameOver post=1
+	RenderDevice.Fullscreen true
+	DebugRender.DebugTextEnabled false
+	Client.DrawFps false
+	Render.DrawFPS false
+	]=])
+end
+
+-- Check for a protocol override
+function trim(s)
+  return s:match'^()%s*$' and '' or s:match'^%s*(.*%S)'
+end
+
+local f = vfs.open('/native_data/Scripts/protocol.cfg', "r")
+if f ~= nil then
+	protocol = trim(f:read(128))
+	
+	if( protocol and protocol:len() > 0 ) then
+		setSetting('RtsClientSettings.BlazeProtocolVersion', protocol)
+	end
+else
+end
+
+-- Interpret the old BlazeProtocolVersion argument
+local blazeProtocolVersion = commandLine:lookup('blazeprotocolversion')
+if blazeProtocolVersion then
+	setSetting('RtsClientSettings.BlazeProtocolVersion', blazeProtocolVersion)
+end
+
+-- Read config overrides from online source if available
+blazeProtocolVersion = getSetting('RtsClientSettings.BlazeProtocolVersion')
+if( not blazeProtocolVersion ) then
+	if( buildChangelist > 0 ) then
+		blazeProtocolVersion = "cncprod" .. buildChangelist
+		setSetting('RtsClientSettings.BlazeProtocolVersion', blazeProtocolVersion )
+	end
+end
+
+
+
+if( blazeProtocolVersion ) then
+	readCfg("/netconfig/" .. blazeProtocolVersion .. ".cfg")
+end
+
+
+-- Convert environment string to Blaze enumeration (DEV=0, TEST=1, CERT=2, PROD=3); TEST is the default
+local blazeEnvironmentString = getSetting('RtsClientSettings.BlazeEnvironment')
+if "PROD" == blazeEnvironmentString then
+	applySettings([=[
+		RtsClientSettings.BlazeEnvironmentEnum 3
+	]=])
+elseif "CERT" == blazeEnvironmentString then
+	applySettings([=[
+		RtsClientSettings.BlazeEnvironmentEnum 2
+	]=])
+elseif "DEV" == blazeEnvironmentString then
+	applySettings([=[
+		RtsClientSettings.BlazeEnvironmentEnum 0
+	]=])
+else
+	applySettings([=[
+		RtsClientSettings.BlazeEnvironmentEnum 1
+	]=])
+end
+
+-- Convert Origin log level string to Origin enumeration; None is the default
+local originLogLevelString = getSetting('RtsClientSettings.OriginLogLevel')
+if "Severe" == originLogLevelString then
+	setSetting('RtsClientSettings.OriginLogLevelEnum', 1)
+elseif "Major" == originLogLevelString then
+	setSetting('RtsClientSettings.OriginLogLevelEnum', 2)
+elseif "Minor" == originLogLevelString then
+	setSetting('RtsClientSettings.OriginLogLevelEnum', 3)
+elseif "Trivial" == originLogLevelString then
+	setSetting('RtsClientSettings.OriginLogLevelEnum', 4)
+elseif "All" == originLogLevelString then
+	setSetting('RtsClientSettings.OriginLogLevelEnum', 5)
+else
+	setSetting('RtsClientSettings.OriginLogLevelEnum', 0)
+end
+[/version]

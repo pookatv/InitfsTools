@@ -1,0 +1,112 @@
+[description]
+Point system testing - awards points to all player slots for progression/unlock testing.
+
+[version]
+2014 (Battlefield Hardline E3 Alpha)
+[notes]
+Mass point distribution for testing unlock systems.
+
+Script Structure:
+Comment line: # main.playCommands Scripts/Debug/giveAllPoints
+Followed by 54 PointSystem.givePoints commands
+
+Command Format:
+PointSystem.givePoints [amount] [playerID]
+
+Parameters:
+- amount: 10000 points per command
+- playerID: 0 through 53 (54 total players)
+
+Player ID Range:
+- 0 to 53 inclusive
+- Covers all potential player slots
+- Battlefield Hardline supports up to 64 players (this covers 54)
+
+Points Awarded:
+10,000 points × 54 players = 540,000 total points distributed
+
+PointSystem.givePoints:
+- Awards in-game currency/score to specified player
+- Used to unlock weapons, gadgets, vehicles, attachments
+- Allows testing of progression system without grinding
+
+Usage:
+Uncommented execution line at top suggests manual invocation:
+# main.playCommands Scripts/Debug/giveAllPoints
+- Comment indicates script should be run manually via console
+- Not designed for looping (no loop at end)
+
+Testing Coverage:
+- Unlock progression system
+- Weapon/gadget availability
+- Customization options
+- UI for unlocked items
+- Point transaction handling
+- Progression UI updates
+- All player slots simultaneously
+
+Battlefield Hardline Context:
+Hardline features class-specific unlocks for:
+- Operator (assault)
+- Mechanic (engineer)
+- Enforcer (support)
+- Professional (sniper)
+Each class has unique weapons, gadgets, and equipment requiring points to unlock.
+
+10,000 points per player is substantial, likely unlocking most/all items for testing purposes without completing actual gameplay objectives.
+[content]
+# main.playCommands Scripts/Debug/giveAllPoints
+PointSystem.givePoints 10000 0
+PointSystem.givePoints 10000 2
+PointSystem.givePoints 10000 3
+PointSystem.givePoints 10000 4
+PointSystem.givePoints 10000 5
+PointSystem.givePoints 10000 6
+PointSystem.givePoints 10000 7
+PointSystem.givePoints 10000 8
+PointSystem.givePoints 10000 9
+PointSystem.givePoints 10000 10
+PointSystem.givePoints 10000 11
+PointSystem.givePoints 10000 12
+PointSystem.givePoints 10000 13
+PointSystem.givePoints 10000 14
+PointSystem.givePoints 10000 15
+PointSystem.givePoints 10000 16
+PointSystem.givePoints 10000 17
+PointSystem.givePoints 10000 18
+PointSystem.givePoints 10000 19
+PointSystem.givePoints 10000 20
+PointSystem.givePoints 10000 21
+PointSystem.givePoints 10000 22
+PointSystem.givePoints 10000 23
+PointSystem.givePoints 10000 24
+PointSystem.givePoints 10000 25
+PointSystem.givePoints 10000 26
+PointSystem.givePoints 10000 27
+PointSystem.givePoints 10000 28
+PointSystem.givePoints 10000 29
+PointSystem.givePoints 10000 30
+PointSystem.givePoints 10000 31
+PointSystem.givePoints 10000 32
+PointSystem.givePoints 10000 33
+PointSystem.givePoints 10000 34
+PointSystem.givePoints 10000 35
+PointSystem.givePoints 10000 36
+PointSystem.givePoints 10000 37
+PointSystem.givePoints 10000 38
+PointSystem.givePoints 10000 39
+PointSystem.givePoints 10000 40
+PointSystem.givePoints 10000 41
+PointSystem.givePoints 10000 42
+PointSystem.givePoints 10000 43
+PointSystem.givePoints 10000 44
+PointSystem.givePoints 10000 45
+PointSystem.givePoints 10000 46
+PointSystem.givePoints 10000 47
+PointSystem.givePoints 10000 48
+PointSystem.givePoints 10000 49
+PointSystem.givePoints 10000 50
+PointSystem.givePoints 10000 51
+PointSystem.givePoints 10000 52
+PointSystem.givePoints 10000 53
+[/version]

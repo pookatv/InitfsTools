@@ -1,0 +1,7 @@
+[notes]
+General fixes for PS4 games played on the ShadPS4 emulator, which can also significantly increase emulation performance. Warning: do not apply these commands on a retail PS4!
+[/notes]
+
+RenderDevice.MemoryPoolsEnable false // Disable this to fix memory leaks
+Client.DrawFps false // Keep disabled, crashes shadps4?
+PostProcess.UIBrightnessNorm 1.00 // Brightness fix

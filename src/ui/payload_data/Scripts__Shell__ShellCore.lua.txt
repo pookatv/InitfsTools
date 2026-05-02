@@ -1,0 +1,174 @@
+[description]
+Shell API routing system - handles JavaScript-to-Lua communication for C&C's web-based UI.
+
+[version]
+2013 (Command & Conquer: Generals 2)
+[notes]
+Core shell request routing and dispatch system.
+
+Package Path Setup:
+- Scripts/Shell/?.lua
+- Scripts/packages/?.lua
+
+Global Variables:
+- _ShellServiceRoutes: Table storing all registered API routes
+
+Utility Functions:
+
+dump(o):
+- Recursively converts table to string representation
+- Handles nested tables
+- Formats keys as [key] = value
+
+AddServiceRoutes(routingMethod, patterns):
+- Registers API route patterns
+- Parameters:
+  * routingMethod: Function to handle matched requests
+  * patterns: Array of {pattern, paramNames} pairs
+- Stores in _ShellServiceRoutes global table
+
+parseApiCallDeprecated(request):
+- Legacy query string parameter parser
+- Extracts URL parameters from ?key=value&key2=value2 format
+- Converts 'true'/'false' strings to boolean
+- Stores parameters in request table
+- Sets request._resource to path without query string
+
+RouteServiceCall(request, apiMatchers):
+- Matches request._resource against registered patterns
+- Extracts pattern groups into named parameters
+- Calls matched routing method with request
+- Stops on first match
+
+Required Modules:
+- shellmodules.test
+- shellmodules.config
+- shellmodules.core
+- shellmodules.usersettings
+- shellmodules.blaze
+- shellmodules.origin
+- shellmodules.session
+- shellmodules.salamander
+
+Main Entry Point:
+
+dispatchShellRequest(requestTable):
+- Called from JavaScript via shellaccesslayer.execute()
+- Normalizes request format:
+  * Sets _response from success field if missing
+  * Sets _method to 'GET' if missing
+  * Calls parseApiCallDeprecated if _resource missing
+- Routes request through RouteServiceCall
+
+Request Table Structure:
+- url: Original URL with query string
+- _resource: URL path without query string
+- _method: HTTP method (GET, POST, etc.)
+- _response: Callback function for response
+- success: Legacy response callback
+- [key]: Extracted parameters from URL or body
+
+API URL Format:
+/module/command?param1=val1&param2=val2
+
+Command Scoping:
+- Commands can have sub-commands
+- Example: /options/graphics/get, /options/graphics/set
+
+JavaScript Integration:
+C&C uses embedded Chromium browser for UI. JavaScript calls shellaccesslayer.execute() which invokes dispatchShellRequest() in Lua.
+[content]
+--
+-- Shell Access Layer
+--   Api calls should be of the form /module/command?param1=val1&param2=val2
+--     command may be scoped to sub commands, i.e. /options/graphics/get  and /options/graphics/set
+package.path='Scripts/Shell/?.lua;Scripts/packages/?.lua'
+
+function dump(o)
+  if type(o) == 'table' then
+    local s = '{ '
+      for k,v in pairs(o) do
+        if type(k) ~= 'number' then k = '"'..k..'"' end
+        s = s .. '['..k..'] = ' .. dump(v) .. ','
+      end
+      return s .. '} '
+    else
+      return tostring(o)
+  end
+end
+
+_ShellServiceRoutes = {}
+
+function AddServiceRoutes( routingMethod, patterns )
+  local matchObjs = {}
+  for i,p in ipairs(patterns) do 
+    table.insert( _ShellServiceRoutes, { p[1],p[2], routingMethod } ) 
+  end
+end
+
+function parseApiCallDeprecated( request )
+  -- We want to make sure the result contains any parameters already attached to the request object. ( as we don't want to use query string parameters any more )
+  local apiCall = string.gsub( request.url, "%?(.*)", 
+    function(s) 
+      string.gsub(s,"([^=]+)=([^&]+)&?", 
+        function(k,v)
+          if( v == "true" ) then
+            request[k] = true
+          elseif( v == "false" ) then
+            request[k] = false
+          else
+            request[k] = v
+          end
+        end)
+      return '' 
+    end)
+  -- Remaining string is the resource 
+  request._resource = apiCall
+end
+
+  
+function RouteServiceCall( request, apiMatchers )
+  for i,am in ipairs(apiMatchers) do
+    result = { string.match( request._resource, am[1] ) }
+    if( #result > 0 ) then
+      if( #am[2] > 0 ) then
+        for i,v in ipairs(result) do 
+          if( i ) then
+            request[am[2][i]] = v 
+          end
+        end
+      end
+      am[3]( request )
+      break
+    end
+  end
+end
+
+require("shellmodules.test")
+require("shellmodules.config")
+require("shellmodules.core")
+require("shellmodules.usersettings")
+require("shellmodules.blaze")
+require("shellmodules.origin")
+require("shellmodules.session")
+require("shellmodules.salamander")
+
+-- This is the method thats called from the Javascript when shellaccesslayer.execute() is called
+function dispatchShellRequest(requestTable)
+  -- Fix up some routing table to help with some old shell/new shell transition issues.
+  if not requestTable._response then
+    requestTable._response = requestTable.success
+  end
+  
+  if not requestTable._method then
+    requestTable._method = "GET"
+  end
+  
+  -- Old shell used some query params which we are in the process of removing
+  if( not requestTable._resource ) then
+    parseApiCallDeprecated( requestTable )
+  end
+  
+  RouteServiceCall( requestTable, _ShellServiceRoutes )
+end
+[/version]

@@ -1,0 +1,6 @@
+[notes]
+Uncaps the framerate for most games.
+[/notes]
+
+Client.VSyncEnable 0
+GameTime.MaxVariableFps -1

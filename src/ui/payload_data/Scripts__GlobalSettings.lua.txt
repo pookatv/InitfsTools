@@ -1,0 +1,220 @@
+[description]
+DEPRECATED: Legacy global settings system for pipeline and end-user exposed options. Used by Pipeline, Game, and tools for cache control and build configuration.
+
+[version]
+2011-2025 (Universal)
+[notes]
+Frontend settings system for end-user configuration.
+
+Architecture:
+- GlobalSettings table - Stores setting values
+- GlobalSettings.Meta table - Stores metadata (description, validValues, commandLine, envVar)
+- DefineSetting() - Declarative setting registration
+- SetSetting() / GetGlobalSetting() - Accessors with validation
+- ApplyCommandLineSettings() - Command-line override system
+- ApplyEnvironmentVariableSettings() - Environment variable override system
+
+Setting Definition Structure:
+{
+  [1] = "SettingName",        -- Setting identifier
+  [2] = "DefaultValue",        -- Default value
+  validValues = { ... },       -- Array of {value, description} tuples
+  description = "...",         -- Human-readable description
+  commandLine = { ... },       -- Command-line flag mappings
+  envVar = "ENV_VAR_NAME"      -- Environment variable name
+}
+
+Example Setting (Cache):
+- Name: 'Cache'
+- Default: 'Enabled'
+- Valid Values: Enabled, Disabled, ReadOnly, WriteOnly
+- Command-line: -cacheMode, -nocache, -readonlyCache, -writeOnlyCache, -cache
+- Environment Variable: PIPELINE_CACHE_MODE
+
+Validation:
+- ValidateSetting() ensures values match validValues array
+- Case-insensitive matching
+- Throws error with valid choices on mismatch
+
+Override Priority:
+1. Environment Variables (lowest)
+2. Command-line Arguments (highest)
+
+Deprecation Status:
+This system is being replaced by the modern parseKeyValueCfgString configuration approach used in Settings.lua. The comment at the top explicitly states this will be phased out.
+This payload has now been completely removed starting in Frostbite 2025 titles.
+
+Why It's Deprecated:
+- Requires Lua execution for parsing
+- Complex validation logic
+- Not text-based (harder to generate/edit)
+- Doesn't fit with declarative config strings
+- Replaced by simpler key-value parsing
+
+Historical Usage:
+- Pipeline tools (asset compilation, bundling)
+- Build systems
+- Cache management
+- Frontend UI settings menus
+
+This file represents the old guard - a sophisticated but complex settings system being replaced by simpler, more maintainable approaches.
+[content]
+--
+-- Global Settings
+--
+--  These are front-end settings exposed to the end-user. The idea is that
+--  settings that are interesting to the majority of end-users should be 
+--  defined here to enable tools to query for exposed options.
+--
+--  This file is imported by Pipeline, Game, etc
+--
+-- *********************************************************
+-- NOTE: This is largely deprecated and will be phased out!
+-- *********************************************************
+
+GlobalSettings = {}
+GlobalSettings.Meta = {}
+
+local function ValidateSetting(name, value)
+	assert(name and value)
+
+	local meta = GlobalSettings.Meta[name]
+	local lowerValue = string.lower(value)
+
+	if meta then
+		for _,v in ipairs(meta.validValues) do
+			if string.lower(v[1]) == lowerValue then
+				return v[1]
+			end
+		end
+
+		-- We intentionally don't build this string in the loop above
+		-- in an attempt to generate less ephemeral garbage
+
+		local choices = nil
+
+		for _,v in ipairs(meta.validValues) do
+		    if choices then
+				choices = choices .. ", " .. v[1]
+			else
+				choices = v[1]
+			end	
+		end
+
+		error("Setting '" .. name .. "' cannot be set to specified value: " .. value .. ", valid values are " .. choices)
+	else
+		error("Undefined setting - '" .. name .. "'")
+	end
+end
+
+local function DefineSetting(descriptionTable)
+	assert(descriptionTable[1] and descriptionTable[2], "Settings must have name and default values!")
+	
+	local name = descriptionTable[1];
+	local defaultValue = descriptionTable[2];
+	
+	GlobalSettings[name] = defaultValue
+	GlobalSettings.Meta[name] = {}
+
+	GlobalSettings.Meta[name].default = defaultValue
+	
+	if descriptionTable.description then
+		GlobalSettings.Meta[name].description = descriptionTable.description
+	end
+
+	if descriptionTable.validValues then
+		GlobalSettings.Meta[name].validValues = descriptionTable.validValues
+	end
+
+	if descriptionTable.commandLine then
+		GlobalSettings.Meta[name].commandLine = descriptionTable.commandLine
+	end
+
+	if descriptionTable.envVar then
+		GlobalSettings.Meta[name].envVar = descriptionTable.envVar
+	end
+	
+	-- Validate default vs validValues
+	ValidateSetting(name, defaultValue)
+end
+
+function ApplyCommandLineSettings(commandLine)
+	for setting,meta in pairs(GlobalSettings.Meta) do
+		if meta.commandLine then
+			local options = meta.commandLine
+
+			for _,entry in ipairs(options) do
+				local k = entry[1]
+				local v = entry[2]
+
+				local value = commandLine[string.lower(k)]
+
+				if value then
+					if not v then
+						SetSetting(setting, value, string.format(" (due to -%s %s)", k, value))
+					else
+						SetSetting(setting, v, string.format(" (due to -%s)", k))
+					end
+				end
+			end
+		end
+	end
+end
+
+function ApplyEnvironmentVariableSettings()
+	for setting,meta in pairs(GlobalSettings.Meta) do
+		if meta.envVar then
+			local envVarValue = os.getenv(meta.envVar)
+
+			if envVarValue then
+				SetSetting(setting, envVarValue)
+			end
+		end
+	end
+end
+
+
+function SetSetting(settingName, value, source)
+	if not GlobalSettings[settingName] then 
+		error("Attempted set of unknown setting '" .. settingName .. "'")
+	else
+		GlobalSettings[settingName] = ValidateSetting(settingName, value)
+
+		if log then
+			log:debug("Set setting " .. settingName .. " to value: " .. value .. (source or "))
+		end	
+	end
+end
+
+function GetGlobalSetting(settingName)
+	if not GlobalSettings[settingName] then 
+		error("Attempted get of unknown setting '" .. settingName .. "'")
+	else
+		return GlobalSettings[settingName] 
+	end
+end
+
+--------------------------------------------------------------------------
+-- Setting definitions
+--
+
+DefineSetting {
+	"Cache", "Enabled", 
+
+	validValues = { 
+		{ "Enabled", 		"Normal cache mode" },
+		{ "Disabled", 		"No caching" },
+		{ "ReadOnly", 		"Only read from caches (never upload)" },
+		{ "WriteOnly",		"Only write to caches (useful for fixing problems)" }
+	},
+	description = "Cache Control",
+	commandLine = {
+		{ "cacheMode" },
+		{ "nocache", 		"Disabled" },
+		{ "readonlyCache", 	"ReadOnly" },
+		{ "writeOnlyCache", "WriteOnly" },
+		{ "cache",			"Enabled" }
+	},
+	envVar = "PIPELINE_CACHE_MODE"
+}
+[/version]

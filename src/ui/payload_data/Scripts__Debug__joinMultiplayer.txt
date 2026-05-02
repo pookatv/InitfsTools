@@ -1,0 +1,58 @@
+[description]
+Automated multiplayer join/leave testing script - connects to specific server IP and exits repeatedly.
+
+[version]
+2011-2015 (Battlefield 4)
+[notes]
+Simple multiplayer connection testing script.
+
+Script Structure:
+1. client.joinMultiplayer 10.20.104.109 - Connect to server at IP address
+2. sleep 60 - Wait 60 seconds (allows full connection, spawn, gameplay)
+3. client.exitGame - Disconnect from server
+4. sleep 30 - Wait 30 seconds (allows cleanup)
+5. main.playCommands Scripts/Debug/joinMultiplayer - Restart script (loop)
+
+Commands Explained:
+
+client.joinMultiplayer [IP address]:
+- Initiates connection to multiplayer server
+- Parameter: Server IP address (10.20.104.109)
+- IP format: Standard IPv4 dotted decimal
+- Connects as client to dedicated or peer server
+
+client.exitGame:
+- Disconnects from current multiplayer session
+- Returns to main menu or idle state
+- Triggers cleanup of multiplayer systems
+
+IP Address: 10.20.104.109
+- Private IP address (10.0.0.0/8 range)
+- Internal development/QA server
+- Not publicly routable
+
+Sleep Durations:
+- 60 seconds after join: Connection establishment, map loading, spawn, brief gameplay
+- 30 seconds after exit: Disconnect cleanup, resource deallocation
+
+Cycle Duration:
+90 seconds per iteration (60 + 30)
+
+Testing Coverage:
+- Multiplayer connection establishment
+- Client authentication
+- Server handshake protocol
+- Map/gamemode download and loading
+- Player spawn system
+- Disconnect handling
+- Session cleanup
+- Connection leak detection (through looping)
+- Matchmaking system stability
+[content]
+client.joinMultiplayer 10.20.104.109
+sleep 60
+client.exitGame
+sleep 30
+
+main.playCommands Scripts/Debug/joinMultiplayer
+[/version]

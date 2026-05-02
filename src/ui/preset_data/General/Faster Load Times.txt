@@ -1,0 +1,5 @@
+[notes]
+Decreases the average loading times especially for legacy titles. Faster boot times, and loading into maps just got a lot faster. No FPS Lock required for full effect. Warning: may break UI elements in certain games.
+[/notes]
+
+GameTime.MaxSimFps -1

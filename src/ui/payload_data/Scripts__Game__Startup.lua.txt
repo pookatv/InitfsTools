@@ -1,0 +1,477 @@
+[description]
+Game entry point - first payload loaded by the Frostbite engine.
+
+[version]
+2011-2016 (Battlefield, Battlefront, Garden Warfare, Need For Speed)
+[notes]
+Original Battlefield 3/4 era implementation.
+
+Features:
+- Basic platform detection only (Win32, PS3, Xenon)
+- Simple logging setup
+- Minimal global variables
+
+Why it was simple: Games only shipped on 2-3 platforms max, and build configurations were handled elsewhere.
+[content]
+--
+-- Game startup script
+--
+
+require "vfs"
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+-- The global platform variable can be used to detect which platform
+-- we are currently executing on
+
+platform = dice.getCurrentPlatformName()
+
+-- Set up a logger which logs to the console (not stdout)
+-- By default, we only show warnings or worse. For more verbose
+-- diagnostics, you may set the level to INFO or DEBUG.
+
+log = logging.ingameConsole()
+log:setLevel(logging.DEBUG)
+
+core.import("Scripts/Game/Configure.lua")
+[/version]
+
+[version]
+2017 (FIFA, Mass Effect Andromeda, NFS Payback)
+[notes]
+Added platformMode detection for client/server/editor separation.
+
+New Features:
+- platformMode variable - Distinguishes between client/server/editor modes
+
+Why: Games started needing dedicated server builds and dev tools to run differently.
+
+Comment reveals: [PREPORT:2856553] - 2015_4-render updates
+This was a rendering system update that required mode awareness.
+[content]
+--
+-- Game startup script
+--
+
+require "vfs"
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+-- The global platform variable can be used to detect which platform
+-- we are currently executing on
+
+platform = dice.getCurrentPlatformName()
+-- MEC_START - 2016-06-06 - keven - [PREPORT:2856553] - 2015_4-render updates
+platformMode = dice.getCurrentPlatformMode()
+-- MEC_END
+
+-- Set up a logger which logs to the console (not stdout)
+-- By default, we only show warnings or worse. For more verbose
+-- diagnostics, you may set the level to INFO or DEBUG.
+
+log = logging.ingameConsole()
+log:setLevel(logging.DEBUG)
+
+core.import("Scripts/Game/Configure.lua")
+[/version]
+
+[version]
+2017 (Battlefront II, Squadrons)
+[notes]
+Added branchName detection for parallel development tracking.
+
+New Features:
+- branchName variable - Tracks which development branch the build came from
+
+Why: Large studios like DICE had multiple parallel development branches for DLC, patches, and experimental features.
+[content]
+--
+-- Game startup script
+--
+
+require "vfs"
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+-- The global platform variable can be used to detect which platform
+-- we are currently executing on
+
+platform = dice.getCurrentPlatformName()
+platformMode = dice.getCurrentPlatformMode()
+branchName = dice.getBranchName()
+
+-- Set up a logger which logs to the console (not stdout)
+-- By default, we only show warnings or worse. For more verbose
+-- diagnostics, you may set the level to INFO or DEBUG.
+
+log = logging.ingameConsole()
+log:setLevel(logging.DEBUG)
+
+core.import("Scripts/Game/Configure.lua")
+[/version]
+
+[version]
+2019 (Anthem)
+[notes]
+BioWare's customization: Added config detection, removed branchName.
+
+New Features:
+- config variable - Build configuration detection (Debug/Release/Final/Retail)
+
+Why: BioWare needed tighter control over which features were enabled in different builds.
+
+Note: branchName was REMOVED (not needed for Anthem's development model).
+Comment: BW_START/BW_END tags show BioWare-specific modifications (they had their own divergent Frostbite fork).
+[content]
+--
+-- Game startup script
+--
+
+require "vfs"
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+-- BW_START - 2018-10-30 - Devin Doucette - [PREPORT:4415209] Expose configuration to Lua
+-- The global config variable can be used to detect which build configuration
+-- we are currently executing. One of Debug, Release, Final, Retail.
+
+config = dice.getCurrentConfigName()
+-- BW_END
+
+-- The global platform variable can be used to detect which platform
+-- we are currently executing on
+
+platform = dice.getCurrentPlatformName()
+platformMode = dice.getCurrentPlatformMode()
+
+-- Set up a logger which logs to the console (not stdout)
+-- By default, we only show warnings or worse. For more verbose
+-- diagnostics, you may set the level to INFO or DEBUG.
+
+log = logging.ingameConsole()
+log:setLevel(logging.DEBUG)
+
+core.import("Scripts/Game/Configure.lua")
+[/version]
+
+[version]
+2021 (NHL 22)
+[notes]
+Added host platform detection for cross-compilation era.
+
+New Features:
+- detectedHost variable - Detects the actual physical machine running the game
+
+Why: Cross-compilation era - developers could compile Xbox builds on PC, PS5 builds on devkits, etc. This tracked the HOST machine vs TARGET platform.
+
+Removed:
+- config variable (NHL didn't need it)
+[content]
+--
+-- Game startup script
+--
+
+require "vfs"
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+-- The global platform variable can be used to detect which platform
+-- we are currently executing on
+
+platform = dice.getCurrentPlatformName()
+platformMode = dice.getCurrentPlatformMode()
+detectedHost = dice.getDetectedHostPlatform()
+
+-- Set up a logger which logs to the console (not stdout)
+-- By default, we only show warnings or worse. For more verbose
+-- diagnostics, you may set the level to INFO or DEBUG.
+
+log = logging.ingameConsole()
+log:setLevel(logging.DEBUG)
+
+core.import("Scripts/Game/Configure.lua")
+[/version]
+
+[version]
+2022 (Need For Speed Unbound, PGA Tour)
+[notes]
+Added client detection for headless builds.
+
+New Features:
+- hasClient variable - Boolean flag indicating if this build has a graphical client
+
+Why: Dedicated servers and headless builds became more common (cloud gaming, backend servers).
+
+Removed:
+- detectedHost (not needed for these games)
+[content]
+--
+-- Game startup script
+--
+
+require "vfs"
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+-- The global config variable can be used to detect which build configuration
+-- we are currently executing. One of Debug, Release, Final, Retail.
+
+config = dice.getCurrentConfigName()
+
+-- The global platform variable can be used to detect which platform
+-- we are currently executing on
+
+platform = dice.getCurrentPlatformName()
+platformMode = dice.getCurrentPlatformMode()
+hasClient = dice.getHasClient()
+
+-- Set up a logger which logs to the console (not stdout)
+-- By default, we only show warnings or worse. For more verbose
+-- diagnostics, you may set the level to INFO or DEBUG.
+
+log = logging.ingameConsole()
+log:setLevel(logging.DEBUG)
+
+core.import("Scripts/Game/Configure.lua")
+[/version]
+
+[version]
+2022 (Skate CPT - Closed Playtest)
+[notes]
+Added SDK version detection.
+
+New Features:
+- platformSDK variable - SDK version detection (e.g., 'PS5 SDK 4.5', 'Xbox GDK 220601')
+
+Why: Different SDK versions had breaking changes; games needed to adapt at runtime.
+[content]
+--
+-- Game startup script
+--
+
+require "vfs"
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+-- The global config variable can be used to detect which build configuration
+-- we are currently executing. One of Debug, Release, Final, Retail.
+
+config = dice.getCurrentConfigName()
+
+-- The global platform variable can be used to detect which platform
+-- we are currently executing on
+
+platform = dice.getCurrentPlatformName()
+platformMode = dice.getCurrentPlatformMode()
+platformSDK = dice.getSDKName()
+hasClient = dice.getHasClient()
+
+-- Set up a logger which logs to the console (not stdout)
+-- By default, we only show warnings or worse. For more verbose
+-- diagnostics, you may set the level to INFO or DEBUG.
+
+log = logging.ingameConsole()
+log:setLevel(logging.DEBUG)
+
+core.import("Scripts/Game/Configure.lua")
+[/version]
+
+[version]
+2023 (Dead Space Remake)
+[notes]
+Added storage speed detection for next-gen optimization.
+
+New Features:
+- hardDriveType variable - Detects HDD vs SATA SSD vs NVMe SSD
+
+Why: CRITICAL for PS5/Xbox Series X optimization - these consoles have ultra-fast NVMe drives.
+- HDD = slow loading (legacy)
+- SATA SSD = faster (mid-gen upgrades)
+- NVMe SSD = instant (new gen mandatory installs)
+
+Games adjusted streaming, LOD, and asset loading based on storage speed.
+
+Comment: [DIVERGENCE] tag shows this was a platform-specific feature not in the main Frostbite branch yet.
+
+Removed:
+- platformSDK (Dead Space didn't need it)
+[content]
+--
+-- Game startup script
+--
+
+require "vfs"
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+-- The global config variable can be used to detect which build configuration
+-- we are currently executing. One of Debug, Release, Final, Retail.
+
+config = dice.getCurrentConfigName()
+
+-- The global platform variable can be used to detect which platform
+-- we are currently executing on
+
+platform = dice.getCurrentPlatformName()
+platformMode = dice.getCurrentPlatformMode()
+hasClient = dice.getHasClient()
+
+-- BYD_START - 2022-11-16 - dprykhodko - [DIVERGENCE] Hard drive type detection
+-- The global variable representing the hard drive type we're running on
+-- Return will be either Hdd, SataSsd, or NvmeSsd.
+
+hardDriveType = dice.getHardDriveType()
+-- BYD_END
+
+-- Set up a logger which logs to the console (not stdout)
+-- By default, we only show warnings or worse. For more verbose
+-- diagnostics, you may set the level to INFO or DEBUG.
+
+log = logging.ingameConsole()
+log:setLevel(logging.DEBUG)
+
+core.import("Scripts/Game/Configure.lua")
+[/version]
+
+[version]
+2024 (Dragon Age: The Veilguard)
+[notes]
+BioWare's adoption of hardDriveType detection.
+
+No changes from Dead Space - Kept the same setup.
+
+BioWare continued using hardDriveType for their open-world streaming.
+
+Comment: [DIVERGENCE:DVT-1324] shows they pulled this feature into their fork manually.
+[content]
+--
+-- Game startup script
+--
+
+require "vfs"
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+-- The global config variable can be used to detect which build configuration
+-- we are currently executing. One of Debug, Release, Final, Retail.
+
+config = dice.getCurrentConfigName()
+
+-- The global platform variable can be used to detect which platform
+-- we are currently executing on
+
+platform = dice.getCurrentPlatformName()
+platformMode = dice.getCurrentPlatformMode()
+hasClient = dice.getHasClient()
+
+-- BW_START - 2022/07/13 - Byrne, Zachary - [DIVERGENCE:DVT-1324] Pull in harddrive type detection without the platform refactor in dev-na
+-- The global variable representing the hard drive type we're running on
+-- Return will be either Hdd, SataSsd, or NvmeSsd.
+
+hardDriveType = dice.getHardDriveType()
+-- BW_END
+
+-- Set up a logger which logs to the console (not stdout)
+-- By default, we only show warnings or worse. For more verbose
+-- diagnostics, you may set the level to INFO or DEBUG.
+
+log = logging.ingameConsole()
+log:setLevel(logging.DEBUG)
+
+core.import("Scripts/Game/Configure.lua")
+[/version]
+
+[version]
+2024 (Madden NFL 25)
+[notes]
+Simplified EA Sports version.
+
+Removed:
+- config
+- hardDriveType
+- platformSDK
+
+Why: Sports games have simpler technical requirements (no open worlds, smaller asset pools).
+They only needed basic platform + client detection.
+
+Comment: MADDENDEVSUPPORT-7385 - Sports titles have their own JIRA tracking system.
+[content]
+--
+-- Game startup script
+--
+
+require "vfs"
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+-- The global platform variable can be used to detect which platform
+-- we are currently executing on
+
+platform = dice.getCurrentPlatformName()
+platformMode = dice.getCurrentPlatformMode()
+-- MADDEN_BEGIN | SENDBACK | jojohnson@ea.com | 2018-12-14 | Convert the FBVars in HeartbeatMonitor to Settings | https://jira.ea.com/browse/MADDENDEVSUPPORT-7385
+hasClient = dice.getHasClient()
+-- MADDEN_END
+
+-- Set up a logger which logs to the console (not stdout)
+-- By default, we only show warnings or worse. For more verbose
+-- diagnostics, you may set the level to INFO or DEBUG.
+
+log = logging.ingameConsole()
+log:setLevel(logging.DEBUG)
+
+core.import("Scripts/Game/Configure.lua")
+[/version]
+
+[version]
+2025+ (Battlefield 6, Skate, Future Titles)
+[notes]
+The complete 'gold standard' template for modern Frostbite games.
+
+All major detection variables combined:
+- config - Build configuration
+- platform - Target platform
+- platformMode - Client/server/editor
+- platformSDK - SDK version
+- hasClient - Graphical client present
+- hardDriveType - Storage speed detection
+
+This became the mainline Frostbite template going forward.
+
+No comments - This is now mainline Frostbite, not a divergence.
+[content]
+--
+-- Game startup script
+--
+
+require "vfs"
+core = require "Frost.Core"
+logging = require "Frost.Logging"
+
+-- The global config variable can be used to detect which build configuration
+-- we are currently executing. One of Debug, Release, Final, Retail.
+
+config = dice.getCurrentConfigName()
+
+-- The global platform variable can be used to detect which platform
+-- we are currently executing on
+
+platform = dice.getCurrentPlatformName()
+platformMode = dice.getCurrentPlatformMode()
+platformSDK = dice.getSDKName()
+hasClient = dice.getHasClient()
+
+-- The global variable representing the hard drive type we're running on
+-- Return will be either Hdd, SataSsd, or NvmeSsd.
+
+hardDriveType = dice.getHardDriveType()
+
+-- Set up a logger which logs to the console (not stdout)
+-- By default, we only show warnings or worse. For more verbose
+-- diagnostics, you may set the level to INFO or DEBUG.
+
+log = logging.ingameConsole()
+log:setLevel(logging.DEBUG)
+
+core.import("Scripts/Game/Configure.lua")
+[/version]

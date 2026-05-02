@@ -1,0 +1,99 @@
+[description]
+Texture quality and streaming configuration - controls mipmap levels and texture memory pool allocation (removed after Battlefield 3 Alpha).
+
+[version]
+2011 (Battlefield 3 Alpha)
+[notes]
+Alpha-only texture quality system with GPU memory-based tiers.
+
+Quality Tiers Based on VRAM:
+
+Quality 0 (Low) - Up to 512 MB VRAM:
+- Texture.SkipMipmapCount 4 - Skip 4 highest resolution mips (divide by 16 texture resolution)
+- TextureStreaming.PoolSize 150000 - ~150 MB streaming pool
+Example: 2048x2048 texture displays at 128x128
+
+Quality 1 (Medium) - Up to 768 MB VRAM:
+- Texture.SkipMipmapCount 2 - Skip 2 highest mips (divide by 4 resolution)
+- TextureStreaming.PoolSize 200000 - ~200 MB streaming pool
+Example: 2048x2048 texture displays at 512x512
+
+Quality 2 (High) - Up to 1 GB VRAM:
+- Texture.SkipMipmapCount 1 - Skip 1 highest mip (half resolution)
+- TextureStreaming.PoolSize 250000 - ~250 MB streaming pool
+Example: 2048x2048 texture displays at 1024x1024
+
+Quality 3 (Ultra) - 1 GB+ VRAM:
+- Texture.SkipMipmapCount 0 - No mips skipped (full resolution)
+- TextureStreaming.PoolSize 350000 - ~350 MB streaming pool
+Example: 2048x2048 texture displays at 2048x2048 (native)
+
+Technical Explanation:
+
+Mipmap Skipping:
+- Each mipmap level is half resolution of previous level
+- Skipping mips reduces VRAM usage exponentially
+- SkipMipmapCount 4 means textures are 1/16th their authored resolution
+- Trades visual quality for memory savings on low-end GPUs
+
+Texture Streaming Pool:
+- Memory budget for textures actively loaded/streamed
+- Larger pools = more high-res textures in memory simultaneously
+- Smaller pools = more aggressive streaming, potential pop-in
+- Values in kilobytes (150000 = ~146 MB, 350000 = ~341 MB)
+
+Why This Was Removed:
+1. Too Simplistic: Linear quality tiers didn't account for actual game texture usage patterns
+2. Streaming Evolution: Frostbite 2's streaming system became more sophisticated, auto-managing pools
+3. Platform Divergence: Consoles needed completely different texture strategies than PC
+4. Ultra Textures: Later BF3 builds introduced separate 'HD Texture Pack' DLC system
+5. Auto-Detection: Engine got better at detecting VRAM and auto-configuring
+
+Post-Alpha Texture System:
+After BF3 Alpha, texture quality became:
+- Auto-detected based on GPU model and VRAM
+- Tied to optional HD Texture Pack installation (separate download)
+- Managed by engine streaming heuristics, not user settings
+- Platform-specific (console textures optimized per-platform)
+
+Historical Context:
+In 2011, texture streaming was still evolving. Games like Rage (id Tech 5) faced major streaming issues. DICE's early Alpha approach was conservative, giving users manual control. By Beta, they had confidence in automatic streaming and removed manual configuration.
+
+Memory Pool Math:
+The pool sizes suggest Alpha was targeting:
+- Low: 512 MB cards (GTX 460, HD 5770)
+- Medium: 768 MB cards (GTX 560, HD 6870)
+- High: 1 GB cards (GTX 560 Ti, HD 6950)
+- Ultra: 1.5+ GB cards (GTX 570/580, HD 6970/6990)
+
+This reflects 2011 PC gaming hardware landscape before modern 4+ GB VRAM became standard.
+[content]
+local quality = settings['TextureQuality']
+log:info("setting texture quality : " .. quality)
+
+if quality <= 0 then
+	-- up to 512 mb
+	applySettings([=[
+		Texture.SkipMipmapCount 4
+		TextureStreaming.PoolSize 150000
+	]=])
+elseif quality <= 1 then
+	-- up to 768 mb
+	applySettings([=[
+		Texture.SkipMipmapCount 2
+		TextureStreaming.PoolSize 200000
+	]=])
+elseif quality <= 2 then
+	-- up to 1G
+	applySettings([=[
+		Texture.SkipMipmapCount 1
+		TextureStreaming.PoolSize 250000
+	]=])
+else
+	-- 1 Gb or more
+	applySettings([=[
+		Texture.SkipMipmapCount 0
+		TextureStreaming.PoolSize 350000
+	]=])
+end
+[/version]

@@ -1,0 +1,127 @@
+[description]
+Automated single-player campaign testing script - cycles through all BF4 campaign missions with checkpoint restart tests.
+
+[version]
+2011-2015 (Battlefield 4)
+[notes]
+Automated testing script for Battlefield 4's 8 single-player campaign missions.
+
+Script Structure:
+Each mission follows identical test sequence:
+1. server.loadLevel [MissionPath] - Loads the mission
+2. sleep 60 - Wait 60 seconds (initial load)
+3. server.restartLevel - Restart mission from beginning
+4. sleep 180/240 - Wait for gameplay (180s for most, 240s for prologue)
+5. client.restartFromLastCheckpoint - Restart from last saved checkpoint
+6. sleep 60 - Wait 60 seconds
+7. Proceed to next mission
+
+Initial Command:
+- Core.LogLevel FatalAssert - Sets logging to only show fatal errors
+
+Final Command:
+- main.playCommands Scripts/Debug/cycleSpLevels - Recursive loop
+
+Missions Tested (campaign order):
+1. SP_Prologue (Baku) - 240 second gameplay wait
+2. SP_Shanghai (Shanghai) - 180 second gameplay wait
+3. SP_Naval (South China Sea) - 180 second gameplay wait
+4. SP_Airfield (Airfield) - 180 second gameplay wait
+5. SP_Prison (Kunlun Mountains) - 180 second gameplay wait
+6. SP_Journey (Tashgar) - 180 second gameplay wait
+7. SP_Dam (Suez Canal) - 180 second gameplay wait
+8. SP_Suez (Suez Canal) - 180 second gameplay wait
+
+Commands Explained:
+
+server.loadLevel [path]:
+- Loads specified campaign mission
+- Path format: Levels/SP_[MissionName]/SP_[MissionName]
+
+server.restartLevel:
+- Restarts mission from beginning
+- Tests mission initialization
+
+client.restartFromLastCheckpoint:
+- Loads most recent checkpoint save
+- Tests checkpoint save/load system
+- Checkpoint must have been automatically created during 180/240 second gameplay period
+
+Sleep Duration Differences:
+- Prologue: 240 seconds after restart (longer introductory sequence)
+- All other missions: 180 seconds after restart (standard gameplay time)
+- Consistent 60 seconds for initial load and checkpoint reload
+
+Total Cycle Duration:
+- Prologue: 420 seconds (7 minutes)
+- Other missions: 360 seconds each (6 minutes) × 7 = 42 minutes
+- Full cycle: ~49 minutes
+
+Testing Coverage:
+- Campaign mission loading
+- Mission restart functionality
+- Checkpoint save system (automatic saves during gameplay)
+- Checkpoint load system
+- Single-player game state management
+- Memory stability across mission transitions
+[content]
+Core.LogLevel FatalAssert
+
+server.loadLevel Levels/SP_Prologue/SP_Prologue
+sleep 60
+server.restartLevel
+sleep 240
+client.restartFromLastCheckpoint
+sleep 60
+
+server.loadLevel Levels/SP_Shanghai/SP_Shanghai
+sleep 60
+server.restartLevel
+sleep 180
+client.restartFromLastCheckpoint
+sleep 60
+
+server.loadLevel Levels/SP_Naval/SP_Naval
+sleep 60
+server.restartLevel
+sleep 180
+client.restartFromLastCheckpoint
+sleep 60
+
+server.loadLevel Levels/SP_Airfield/SP_Airfield
+sleep 60
+server.restartLevel
+sleep 180
+client.restartFromLastCheckpoint
+sleep 60
+
+server.loadLevel Levels/SP_Prison/SP_Prison
+sleep 60
+server.restartLevel
+sleep 180
+client.restartFromLastCheckpoint
+sleep 60
+
+server.loadLevel Levels/SP_Journey/SP_Journey
+sleep 60
+server.restartLevel
+sleep 180
+client.restartFromLastCheckpoint
+sleep 60
+
+server.loadLevel Levels/SP_Dam/SP_Dam
+sleep 60
+server.restartLevel
+sleep 180
+client.restartFromLastCheckpoint
+sleep 60
+
+server.loadLevel Levels/SP_Suez/SP_Suez
+sleep 60
+server.restartLevel
+sleep 180
+client.restartFromLastCheckpoint
+sleep 60
+
+main.playCommands Scripts/Debug/cycleSpLevels
+[/version]

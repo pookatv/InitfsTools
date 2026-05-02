@@ -1,0 +1,103 @@
+[description]
+DEPRECATED: Maya DCC exporter configuration. Controlled Maya integration for asset pipeline, including session management, context handling, and export automation. Removed after 2015.
+
+[version]
+2011-2017 (Battlefield 3/4/Hardline, NFS The Run, C&C, Mass Effect)
+[notes]
+Early Maya integration configuration - removed very early on for most titles.
+
+MayaExport Settings:
+- Verbose: Debug message output to stdout (default: false)
+- IdleTimeout: Session timeout in seconds (120s = 2 minutes)
+- MaxConcurrentSessionCount: Parallel Maya sessions (default: 2)
+- SafeMode: Error handling and recovery mode (default: true)
+
+Context System:
+Contexts define how Maya sessions handle file operations and recycling behavior.
+
+Four Standard Contexts:
+
+1. **default** Context:
+   - General-purpose export operations
+   - recycleMode: 'always' (restart Maya after each export)
+   - enableButtonBasher: true (automated UI interaction)
+
+2. **granny** Context:
+   - Granny3D format exports (RAD Game Tools middleware)
+   - recycleMode: 'always'
+   - Used for skeletal animation and mesh exports
+
+3. **import** Context:
+   - Asset import operations
+   - recycleMode: 'keepfileopened' (keep Maya file loaded between operations)
+   - Optimized for iterative imports
+
+4. **havok** Context:
+   - Havok Physics exports (collision meshes, ragdolls, cloth)
+   - recycleMode: 'always'
+   - Used for physics simulation data
+
+Recycle Modes:
+- 'always': Restart Maya session after each operation (safest, slowest)
+- 'keepfileopened': Keep Maya file loaded between operations (faster, less stable)
+
+Button Basher:
+Automated UI interaction system that clicks through Maya dialogs and prompts during headless export. Essential for unattended pipeline operations.
+
+Why It Was Removed:
+1. **FBX Standardization**: Industry moved to FBX as universal interchange format
+2. **Maya Python API**: Direct Python API access replaced separate exporter process
+3. **Maintenance Burden**: Custom exporter required updates for each Maya version
+4. **Performance**: Subprocess communication overhead vs direct API calls
+5. **Complexity**: Multi-context session management was error-prone
+
+Historical Context:
+In the Battlefield 3 era, Maya integration required a separate exporter process that communicated via IPC (Inter-Process Communication) with the Frostbite pipeline. This configuration defined how those exporter processes behaved.
+
+Modern Replacement:
+Post-2011 Frostbite games use direct Maya Python API integration with FBX exports, eliminating the need for this configuration file entirely.
+
+This represents early DCC (Digital Content Creation) tool integration before the industry standardized on FBX workflows.
+[content]
+--
+-- MayaExport startup script
+--
+
+MayaExport = {
+	-- When Verbose is set to true, the program will emit messages to stdout, 
+	-- indicating what commands and responses are sent between the pipeline 
+	-- and the exporter process
+	
+	Verbose = false,
+	IdleTimeout = 120,
+	MaxConcurrentSessionCount = 2,
+	SafeMode = true,
+	
+	contexts = {
+		-- Default context
+		{ 
+			name='default',
+			recycleMode='always', 
+			enableButtonBasher=true 
+		},
+		-- Granny Context
+		{
+			name='granny',
+			recycleMode='always',
+			enableButtonBasher=true
+		},
+		-- Import Context
+		{
+			name='import',
+			recycleMode='keepfileopened',
+			enableButtonBasher=true
+		},
+		-- Havok context
+		{ 
+			name='havok', 
+			recycleMode='always', 
+			enableButtonBasher=true 
+		}
+	}
+}
+[/version]

@@ -1,0 +1,64 @@
+[description]
+Session management module - handles game session control commands.
+
+[version]
+2013 (Command & Conquer: Generals 2)
+[notes]
+Module for game session control.
+
+Module Declaration:
+- module('shellmodules.session', package.seeall)
+
+Function: executeSessionRequest(requestArgs)
+Handles two sessionGroup types:
+
+sessionGroup = 'quit':
+- Executes console command 'quit'
+- Terminates game application
+
+sessionGroup = 'surrender':
+- Executes console command 'surrenderGame'
+- Ends current match with loss for player
+
+Response:
+- Returns JSON: {status: 0}
+- Status 0 indicates successful command execution
+
+Route Registration:
+- Pattern: /session/([^/]+)
+- Captures session action as 'sessionGroup'
+- Examples:
+  * /session/quit → sessionGroup = 'quit'
+  * /session/surrender → sessionGroup = 'surrender'
+
+Console Commands:
+- quit: Closes application
+- surrenderGame: RTS-specific command to forfeit current match
+
+Session Control:
+Provides JavaScript UI ability to:
+- Exit game cleanly
+- Forfeit matches from in-game menu
+- Handle rage quits gracefully
+[content]
+-- ShellModules.Session
+module( "shellmodules.session", package.seeall)
+
+function executeSessionRequest( requestArgs )
+  requestArgs._module = "session"
+
+  if( requestArgs.sessionGroup == "quit" ) then
+    consoleResult = executeConsoleCommand("quit");
+  elseif ( requestArgs.sessionGroup == "surrender" ) then
+    consoleResult = executeConsoleCommand("surrenderGame");
+  end
+
+  local result = {}
+  result.status = 0
+  postJsonResult(requestArgs._response, result)
+end
+
+AddServiceRoutes( executeSessionRequest, {
+  { "/session/([^/]+)", {"sessionGroup"} }
+})
+[/version]

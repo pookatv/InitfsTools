@@ -1,0 +1,27 @@
+[description]
+Server shutdown handler - called when server is stopping.
+
+[version]
+2011+ (Universal)
+[notes]
+Minimal shutdown handler.
+
+Function:
+- Shutdown() - Called when server is shutting down
+
+Currently just logs shutdown event. Could be extended to:
+- Force save server state
+- Notify players of shutdown reason
+- Clean up temporary resources
+- Close database connections
+- Send shutdown telemetry
+
+Why It's Empty:
+Server state is already saved on every ban/level list change via writeServerData(), so there's no critical cleanup needed at shutdown.
+[content]
+function Shutdown()
+
+  print("Shutdown called")
+
+end
+[/version]

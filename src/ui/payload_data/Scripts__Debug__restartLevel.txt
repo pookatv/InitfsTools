@@ -1,0 +1,48 @@
+[description]
+Automated level restart testing - repeatedly restarts current level from beginning.
+
+[version]
+2011-2015 (Battlefield 4)
+[notes]
+Minimal script for level restart system stress testing.
+
+Script Structure:
+1. Core.LogLevel FatalAssert - Suppress non-critical logs
+2. server.restartLevel - Restart current level
+3. sleep 60 - Wait 60 seconds
+4. main.playCommands Scripts/Debug/restartLevel - Loop
+
+Commands Explained:
+
+server.restartLevel:
+- Reloads current level from beginning
+- Works with both campaign missions and multiplayer maps
+- Resets all level state (objectives, entities, player progress)
+
+Sleep Duration:
+- 60 seconds: Allows level reload, initialization, brief gameplay, then repeat
+
+Cycle Duration:
+60 seconds per iteration
+
+Prerequisites:
+- Must be manually started while already in a level (campaign or multiplayer)
+- Restarts whatever level is currently loaded
+
+Testing Coverage:
+- Level restart functionality
+- Level initialization system
+- Game state reset logic
+- Resource reloading
+- Memory management during rapid restarts
+- Level streaming system
+- Entity spawning consistency
+- Objective system reset
+[content]
+Core.LogLevel FatalAssert
+
+server.restartLevel
+sleep 60
+
+main.playCommands Scripts/Debug/restartLevel
+[/version]

@@ -1,0 +1,4314 @@
+[description]
+Frostbite engine pipeline configuration - controls asset compilation, shader generation, texture compression, and platform optimizations for the content build system.
+
+[version]
+2011 (Battlefield 3 Alpha)
+[notes]
+Early Frostbite 2 pipeline with PS3/Xbox 360 focus.
+
+Key Features:
+- Multi-platform DX10/10.1/11 shader paths
+- PS3 EDGE geometry optimization (Cell SPU processing)
+- CUDA-accelerated texture compression
+- Basic Enlighten GI with radiosity
+- Havok physics pipeline with validation
+- Perforce integration for asset management
+
+PS3-Specific Optimizations:
+- Vertex/index buffer compression
+- SPU-optimized mesh processing
+- Edge geometry for deferred rendering on Cell
+- Optimization level 3 shaders
+
+Notable Limitations:
+- No dynamic environment maps
+- Basic terrain system
+- Limited shader debugging
+- Manual cache management
+[content]
+--
+-- Internal Pipeline settings
+--
+--   This is not really the best place to change settings locally,
+--   please see GlobalSettings.lua instead and use it if at all
+--   possible
+--
+
+local Dx10PathEnable = false
+local Dx10PlusPathEnable = true
+local Dx10Dot1PathEnable = false
+local Dx11PathEnable = true
+local AutoPathEnable = false
+local SkipAllPaths = false
+
+Pipeline = 
+{
+	Verbose = false,
+	Rebuild = false,
+	ShowReason = true,
+	AddToPerforce = false,
+
+	-- Debugging/profiling options
+	Profiler = false,
+	DebugMode = false,
+	EmitPlaintextDbx = false,
+	EnableTimingLog = false,
+	BundleDebugging = false,
+	ResourceDebugging = false,
+
+	AsyncOpWrite = true,
+	DumpOplogStats = false,
+
+	--ServiceMode = true,
+}
+
+--------------------------------------------------------------
+
+Core = 
+{
+	LogLevel = "Info",
+	StudioBus = "4803@10.20.96.148"  -- dice-bm150
+}
+
+Cache = 
+{
+	BuildTimeThreshold = 0,
+}
+
+Ant = 
+{
+--	Setting this to true sometimes breaks reimport
+	ShowSyncDialogOnReimport = false,
+}
+
+Havok = 
+{
+	WriteShapeLog = false,
+	WriteMemoryLog = false,
+	WriteMaterialsLog = false,
+	ErrorOnStaticValidationError = true,	
+	DetailExport = true,
+	LogTriangleDensity = true,
+	HavokImportVersion = 1,
+}
+
+HavokGroupPhysicsEntity =
+{
+	WriteShapeLog = false,
+	WriteMemoryLog = false,
+	WriteMaterialsLog = false,
+	WriteGroupGeneralLog = false,
+	WritePartInfoLog = false,
+	ErrorOnStaticValidationError = true,	
+	DetailExport = true,
+	LogTriangleDensity = true,
+	HavokImportVersion = 1,
+
+	AllowDefaultCollisionShape = true
+}
+
+Texture =
+{
+	SkipMipmapsPs3Enable = true,
+	CudaEnable = true,
+	WaitOnCudaEnable = false,
+	MultithreadedCompressionEnable = true,
+	DefaultTextureGroup = "TextureGroups/Default";
+}
+
+ObjectBlueprint =
+{
+	AllowDefaultPartMaterial = true,
+	AllowDefaultEntityMaterial = true,
+}
+
+BlueprintImport =
+{
+	UseDefaultRaycastRoot = false,
+	OptimizeGeometries = true,
+	ErrorOnSceneMismatch = true,
+}
+
+Mesh = 
+{
+	Verbose = false,
+	ZOnlyMeshEnable = true,
+	Ps3EdgeEnable = true,
+	Ps3EdgeCompressPositionsEnable = true,	
+	Ps3EdgeCompressIndicesEnable = true,	
+	Ps3EdgeMinSubsetTriangleCount = 0,
+	
+	MinStreamingLodSize = 0,
+	
+	SootSkipShaderNames =
+	{
+		"Template",
+		"Tmpl",
+		"NoSoot"
+	},
+	WarningsAsErrorsEnable = false,
+	
+	-- EnlightenSaveInputMeshEnable = true,
+	-- RadiosityPixelSize_Low = 4.0,
+	-- RadiosityPixelSize_Medium = 2.0,
+	-- RadiosityPixelSize_High = 1.0,
+	-- RadiosityPixelSize_Higher = 0.5,
+	-- RadiosityPixelSize_Max = 0.25,
+}
+
+Enlighten = 
+{
+	-- Set this to false to prevent any dynamic enlighten data from beeing built and loaded into the game.
+	-- This is useful for retail builds if only static enlighten data is allowed.
+	DynamicEnable = true,
+}
+
+Level = 
+{
+	VoAnimTreesEnable = false,
+
+	GroupTreeModelEntities = true,
+	GroupStaticModelEntities = true,
+	GroupMiddlegrowthModelEntities = true,
+	
+	OptimizeMaterialGrid = true,
+
+	LogDetailedInstanceCounts = false
+}
+
+ShaderState =
+{
+	TerrainDebugColorEnable = false,
+	TerrainOverdrawModeEnable = false,
+	DynamicEnvmapModeEnable = false,
+
+	VanillaShadowmapsEnable = false,
+--	CascadedBox3ShadowmapsEnable = true, 
+--	CascadedBox4ShadowmapsEnable = true, 	
+}
+
+ShaderProgramDatabase =
+{
+	ShaderDebugInfoEnable = false,
+	DxShaderDebugInfoEnable = false,
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	AutoPathEnable = AutoPathEnable,
+	SkipAllPaths = SkipAllPaths,
+	
+	Ps3OptimizationLevel = 3
+}
+
+ShaderDatabase = 
+{
+	ShaderDebugInfoEnable = false,
+	DxShaderDebugInfoEnable = false,
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	AutoPathEnable = AutoPathEnable,
+	SkipAllPaths = SkipAllPaths,
+
+	Ps3OptimizationLevel = 3,
+	Ps3PackVertexElementsEnable = true,
+	Ps3ForceHalfPrecisionEnable = false,
+	Ps3ForceVertexDynamicBranchesEnable = false,
+	Ps3ForcePixelDynamicBranchesEnable = false,
+	
+	ForceCompileInConstantsEnable = true,
+	NonFiniteColoringEnable = false,
+	ManualSourceChangeEnable = false,
+	StateMetricsEnable = false,
+	StateSolutionCacheEnable = false,
+	SeparateWorldTransformEnable = false
+}
+
+Terrain = 
+{
+	SplineDecalsSubdivisionCount = 1,
+	MaskFunctionsEnable = false,
+	EnlightenPatchResolution = 32,
+}
+
+TerrainStreamingTree =
+{
+	OptimizeUsingProceduralMask = true
+}
+
+Award =
+{
+	OutputAwardXml = true,
+	OutputRankXml = true,
+	InvalidAwardCodeCharacters = "-. ",
+	AllowEmptyAwardCodes = false,
+	CheckStatCategories = true,
+	SetSpecificDataToChildAwards = true,
+}
+
+Persistence =
+{
+	OutputXml = true,
+	OutputBlazeProperties = true,
+	DeltaGameReports = true,
+}
+
+Unlock =
+{
+	ExportUnlocks = true
+}
+
+EmitterSystem =
+{
+	DxAtlasSkipMipmaps = 0,
+	Ps3AtlasSkipMipmaps = 0,
+	XenonAtlasSkipMipmaps = 0,	
+}
+
+Audio =
+{
+	BuildLanguages =
+	{
+		"English",
+	},
+}
+
+UIActionscriptInjection =
+{
+	RemoveTraces = true;
+}
+
+VeniceLevel =
+{
+	GenerateCombatAreaTextures = false;
+}
+
+GameConfig =
+{
+	AnimationProjectPath = "Animations/AntAnimations",
+}
+[/version]
+
+[version]
+2011 (Battlefield 3)
+[notes]
+Release version with refined Enlighten and shader systems.
+
+Changes from Alpha:
+- Enlighten DynamicEnable flag for retail optimization
+- StripUnusedTextures in ShaderState for memory savings
+- Ps3BuildRandomizedShaders for better code cache utilization
+- Audio system simplified (removed per-language builds)
+- Added AnimationProjectPath to GameConfig
+- Removed Cache.BuildTimeThreshold explicit setting
+
+Optimization Focus:
+PS3 randomized shaders prevent instruction cache thrashing
+Texture stripping reduces memory footprint
+Dynamic GI toggle allows static-only retail builds
+[content]
+--
+-- Internal Pipeline settings
+--
+--   This is not really the best place to change settings locally,
+--   please see GlobalSettings.lua instead and use it if at all
+--   possible
+--
+
+local Dx10PathEnable = false
+local Dx10PlusPathEnable = true
+local Dx10Dot1PathEnable = false
+local Dx11PathEnable = true
+local AutoPathEnable = false
+local SkipAllPaths = false
+
+Pipeline = 
+{
+	Verbose = false,
+	Rebuild = false,
+	ShowReason = true,
+	AddToPerforce = false,
+
+	-- Debugging/profiling options
+	Profiler = false,
+	DebugMode = false,
+	EmitPlaintextDbx = false,
+	EnableTimingLog = false,
+	BundleDebugging = false,
+	ResourceDebugging = false,
+
+	AsyncOpWrite = true,
+	DumpOplogStats = false,
+
+	--ServiceMode = true,
+}
+
+--------------------------------------------------------------
+
+Core = 
+{
+	LogLevel = "Info",
+	StudioBus = "4803@10.20.96.148"  -- dice-bm150
+}
+
+Ant = 
+{
+--	Setting this to true sometimes breaks reimport
+	ShowSyncDialogOnReimport = false,
+}
+
+Havok = 
+{
+	WriteShapeLog = false,
+	WriteMemoryLog = false,
+	WriteMaterialsLog = false,
+	ErrorOnStaticValidationError = true,	
+	DetailExport = true,
+	LogTriangleDensity = true,
+	HavokImportVersion = 1,
+}
+
+HavokGroupPhysicsEntity =
+{
+	WriteShapeLog = false,
+	WriteMemoryLog = false,
+	WriteMaterialsLog = false,
+	WriteGroupGeneralLog = false,
+	WritePartInfoLog = false,
+	ErrorOnStaticValidationError = true,	
+	DetailExport = true,
+	LogTriangleDensity = true,
+	HavokImportVersion = 1,
+
+	AllowDefaultCollisionShape = true
+}
+
+Texture =
+{
+	SkipMipmapsPs3Enable = true,
+	CudaEnable = true,
+	WaitOnCudaEnable = false,
+	MultithreadedCompressionEnable = true,
+	DefaultTextureGroup = "TextureGroups/Default";
+}
+
+ObjectBlueprint =
+{
+	AllowDefaultPartMaterial = true,
+	AllowDefaultEntityMaterial = true,
+}
+
+BlueprintImport =
+{
+	UseDefaultRaycastRoot = false,
+	OptimizeGeometries = true,
+	ErrorOnSceneMismatch = true,
+}
+
+Mesh = 
+{
+	Verbose = false,
+	ZOnlyMeshEnable = true,
+	Ps3EdgeEnable = true,
+	Ps3EdgeCompressPositionsEnable = true,	
+	Ps3EdgeCompressIndicesEnable = true,	
+	Ps3EdgeMinSubsetTriangleCount = 0,
+	
+	MinStreamingLodSize = 0,
+	
+	SootSkipShaderNames =
+	{
+		"Template",
+		"Tmpl",
+		"NoSoot"
+	},
+	WarningsAsErrorsEnable = false,
+	
+	-- EnlightenSaveInputMeshEnable = true,
+	-- RadiosityPixelSize_Lower = 16.0,
+	-- RadiosityPixelSize_Lowest = 8.0,
+	-- RadiosityPixelSize_Low = 4.0,
+	-- RadiosityPixelSize_Medium = 2.0,
+	-- RadiosityPixelSize_High = 1.0,
+	-- RadiosityPixelSize_Higher = 0.5,
+	-- RadiosityPixelSize_Max = 0.25,
+}
+
+Enlighten = 
+{
+	-- Set this to false to prevent any dynamic enlighten data from beeing built and loaded into the game.
+	-- This is useful for retail builds if only static enlighten data is allowed.
+	DynamicEnable = true,
+}
+
+Level = 
+{
+	VoAnimTreesEnable = false,
+
+	GroupTreeModelEntities = true,
+	GroupStaticModelEntities = true,
+	GroupMiddlegrowthModelEntities = true,
+	
+	OptimizeMaterialGrid = true,
+
+	LogDetailedInstanceCounts = false
+}
+
+ShaderState =
+{
+	TerrainDebugColorEnable = false,
+	TerrainOverdrawModeEnable = false,
+	DynamicEnvmapModeEnable = false,
+	
+	StripUnusedTextures = true,
+
+	VanillaShadowmapsEnable = false,
+--	CascadedBox3ShadowmapsEnable = true, 
+--	CascadedBox4ShadowmapsEnable = true, 	
+}
+
+ShaderProgramDatabase =
+{
+	ShaderDebugInfoEnable = false,
+	DxShaderDebugInfoEnable = false,
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	AutoPathEnable = AutoPathEnable,
+	SkipAllPaths = SkipAllPaths,
+	
+	Ps3OptimizationLevel = 3,
+	Ps3BuildRandomizedShaders = true
+}
+
+ShaderDatabase = 
+{
+	ShaderDebugInfoEnable = false,
+	DxShaderDebugInfoEnable = false,
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	AutoPathEnable = AutoPathEnable,
+	SkipAllPaths = SkipAllPaths,
+
+	Ps3OptimizationLevel = 3,
+	Ps3BuildRandomizedShaders = true,
+	Ps3PackVertexElementsEnable = true,
+	Ps3ForceHalfPrecisionEnable = false,
+	Ps3ForceVertexDynamicBranchesEnable = false,
+	Ps3ForcePixelDynamicBranchesEnable = false,
+	
+	ForceCompileInConstantsEnable = true,
+	NonFiniteColoringEnable = false,
+	ManualSourceChangeEnable = false,
+	StateMetricsEnable = false,
+	StateSolutionCacheEnable = false,
+	SeparateWorldTransformEnable = false
+}
+
+Terrain = 
+{
+	SplineDecalsSubdivisionCount = 1,
+	MaskFunctionsEnable = false,
+}
+
+TerrainStreamingTree =
+{
+	OptimizeUsingProceduralMask = true
+}
+
+Award =
+{
+	OutputAwardXml = true,
+	OutputRankXml = true,
+	InvalidAwardCodeCharacters = "-. ",
+	AllowEmptyAwardCodes = false,
+	CheckStatCategories = true,
+	SetSpecificDataToChildAwards = true,
+}
+
+Persistence =
+{
+	OutputXml = true,
+	OutputBlazeProperties = true,
+	DeltaGameReports = true,
+}
+
+Unlock =
+{
+	ExportUnlocks = true
+}
+
+EmitterSystem =
+{
+	DxAtlasSkipMipmaps = 0,
+	Ps3AtlasSkipMipmaps = 0,
+	XenonAtlasSkipMipmaps = 0,	
+}
+
+Audio =
+{
+	EnableDevelopmentFeatures = false,
+}
+
+UIActionscriptInjection =
+{
+	RemoveTraces = true;
+}
+
+VeniceLevel =
+{
+	GenerateCombatAreaTextures = false;
+}
+
+GameConfig =
+{
+	AnimationProjectPath = "Animations/AntAnimations",
+}
+[/version]
+
+[version]
+2011 (Need For Speed: The Run)
+[notes]
+Racing game optimizations with streaming and bundle management.
+
+Racing-Specific Features:
+- MinStreamingLodSize = 8192 (vs 0 in BF3) for aggressive streaming
+- Ps3VehicleEdgeEnable for car-specific geometry optimization
+- Audio chunks per layer on Xbox 360
+- Bundle asset scoring with disk savings weights
+
+Build System Enhancements:
+- CommonAssetScoring for shared asset optimization
+- MaxLodForMeshBundles and texture bundle separation
+- BundleReporting = true for size analysis
+- ResultObjectLruSize = 4000 (increased cache)
+
+Disabled Features:
+- ZOnlyMeshEnable = false (different render path)
+- DynamicEnable = false (no dynamic GI - performance)
+- WaterEnable = false (no water in racing)
+- RemoveTraces = false (kept for debugging)
+
+Note: Uses NFS-specific machine (nfs-avalanche1) for StudioBus
+[content]
+--
+-- Internal Pipeline settings
+--
+--   This is not really the best place to change settings locally,
+--   please see GlobalSettings.lua instead and use it if at all
+--   possible
+--
+
+local Dx10PathEnable = false
+local Dx10PlusPathEnable = true
+local Dx10Dot1PathEnable = false
+local Dx11PathEnable = true
+local AutoPathEnable = false
+local SkipAllPaths = false
+
+Pipeline = 
+{
+	Verbose = false,
+	Rebuild = false,
+	ShowReason = true,
+	AddToPerforce = false,
+
+	-- Debugging/profiling options
+	Profiler = false,
+	DebugMode = false,
+	EnableTimingLog = false,
+	BundleDebugging = false,
+	BundleReporting = true,
+	ResourceDebugging = false,
+
+	CommonAssetScoring_DiskSavingsWeight = 1,
+	CommonAssetScoring_SpaceUsageWeight = 0,
+	CommonAssetScoring_HeadroomUsageWeight = 0,
+
+	ResultObjectLruSize	= 4000,
+
+	AsyncOpWrite = true,
+
+	--ServiceMode = true,
+
+	Asset = ",
+
+	MaxLodForMeshBundles = 0,
+	EnableSeparateTextureBundles = false,
+	MaxMeshBundleLodForTextures = 0,
+
+	AudioChunksPerLayerXenon = true,
+}
+
+--------------------------------------------------------------
+
+Core = 
+{
+	LogLevel = "Info",
+	StudioBus = "4803@nfs-avalanche1.eac.ad.ea.com"  -- c4 [bmay]: use our local machine
+}
+
+Ant = 
+{
+	ShowSyncDialogOnReimport = true,
+}
+
+Havok = 
+{
+	WriteShapeLog = false,
+	WriteMemoryLog = false,
+	WriteMaterialsLog = false,
+	ErrorOnStaticValidationError = true,	
+	DetailExport = true,
+	LogTriangleDensity = true,
+	HavokImportVersion = 1,
+}
+
+HavokGroupPhysicsEntity =
+{
+	WriteShapeLog = false,
+	WriteMemoryLog = false,
+	WriteMaterialsLog = false,
+	WriteGroupGeneralLog = false,
+	WritePartInfoLog = false,
+	ErrorOnStaticValidationError = true,	
+	DetailExport = true,
+	LogTriangleDensity = true,
+	HavokImportVersion = 1,
+
+	AllowDefaultCollisionShape = true
+}
+
+Texture =
+{
+	SkipMipmapsPs3Enable = true,
+	CudaEnable = true,
+	WaitOnCudaEnable = false,
+	MultithreadedCompressionEnable = true,
+	DefaultTextureGroup = "TextureGroups/Default";
+}
+
+ObjectBlueprint =
+{
+	AllowDefaultPartMaterial = true,
+	AllowDefaultEntityMaterial = true,
+}
+
+BlueprintImport =
+{
+	UseDefaultRaycastRoot = false,
+	OptimizeGeometries = true;
+}
+
+Mesh = 
+{
+	Verbose = false,
+	ZOnlyMeshEnable = false,
+	Ps3EdgeEnable = true,
+	Ps3VehicleEdgeEnable = true,
+	Ps3EdgeCompressPositionsEnable = true,	
+	Ps3EdgeCompressIndicesEnable = true,	
+	Ps3EdgeMinSubsetTriangleCount = 0,
+	
+	MinStreamingLodSize = 8192,
+	
+	SootSkipShaderNames =
+	{
+		"Template",
+		"Tmpl",
+		"NoSoot"
+	},
+	WarningsAsErrorsEnable = false,
+	
+	-- EnlightenSaveInputMeshEnable = true,
+	-- RadiosityPixelSize_Low = 4.0,
+	-- RadiosityPixelSize_Medium = 2.0,
+	-- RadiosityPixelSize_High = 1.0,
+}
+
+Level = 
+{
+	VoAnimTreesEnable = false,
+
+	GroupTreeModelEntities = true,
+	GroupStaticModelEntities = true,
+	GroupMiddlegrowthModelEntities = true,
+	
+	OptimizeMaterialGrid = true,
+
+	LogDetailedInstanceCounts = false
+}
+
+ShaderState =
+{
+	TerrainDebugColorEnable = false,
+	TerrainOverdrawModeEnable = false,
+
+	VanillaShadowmapsEnable = false,
+--	CascadedBox3ShadowmapsEnable = true, 
+--	CascadedBox4ShadowmapsEnable = true, 	
+}
+
+ShaderProgramDatabase =
+{
+	ShaderDebugInfoEnable = false,
+	DxShaderDebugInfoEnable = false,
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	AutoPathEnable = AutoPathEnable,
+	SkipAllPaths = SkipAllPaths,
+	
+	Ps3OptimizationLevel = 3
+}
+
+ShaderDatabase = 
+{
+	ShaderDebugInfoEnable = false,
+	DxShaderDebugInfoEnable = false,
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	AutoPathEnable = AutoPathEnable,
+	SkipAllPaths = SkipAllPaths,
+
+	Ps3OptimizationLevel = 3,
+	Ps3PackVertexElementsEnable = true,
+	Ps3ForceHalfPrecisionEnable = false,
+	Ps3ForceVertexDynamicBranchesEnable = false,
+	Ps3ForcePixelDynamicBranchesEnable = false,
+	
+	ForceCompileInConstantsEnable = true,
+	NonFiniteColoringEnable = false,
+	ManualSourceChangeEnable = false,
+	StateMetricsEnable = false,
+	StateSolutionCacheEnable = false,
+	SeparateWorldTransformEnable = false,
+	CameraRelativeWorldSpaceEnable = true
+}
+
+Terrain = 
+{
+	HighlightBadAreas = false,
+	SplineDecalsSubdivisionCount = 1,
+	MaskFunctionsEnable = false,
+	EnlightenPatchResolution = 32,
+	EnlightenTerrainVerticesPerPatch = 33,
+	
+}
+
+TerrainStreamingTree =
+{
+	OptimizeUsingProceduralMask = true
+}
+
+Award =
+{
+	OutputAwardXml = true,
+	OutputRankXml = true,
+	InvalidAwardCodeCharacters = "-. ",
+	AllowEmptyAwardCodes = false,
+	CheckStatCategories = true,
+	SetSpecificDataToChildAwards = true,
+}
+
+Persistence =
+{
+	OutputXml = true,
+	OutputBlazeProperties = true,
+	DeltaGameReports = true,
+}
+
+Unlock =
+{
+	ExportUnlocks = true
+}
+
+EmitterSystem =
+{
+	DxAtlasSkipMipmaps = 0,
+	Ps3AtlasSkipMipmaps = 1,
+	XenonAtlasSkipMipmaps = 1,	
+}
+
+Audio =
+{
+	BuildLanguages =
+	{
+		"English",
+		"French",
+	},
+}
+
+UIActionscriptInjection =
+{
+	RemoveTraces = false;
+	UseInjectedAS = false;
+}
+
+BlueprintImport = 
+{
+	UseDefaultRaycastRoot = false, 
+}
+
+Enlighten =
+{
+	DynamicEnable = false
+}
+
+Water = {
+	Enable = false,
+}
+[/version]
+
+[version]
+2013 (Battlefield 4)
+[notes]
+First generation 4 console support (PS4/Xbox One).
+
+Next-Gen Console Support:
+- Gen4a (PS4) and Gen4b (Xbox One) quality levels added
+- Gen4aDx11PathEnable and Gen4aDx12PathEnable shader paths
+- Platform-specific optimization levels and settings
+
+Enhanced Features:
+- DynamicEnvmapModeEnable and DynamicEnvmapModeModernOnly
+- Ps3BuildRandomizedShaders for better performance
+- CacheEnable for improved build times
+- StateMetricsEnable for shader analysis
+
+Graphics Improvements:
+- GBufferLayout4Enable = true (extended G-buffer)
+- Improved shadow quality settings
+- Enhanced terrain and level optimization
+
+Note: Removal of 'Rebuild' setting from Pipeline configuration
+[content]
+--
+-- Internal Pipeline settings
+--
+--   This is not really the best place to change settings locally,
+--   please see GlobalSettings.lua instead and use it if at all
+--   possible
+--
+
+local Dx10PathEnable = false
+local Dx10PlusPathEnable = true
+local Dx10Dot1PathEnable = false
+local Dx11PathEnable = true
+local AutoPathEnable = false
+local SkipAllPaths = false
+
+Pipeline = 
+{
+	Verbose = false,
+	ShowReason = true,
+	AddToPerforce = false,
+
+	-- Debugging/profiling options
+	DebugMode = false,
+	EmitPlaintextDbx = false,
+	EnableTimingLog = false,
+	BundleDebugging = false,
+	ResourceDebugging = false,
+
+	AsyncOpWrite = true,
+	DumpOplogStats = false,
+
+	--ServiceMode = true,
+}
+
+--------------------------------------------------------------
+
+Core = 
+{
+	LogLevel = "Info",
+	StudioBus = "4803@10.20.96.148"  -- dice-bm150
+}
+
+Ant = 
+{
+--	Setting this to true sometimes breaks reimport
+	ShowSyncDialogOnReimport = false,
+--	Display a warning if 'allow' is true or an error if 'allow' false if an animset is built that requires the traditional runtime. Only relevant when FB_ANT_ROOTCONTROLLER_ENABLE is set to true in diceconfig.
+	AllowTraditionalAssetsWithRootcontrollerEnabled = false,
+}
+
+Havok = 
+{
+	WriteShapeLog = false,
+	WriteMemoryLog = false,
+	WriteMaterialsLog = false,
+	ErrorOnStaticValidationError = true,	
+	DetailExport = true,
+	LogTriangleDensity = true,
+	HavokImportVersion = 1,
+}
+
+HavokGroupPhysicsEntity =
+{
+	WriteShapeLog = false,
+	WriteMemoryLog = false,
+	WriteMaterialsLog = false,
+	WriteGroupGeneralLog = false,
+	WritePartInfoLog = false,
+	ErrorOnStaticValidationError = true,	
+	DetailExport = true,
+	LogTriangleDensity = true,
+	HavokImportVersion = 1,
+
+	AllowDefaultCollisionShape = true
+}
+
+Texture =
+{
+	SkipMipmapsPs3Enable = true,
+	CudaEnable = true,
+	WaitOnCudaEnable = false,
+	MultithreadedCompressionEnable = true,
+	DefaultTextureGroup = "TextureGroups/Default";
+}
+
+ObjectBlueprint =
+{
+	AllowDefaultPartMaterial = true,
+	AllowDefaultEntityMaterial = true,
+}
+
+BlueprintImport =
+{
+	UseDefaultRaycastRoot = false,
+	OptimizeGeometries = true,
+	ErrorOnSceneMismatch = true,
+}
+
+Mesh = 
+{
+	Verbose = false,
+	ZOnlyMeshEnable = true,
+	Ps3EdgeEnable = true,
+	Ps3EdgeCompressPositionsEnable = true,	
+	Ps3EdgeCompressIndicesEnable = true,	
+	Ps3EdgeMinSubsetTriangleCount = 0,
+	
+	MinStreamingLodSize = 0,
+
+	Ps3EdgeKeepIndexBufferEnable = false,
+	
+	SootSkipShaderNames =
+	{
+		"Template",
+		"Tmpl",
+		"NoSoot"
+	},
+	WarningsAsErrorsEnable = false,
+	
+	-- EnlightenSaveInputMeshEnable = true,
+	-- RadiosityPixelSize_Lower = 16.0,
+	-- RadiosityPixelSize_Lowest = 8.0,
+	-- RadiosityPixelSize_Low = 4.0,
+	-- RadiosityPixelSize_Medium = 2.0,
+	-- RadiosityPixelSize_High = 1.0,
+	-- RadiosityPixelSize_Higher = 0.5,
+	-- RadiosityPixelSize_Max = 0.25,
+	
+	-- LightmapDxtBlockSizeEnable = true,
+}
+
+Enlighten = 
+{
+	-- Set this to false to prevent any dynamic enlighten data from beeing built and loaded into the game.
+	-- This is useful for retail builds if only static enlighten data is allowed.
+	DynamicEnable = true,
+}
+
+Level = 
+{
+	VoAnimTreesEnable = false,
+
+	SpatialSubdivision = true,
+	EnableGroupLogs = false,
+	GroupStaticModelEntities = true,
+	GroupTreeModelEntities = true,
+	GroupMiddlegrowthModelEntities = true,
+	
+	LogDetailedInstanceCounts = false	
+}
+
+SubLevel = 
+{
+	SpatialSubdivision = true,
+	EnableGroupLogs = false,
+	OptimizeMaterialGrid = true,
+	GroupStaticModelEntities = true,
+}
+
+BlueprintBundleCollection =
+{
+	InclusionWildcards =
+	{
+--		{ Collection="MyBundleCollection1", Wildcard="MyWildcard1" },
+--		{ Collection="MyBundleCollection1", Wildcard="MyWildcard2" },
+--		{ Collection="MyBundleCollection2", Wildcard="MyWildcard3" }
+	}
+}
+
+ShaderState =
+{
+	TerrainDebugColorEnable = false,
+	TerrainOverdrawModeEnable = false,
+	DynamicEnvmapModeEnable = true,
+	DynamicEnvmapModeModernOnly = true,
+	
+	StripUnusedTextures = true,
+
+	VanillaShadowmapsEnable = false,
+
+	Win32QualityLevel = -1,
+	XenonQualityLevel = 0,
+	Ps3QualityLevel = 0,
+	Gen4aQualityLevel = 2,
+	Gen4bQualityLevel = 2		
+
+--	CascadedBox3ShadowmapsEnable = true, 
+--	CascadedBox4ShadowmapsEnable = true, 	
+}
+
+ShaderProgramDatabase =
+{
+	ShaderDebugInfoEnable = true,
+	DxShaderDebugInfoEnable = false,
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	AutoPathEnable = AutoPathEnable,
+	SkipAllPaths = SkipAllPaths,
+
+	CacheEnable = true,
+	
+	Ps3OptimizationLevel = 3,
+	
+	DynamicEnvmapModeEnable = true,
+	DynamicEnvmapModeModernOnly = true,	
+	
+	Ps3BuildRandomizedShaders = false
+}
+
+ShaderDatabase = 
+{
+	ShaderDebugInfoEnable = false,
+	DxShaderDebugInfoEnable = false,
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	AutoPathEnable = AutoPathEnable,
+	SkipAllPaths = SkipAllPaths,
+
+	Ps3OptimizationLevel = 3,
+
+	-- enabled by default in Warsaw when shipping, disable this locally if you want faster PS3 build times when changing shaders
+	Ps3BuildRandomizedShaders = false,
+
+	Ps3PackVertexElementsEnable = true,
+	Ps3ForceHalfPrecisionEnable = false,
+	Ps3ForceVertexDynamicBranchesEnable = false,
+	Ps3ForcePixelDynamicBranchesEnable = false,
+	
+	ForceCompileInConstantsEnable = true,
+	NonFiniteColoringEnable = false,
+	ManualSourceChangeEnable = false,
+	StateMetricsEnable = true,
+	StateSolutionCacheEnable = false,
+	SeparateWorldTransformEnable = false
+}
+
+Terrain = 
+{
+	SplineDecalsSubdivisionCount = 1,
+	MaskFunctionsEnable = false,
+}
+
+TerrainStreamingTree =
+{
+	OptimizeUsingProceduralMask = true
+}
+
+Award =
+{
+	OutputAwardXml = true,
+	OutputRankXml = true,
+	InvalidAwardCodeCharacters = "-. ",
+	AllowEmptyAwardCodes = false,
+	CheckStatCategories = true,
+	SetSpecificDataToChildAwards = true,
+}
+
+Persistence =
+{
+	OutputXml = true,
+	OutputBlazeProperties = true,
+	DeltaGameReports = true,
+}
+
+Unlock =
+{
+	ExportUnlocks = true
+}
+
+AtlasTexture =
+{
+	SkipMipmaps = 0,
+	SkipMipmapsPs3 = 0,
+	SkipMipmapsXenon = 0,	
+	SkipMipmapsGen4a = 0,
+	SkipMipmapsGen4b = 0,
+
+	MinMipmapCount = 6,
+	MinMipmapCountPs3 = 4,
+	MinMipmapCountXenon = 4,
+	MinMipmapCountGen4a = 6,
+	MinMipmapCountGen4b = 6,
+
+	MinNormalMipmapCount = 4,
+	MinNormalMipmapCountPs3 = 1,
+	MinNormalMipmapCountXenon = 1,
+	MinNormalMipmapCountGen4a = 3,
+	MinNormalMipmapCountGen4b = 3,
+}
+
+Audio =
+{
+	EnableDevelopmentFeatures = false,
+	EnableLocalizedSandboxes = false,
+}
+
+UIActionscriptInjection =
+{
+	RemoveTraces = true,
+	DefinesToKeep =
+	{
+		--"LOG",
+		--"DEBUG",
+	}
+}
+
+UI =
+{
+	TextureGroupPath = "TextureGroups/UI",
+}
+
+VeniceLevel =
+{
+	GenerateCombatAreaTextures = false,
+}
+
+GameConfig =
+{
+	AnimationProjectPath = "Animations/AntAnimations",
+}
+
+SoldierWeaponBlueprint = 
+{
+	DisableOnDemandLoading = false,
+}
+[/version]
+
+[version]
+2014 (Dragon Age)
+[notes]
+BioWare's Dragon Age: Inquisition - RPG-specific enhancements.
+
+BioWare Divergences:
+- EnableParallelDispatch = true for faster builds
+- UniqueIdCollisionAsErrors for blueprint validation
+- EnlightenScaleUvCharts = false (BioWare-specific fix)
+- DatabaseChunkSize = 1000 for memory optimization
+
+Platform Support:
+- GLES20PathEnable for mobile platforms
+- Quality scalable texture settings (Low/Medium/High/Ultra)
+- Platform-specific optimization levels
+
+RPG Features:
+- VoiceOver/FaceFX/Conversation pipeline configurations
+- ScatterContent pipeline for environment decoration
+- ClothPipeline with Gen3 warnings
+- LuaRunner with platform-specific debug stripping
+
+Enhanced Graphics:
+- GBufferLayout3Enable for extended material support
+- MaxTessellationFactor per platform
+- PackedLRBDirection for GLES20
+- DynamicEnvmapModeModernOnly for next-gen only
+[content]
+--
+-- Internal Pipeline settings
+--
+--   This is not really the best place to change settings locally,
+--   please see GlobalSettings.lua instead and use it if at all
+--   possible
+--
+
+local Dx10PathEnable = false
+local Dx10PlusPathEnable = true
+local Dx10Dot1PathEnable = false
+local Dx11PathEnable = true
+local GLES20PathEnable = false
+local AutoPathEnable = false
+local SkipAllPaths = false
+
+Pipeline = 
+{
+	Verbose = false,
+	Rebuild = false,
+	ShowReason = true,
+	AddToPerforce = false,
+
+	-- Debugging/profiling options
+	Profiler = false,
+	DebugMode = false,
+	EmitPlaintextDbx = false,
+	EnableTimingLog = false,
+	-- BWDA_START - September 20, 2013 - Devin Doucette - [DIVERGENCE] EnableParallelDispatch
+	-- EnableParallelDispatch = false,
+	EnableParallelDispatch = true,
+	-- BWDA_END
+	BundleDebugging = false,
+	ResourceDebugging = false,
+
+	AsyncOpWrite = true,
+	DumpOplogStats = false,
+
+	--ServiceMode = true,
+}
+
+--------------------------------------------------------------
+
+Core = 
+{
+	LogLevel = "Info",
+	StudioBus = "4803@10.20.96.148"  -- dice-bm150
+}
+
+Cache = 
+{
+	BuildTimeThreshold = 0,
+}
+
+Ant = 
+{
+--	Setting this to true sometimes breaks reimport
+	ShowSyncDialogOnReimport = false,
+	AllowTraditionalAssetsWithRootcontrollerEnabled = true,
+}
+
+Havok = 
+{
+	WriteShapeLog = false,
+	WriteMemoryLog = false,
+	WriteMaterialsLog = false,
+	ErrorOnStaticValidationError = true,	
+	DetailExport = true,
+	LogTriangleDensity = true,
+	HavokImportVersion = 1,
+}
+
+HavokGroupPhysicsEntity =
+{
+	WriteShapeLog = false,
+	WriteMemoryLog = false,
+	WriteMaterialsLog = false,
+	WriteGroupGeneralLog = false,
+	WritePartInfoLog = false,
+	ErrorOnStaticValidationError = true,	
+	DetailExport = true,
+	LogTriangleDensity = true,
+	HavokImportVersion = 1,
+
+	AllowDefaultCollisionShape = true
+}
+
+Texture =
+{
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	GLES20PathEnable = GLES20PathEnable,
+
+	SkipMipmapsPs3Enable = true,
+	CudaEnable = true,
+	WaitOnCudaEnable = false,
+	MultithreadedCompressionEnable = true,
+	DefaultTextureGroup = "TextureGroups/Default";
+}
+
+Enlighten =
+{
+	PackedLRBDirection = GLES20PathEnable
+}
+
+Blueprint = 
+{
+	UniqueIdCollisionAsErrors = true,
+}
+
+ObjectBlueprint =
+{
+	AllowDefaultPartMaterial = true,
+	AllowDefaultEntityMaterial = true,
+}
+
+BlueprintImport =
+{
+	UseDefaultRaycastRoot = false,
+	OptimizeGeometries = true,
+	ErrorOnSceneMismatch = true,
+}
+
+Mesh = 
+{
+	Verbose = false,
+	ZOnlyMeshEnable = true,
+	Ps3EdgeEnable = true,
+	Ps3EdgeCompressPositionsEnable = true,	
+	Ps3EdgeCompressIndicesEnable = true,	
+	Ps3EdgeMinSubsetTriangleCount = 0,
+	GLES20PathEnable = GLES20PathEnable,
+	
+	MinStreamingLodSize = 0,
+	
+	SootSkipShaderNames =
+	{
+		"Template",
+		"Tmpl",
+		"NoSoot"
+	},
+	WarningsAsErrorsEnable = false,
+	-- BWDA_START - Aug 28, 2013 - Woytiuk, Peter - [DIVERGENCE] - Fix for autoscaled projections
+	EnlightenScaleUvCharts = false,
+	-- BWDA_END
+	-- EnlightenScaleUvCharts = true,
+	-- EnlightenSaveInputMeshEnable = true,
+	-- RadiosityPixelSize_Low = 4.0,
+	-- RadiosityPixelSize_Medium = 2.0,
+	-- RadiosityPixelSize_High = 1.0,
+	-- RadiosityPixelSize_Higher = 0.5,
+	-- RadiosityPixelSize_Max = 0.25,
+}
+
+Level = 
+{
+	SpatialSubdivision = true,
+	EnableGroupLogs = false,
+	GroupStaticModelEntities = true,
+}
+
+SubLevel = 
+{
+	SpatialSubdivision = true,
+	EnableGroupLogs = false,
+	OptimizeMaterialGrid = true,
+	GroupStaticModelEntities = true,
+	-- BWDA_START - 2014-09-12 - DMathieu - [SHIPJIRA] - Refactored BundleManager to remove all callbacks & moves BlueprintBundleReference/SubWorldReferencedObjectData to LevelData
+	LogBundleRefSizes = true,
+	-- BWDA_END
+}
+
+BlueprintBundleCollection =
+{
+	InclusionWildcards =
+	{
+--		{ Collection="MyBundleCollection1", Wildcard="MyWildcard1" },
+--		{ Collection="MyBundleCollection1", Wildcard="MyWildcard2" },
+--		{ Collection="MyBundleCollection2", Wildcard="MyWildcard3" }
+	}
+}
+
+ShaderState =
+{
+	TerrainDebugColorEnable = false,
+	TerrainOverdrawModeEnable = false,
+	DynamicEnvmapModeEnable = true,
+	-- BWDA_START - April 15, 2014 - Dawson, Skyler - [DIVERGENCE] Turn off dynamic envmaps for Gen3
+	DynamicEnvmapModeModernOnly = true,
+	-- BWDA_END
+
+	Win32QualityLevel = -1,
+	XenonQualityLevel = 0,
+	Ps3QualityLevel = 0,
+	Gen4aQualityLevel = 2,
+	Gen4bQualityLevel = 2,
+	GLES20QualityLevel = 0,
+
+	GLES20PathEnable = GLES20PathEnable
+}
+
+ShaderProgramDatabase =
+{
+	ShaderDebugInfoEnable = false,
+	DxShaderDebugInfoEnable = false,
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	GLES20PathEnable = GLES20PathEnable,
+	AutoPathEnable = AutoPathEnable,
+	SkipAllPaths = SkipAllPaths,
+	
+	Ps3OptimizationLevel = 3,
+	
+	-- BWDA_START - March 14, 2013 - Wihlidal, Graham - [DIVERGENCE] Activate Extended GBufferLayout 3
+	GBufferLayout3Enable = true,
+	-- BWDA_END
+	
+	DynamicEnvmapModeEnable = true,	
+	-- BWDA_START - April 15, 2014 - Dawson, Skyler - [DIVERGENCE] Turn off dynamic envmaps for Gen3
+	DynamicEnvmapModeModernOnly = true,
+	-- BWDA_END
+}
+
+ShaderDatabase = 
+{
+	ShaderDebugInfoEnable = false,
+	DxShaderDebugInfoEnable = false,
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	GLES20PathEnable = GLES20PathEnable,
+	AutoPathEnable = AutoPathEnable,
+	SkipAllPaths = SkipAllPaths,
+
+	GLSLOptimizerEnable = true,
+	GLSLOptimizerWarningsAndErrorsEnable = false,
+
+	-- Until we have implemented support for ogles srgb.
+	-- Will do texture filtering before transform, so won't look exactly the same.
+	PixelShaderSrgbConversionEnable = GLES20PathEnable,
+
+	Ps3OptimizationLevel = 3,
+	Ps3PackVertexElementsEnable = true,
+	Ps3ForceHalfPrecisionEnable = false,
+	Ps3ForceVertexDynamicBranchesEnable = false,
+	Ps3ForcePixelDynamicBranchesEnable = false,
+	
+	-- BWDA_START - March 14, 2013 - Wihlidal, Graham - [DIVERGENCE] Activate Extended GBufferLayout 2
+	GBufferLayout3Enable = true,
+	-- BWDA_END
+
+	-- BWDA_START - March 5, 2014 - Krajcarski, Rob - [EXT_CHANGE:graham] MaxTessFactor
+	MaxTessellationFactor = 
+	{
+		Default = 15,
+		Xenon = 0,
+		Ps3 = 0,
+		Gen4a = 7,
+		Gen4b = 7,
+		Android = 0,
+		iOS = 0
+	},
+	-- BWDA_END
+
+	-- BWDA_START - April 10, 2014 - Krajcarski, Rob - [SHIPJIRA] Fix for corruption on NV cards
+	UseLightProbeInstanceVectorBuffer = true,
+	-- BWDA_END
+	
+	ForceCompileInConstantsEnable = true,
+	NonFiniteColoringEnable = false,
+	ManualSourceChangeEnable = false,
+	StateMetricsEnable = false,
+	StateSolutionCacheEnable = false,
+	SeparateWorldTransformEnable = false
+}
+
+-- BWDA_START - July 02, 2013 - Komsthoeft, Matt - [JIRA:FT-657] Safety net for emitter max count
+Emitter =
+{
+	-- August 29, 2013 - Komsthoeft, Matt - [JIRA:FT-767] Demote optimization warnings
+	EmitterProcessorOptimizationWarnings = false,
+
+	EmitterQuadMaxCount = 800,
+	EmitterMeshMaxCount = 500
+}
+-- BWDA_END
+
+
+Terrain = 
+{
+	SplineDecalsSubdivisionCount = 1,
+	MaskFunctionsEnable = false,
+	EnlightenPatchResolution = 32,
+	-- BWDA_START - July 15, 2014 - Krajcarski, Rob - [SHIPJIRA] Disable DynamicMask
+	DynamicMaskEnable = false
+	-- BWDA_END
+}
+
+TerrainStreamingTree =
+{
+	OptimizeUsingProceduralMask = true
+}
+
+Award =
+{
+	OutputAwardXml = true,
+	OutputRankXml = true,
+	InvalidAwardCodeCharacters = "-. ",
+	AllowEmptyAwardCodes = false,
+	CheckStatCategories = true,
+	SetSpecificDataToChildAwards = true,
+}
+
+Persistence =
+{
+	OutputXml = true,
+	OutputBlazeProperties = true,
+	DeltaGameReports = true,
+}
+
+Unlock =
+{
+	ExportUnlocks = true
+}
+
+AtlasTexture =
+{
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	GLES20PathEnable = GLES20PathEnable,
+	
+	-- BWDA_START - August 8, 2013 - Vignaud, Sylvain - [JIRA:FB-21830] Use Quality Scalable types instead of platform specific settings
+	SkipMipmaps =
+	{
+		Low = 1,
+		Medium = 0,
+		High = 0,
+		Ultra = 0,
+	},
+
+	MinMipmapCount =
+	{
+		Low = 4,
+		Medium = 4,
+		High = 5,
+		Ultra = 6,
+	},
+
+
+	MinNormalMipmapCount =
+	{
+		Low = 2,
+		Medium = 2,
+		High = 3,
+		Ultra = 4,
+	},
+	-- BWDA_END
+}
+
+Audio =
+{
+	EnableDevelopmentFeatures = false,
+	-- BWDA_START - January 15, 2014 - Butcher, Andrew - [DIVERGENCE] Set Path To Audio System For Game Title
+	AudioSystemPath = "da3/Sound/AudioSystem"
+	-- BWDA_END
+}
+
+UIActionscriptInjection =
+{
+	-- BWDA_START - Januaray 17, 2012 - Redford, James - Actionscript Injection
+	--RemoveTraces = true;
+	RemoveTraces = false;
+	-- BWDA_END
+	DefinesToKeep =
+	{
+		--"LOG",
+		--"DEBUG",
+	}
+}
+
+UI =
+{
+	TextureGroupPath = "TextureGroups/UI",
+}
+
+VeniceLevel =
+{
+	GenerateCombatAreaTextures = false,
+}
+
+UIWidgetBlueprint =
+{
+	PlatformOverride = ",
+}
+
+FsTextCollection =
+{
+	FileLogEnable = false,
+}
+
+-- BWDA_START - Januaray 17, 2012 - Redford, James - Actionscript Injection
+SwfExport =
+{
+	ActionscriptPath = "UI/Actionscript"
+}
+-- BWDA_END
+
+-- BWDA_START - March 27, 2013 - Loyer, Marc-Andre - VoiceOver/FaceFX/Conversation pipeline configurations
+VoiceOver = 
+{
+	OutputDirectory = "VO/",
+	ImportConfigurationPath = "Systems/VoiceOver/VoiceOverImportConfiguration",
+}
+FaceFX =
+{
+	SandboxOutputDirectory = "FaceFX/",
+	FaceFXStudioPath = "FaceFX\\FaceFX 2013\\FaceFx-studio.com",
+	AnalysisActorDefaultPath = "Raw/Animation/Humanoid/FaceFX/HumanMale/HumanMale.facefx",
+	AnimsetDirectoryPrefix = "Raw/VO/",
+	AnimsetDirectorySuffix = "FaceFX/",
+	FfxCompilerPath = "Bin/Pipeline/FaceFx/0.9.8/compiler/windows/vs11/x64/Release/ffxc.exe",
+ --relative to Tnt root
+	TranslationConfigurationGlobalSettingsPath = "Systems/Localization/TranslationsConfigurationGlobalSettings",
+	DevelopmentLanguage = LanguageFormat_English
+}
+Conversation =
+{
+	VoiceOverOutputDirectory = "VO/",
+	FaceFXOutputDirectory = "FaceFX/",
+	ConversationOutputDirectory = "Conversation_exd/",
+	
+	GeneratedFileBesideConversation = false,
+	ConversationSidecarNameIsGUID = true,
+}
+-- BWDA_END
+
+-- BWDA_START - October 23, 2013 -- Turner, Jason - ScatterContentGlobalOptions
+--              October 23, 2013 -- Shaker, Zousar - SCM pipeline settings
+ScatterContent =
+{
+	ClipperScale = 10000,
+	CategoryEnumerationsAsset = "DA3/Enumerations/ScatterContentCategories",
+	GlobalOptionsPath = "DA3/Configurations/GameConfigurations/ScatterContentGlobalSettings",
+}
+-- BWDA_END
+
+-- BWDA_START - February 28, 2014 - Vignaud, Sylvain - [DIVERGENCE] Disable Cloth pipelines when building for Gen3
+ClothPipeline =
+{
+    WarnIfOutputClothDataOnGen3 = true,
+}
+-- BWDA_END
+
+-- BWDA_START - March 28, 2014 - Fedorkiw, John - [SHIPJIRA] - Allow user to strip debug from LuaRunnerScripts on a per-platform basis
+LuaRunner = 
+{
+	StripDebugSymbols =
+	{
+		Default = false,
+		Xenon	= true,
+		Ps3		= true,
+		Gen4a	= true,
+		Gen4b	= true,
+		Android = true,
+		iOS		= true,
+	}
+}
+-- BWDA_END
+-- BWDA_START - March 26, 2014 - Fedorkiw, John - [DIVERGENCE]  Strip print statements when compiling Lua
+BWScript = 
+{
+	StripLoggingCode =
+	{
+		Default = false,
+		Xenon	= true,
+		Ps3		= true,
+		Gen4a	= true,
+		Gen4b	= true,
+		Android = true,
+		iOS		= true,
+	}
+}
+-- BWDA_END
+[/version]
+
+[version]
+2015 (Star Wars Battlefront)
+[notes]
+Star Wars Battlefront - Modern rendering pipeline for Gen4 consoles.
+
+Modern Graphics Features:
+- Bc7AsDefaultFormat = true for better texture quality
+- GBufferLayout4Enable with extended material support
+- EnlightenOutputFormat_R9G9B9E5 for HDR lightmaps
+- LightProbeShL2Enable for better ambient lighting
+
+DX12 Support:
+- Gen4aDx12PathEnable = true for Xbox One DX12 path
+- Dx12 shader compilation support added
+- Platform-specific DX11/DX12 paths
+
+Rendering Enhancements:
+- OsxRemoteCompilationEnable for Mac shader compilation
+- SkyPanoramicFlowMapEnable for dynamic skies
+- ExtendedGBufferEnable configuration
+- PhysicalSkyEnable for atmospheric rendering
+
+Build Optimizations:
+- EmitPersistenceInfo flag for retail builds
+- ValidateCachePackages for build integrity
+- Improved bundle and texture streaming
+
+Note: Removal of old-gen console support (PS3/Xbox 360)
+[content]
+--
+-- Internal Pipeline settings
+--
+--   This is not really the best place to change settings locally,
+--   please see GlobalSettings.lua instead and use it if at all
+--   possible
+--
+
+local Dx10PathEnable = false
+local Dx10PlusPathEnable = false
+local Dx10Dot1PathEnable = false
+local Dx11PathEnable = true
+local GLES20PathEnable = false
+local Gen4aDx11PathEnable = false
+local Gen4aDx12PathEnable = true
+local AutoPathEnable = false
+local SkipAllPaths = false
+
+local EmitPersistenceInfo = false
+
+Pipeline = 
+{
+	Verbose = false,
+	-- Rebuild = false,
+	ShowReason = true,
+	AddToPerforce = false,
+
+	-- Debugging/profiling options
+	DebugMode = false,
+	EmitPlaintextDbx = false,
+	EnableTimingLog = false,
+	EnableParallelDispatch = false,
+	BundleDebugging = false,
+	ResourceDebugging = false,
+
+	AsyncOpWrite = true,
+	DumpOplogStats = false,
+
+	--ServiceMode = true,
+}
+
+--------------------------------------------------------------
+
+Core = 
+{
+	LogLevel = "Info",
+	StudioBus = "4803@10.20.96.148"  -- dice-bm150
+}
+
+Cache = 
+{
+	BuildTimeThreshold = 0,
+}
+
+Ant = 
+{
+--	Setting this to true sometimes breaks reimport
+	ShowSyncDialogOnReimport = false,
+	AllowTraditionalAssetsWithRootcontrollerEnabled = true,
+}
+
+Havok = 
+{
+	WriteShapeLog = false,
+	WriteMemoryLog = false,
+	WriteMaterialsLog = false,
+	ErrorOnStaticValidationError = true,	
+	DetailExport = true,
+	LogTriangleDensity = true,
+	HavokImportVersion = 1,
+}
+
+HavokGroupPhysicsEntity =
+{
+	WriteShapeLog = false,
+	WriteMemoryLog = false,
+	WriteMaterialsLog = false,
+	WriteGroupGeneralLog = false,
+	WritePartInfoLog = false,
+	ErrorOnStaticValidationError = true,	
+	DetailExport = true,
+	LogTriangleDensity = true,
+	HavokImportVersion = 1,
+
+	AllowDefaultCollisionShape = true
+}
+
+Texture =
+{
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	GLES20PathEnable = GLES20PathEnable,
+
+	SkipMipmapsPs3Enable = true,
+	CudaEnable = true,
+	WaitOnCudaEnable = false,
+	MultithreadedCompressionEnable = true,
+	DefaultTextureGroup = "Globals/TextureGroups/Default",
+	Bc7AsDefaultFormat = true;
+}
+
+Enlighten =
+{
+	PackedLRBDirection = GLES20PathEnable,
+	-- OutputFormat = "EnlightenOutputFormat_Fp16",
+	OutputFormat = "EnlightenOutputFormat_R9G9B9E5",
+	LightProbeShL2Enable = true
+}
+
+ObjectBlueprint =
+{
+	AllowDefaultPartMaterial = true,
+	AllowDefaultEntityMaterial = true,
+}
+
+BlueprintImport =
+{
+	UseDefaultRaycastRoot = false,
+	OptimizeGeometries = true,
+	ErrorOnSceneMismatch = true,
+}
+
+Mesh = 
+{
+	Verbose = false,
+	ZOnlyMeshEnable = true,
+	Ps3EdgeEnable = true,
+	Ps3EdgeCompressPositionsEnable = true,	
+	Ps3EdgeCompressIndicesEnable = true,	
+	Ps3EdgeMinSubsetTriangleCount = 0,
+	GLES20PathEnable = GLES20PathEnable,
+	
+	MinStreamingLodSize = 0,
+	
+	SootSkipShaderNames =
+	{
+		"Template",
+		"Tmpl",
+		"NoSoot"
+	},
+	WarningsAsErrorsEnable = false,
+	
+	-- EnlightenScaleUvCharts = true,
+	-- EnlightenSaveInputMeshEnable = true,
+	-- RadiosityPixelSize_Low = 4.0,
+	-- RadiosityPixelSize_Medium = 2.0,
+	-- RadiosityPixelSize_High = 1.0,
+	-- RadiosityPixelSize_Higher = 0.5,
+	-- RadiosityPixelSize_Max = 0.25,
+}
+
+Level = 
+{
+	SpatialSubdivision = true,
+	EnableGroupLogs = false,
+	GroupStaticModelEntities = true,
+}
+
+SubLevel = 
+{
+	SpatialSubdivision = true,
+	EnableGroupLogs = false,
+	OptimizeMaterialGrid = true,
+	GroupStaticModelEntities = true,
+}
+
+BlueprintBundleCollection =
+{
+	InclusionWildcards =
+	{
+--		{ Collection="MyBundleCollection1", Wildcard="MyWildcard1" },
+--		{ Collection="MyBundleCollection1", Wildcard="MyWildcard2" },
+--		{ Collection="MyBundleCollection2", Wildcard="MyWildcard3" }
+	}
+}
+
+ShaderState =
+{
+	TerrainDebugColorEnable = false,
+	TerrainOverdrawModeEnable = false,
+	DynamicEnvmapModeEnable = true,
+	
+	-- Note: these must be synced with the same variables in Scripts/Game.cfg to work
+	EmitterSystemShadersPath = "FX/StandardShaders/Shaders/SS_",
+	EmitterSystemVSFPath = "FX/StandardShaders/",
+	
+	Win32QualityLevel = -1,
+	XenonQualityLevel = 0,
+	Ps3QualityLevel = 0,
+	Gen4aQualityLevel = 2,
+	Gen4bQualityLevel = 2,
+	GLES20QualityLevel = 0,
+
+	GLES20PathEnable = GLES20PathEnable
+}
+
+RenderPipeline =
+{
+	UseOrbisWaveShaderCompiler = true;
+}
+
+ShaderProgramDatabase =
+{
+	GBufferLayout0Enable = false;
+	GBufferLayout4Enable = true;
+
+	ShaderDebugInfoEnable = false,
+	DxShaderDebugInfoEnable = false,
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	GLES20PathEnable = GLES20PathEnable,
+	Gen4aDx11PathEnable = Gen4aDx11PathEnable,
+	Gen4aDx12PathEnable = Gen4aDx12PathEnable,
+	AutoPathEnable = AutoPathEnable,
+	SkipAllPaths = SkipAllPaths,
+	
+	Ps3OptimizationLevel = 3,
+	
+	DynamicEnvmapModeEnable = true,	
+
+	SkyPanoramicFlowMapEnable = true,
+	SkyCloudLayersEnable = false,
+	SkyBlendPanoramicWithGradientEnable = false,
+	
+	GBufferLayout0Enable = false,
+	GBufferLayout1Enable = false,
+	GBufferLayout2Enable = false,
+	GBufferLayout3Enable = false,
+	GBufferLayout4Enable = true,
+	GBufferLayout5Enable = false,
+	GBufferLayout6Enable = false,
+	GBufferLayout7Enable = false,
+}
+
+ShaderDatabase = 
+{
+	GBufferLayout0Enable = false;
+	GBufferLayout4Enable = true;
+
+	ShaderDebugInfoEnable = false,
+	DxShaderDebugInfoEnable = false,
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	GLES20PathEnable = GLES20PathEnable,
+	Gen4aDx11PathEnable = Gen4aDx11PathEnable,
+	Gen4aDx12PathEnable = Gen4aDx12PathEnable,
+	AutoPathEnable = AutoPathEnable,
+	SkipAllPaths = SkipAllPaths,
+
+	GLSLOptimizerEnable = true,
+	GLSLOptimizerWarningsAndErrorsEnable = false,
+	GLESShadowmapsEnable = true,
+
+	-- Until we have implemented support for ogles srgb.
+	-- Will do texture filtering before transform, so won't look exactly the same.
+	PixelShaderSrgbConversionEnable = GLES20PathEnable,
+
+	UseLightProbeInstanceVectorBuffer = true,
+
+	Ps3OptimizationLevel = 3,
+	Ps3PackVertexElementsEnable = true,
+	Ps3ForceHalfPrecisionEnable = false,
+	Ps3ForceVertexDynamicBranchesEnable = false,
+	Ps3ForcePixelDynamicBranchesEnable = false,
+	
+	MaxTessellationFactor = 
+	{
+		Default = 10,
+		Xenon = 0,
+		Ps3 = 0,
+		Gen4a = 7,
+		Gen4b = 7,
+		Android = 0,
+		iOS = 0
+	},
+
+	ForceCompileInConstantsEnable = true,
+	NonFiniteColoringEnable = false,
+	ManualSourceChangeEnable = false,
+	StateMetricsEnable = false,
+	StateSolutionCacheEnable = false,
+	SeparateWorldTransformEnable = false,
+
+	OsxRemoteCompilationEnable = false,
+	OsxRemoteCompilationHost = "10.46.145.220",		
+
+	GBufferLayout0Enable = false,
+	GBufferLayout1Enable = false,
+	GBufferLayout2Enable = false,
+	GBufferLayout3Enable = false, 
+	GBufferLayout4Enable = true,
+	GBufferLayout5Enable = false,
+	GBufferLayout6Enable = false,
+	GBufferLayout7Enable = false,	
+}
+
+Terrain = 
+{
+	SplineDecalsSubdivisionCount = 1,
+	MaskFunctionsEnable = false,
+	EnlightenPatchResolution = 32,
+}
+
+TerrainStreamingTree =
+{
+	OptimizeUsingProceduralMask = true
+}
+
+LinearMedia = 
+{
+	EnableJITLocalBuilds = false,
+	GenerateDebugData = false,
+}
+
+Award =
+{
+	OutputAwardXml = true,
+	OutputRankXml = true,
+	InvalidAwardCodeCharacters = "-. ",
+	AllowEmptyAwardCodes = false,
+	CheckStatCategories = true,
+	SetSpecificDataToChildAwards = true,
+}
+
+Persistence =
+{
+	OutputXml = EmitPersistenceInfo,
+	OutputBlazeProperties = EmitPersistenceInfo,
+	OutputExcel = EmitPersistenceInfo,	
+	DeltaGameReports = EmitPersistenceInfo,
+}
+
+Unlock =
+{
+	ExportUnlocks = true
+}
+
+AtlasTexture =
+{
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	GLES20PathEnable = GLES20PathEnable,
+	
+	SkipMipmaps = 0,
+	SkipMipmapsPs3 = 0,
+	SkipMipmapsXenon = 0,	
+	SkipMipmapsGen4a = 0,
+	SkipMipmapsGen4b = 0,
+	SkipMipmapsAndroid = 0,
+	SkipMipmapsiOS = 0,
+
+	MinMipmapCount = 6,
+	MinMipmapCountPs3 = 4,
+	MinMipmapCountXenon = 4,
+	MinMipmapCountGen4a = 5,
+	MinMipmapCountGen4b = 5,
+	MinMipmapCountAndroid = 5,
+	MinMipmapCountiOS = 5,
+
+	MinNormalMipmapCount = 4,
+	MinNormalMipmapCountPs3 = 2,
+	MinNormalMipmapCountXenon = 2,
+	MinNormalMipmapCountGen4a = 3,
+	MinNormalMipmapCountGen4b = 3,
+	MinNormalMipmapCountAndroid = 3,
+	MinNormalMipmapCountiOS = 3,
+}
+
+Audio =
+{
+	EnableDevelopmentFeatures = false,
+	AudioSystemPath = "Sound/System/AudioSystem"
+}
+
+UIActionscriptInjection =
+{
+	RemoveTraces = true,
+	DefinesToKeep =
+	{
+		--"LOG",
+		--"DEBUG",
+	}
+}
+
+UI =
+{
+	TextureGroupPath = "TextureGroups/TextureGroup_UI",
+}
+
+WSUIWidgetBlueprint =
+{
+	EnforceWhitesharkWidgetSuperclass = true,
+	EnforceWhitesharkElementSuperclass = true,
+	TranslationWorkInProgressSeverity = 1
+}
+
+VeniceLevel =
+{
+	GenerateCombatAreaTextures = false,
+}
+
+SoldierWeaponBlueprint = 
+{
+	DisableOnDemandLoading = true,
+}
+[/version]
+
+[version]
+2016 (Battlefield 1)
+[notes]
+Battlefield 1 - WWI setting with enhanced destruction and visuals.
+
+Enhanced Pipeline:
+- Profiler = false option added for performance monitoring
+- InvalidConnectionAsWarning for blueprint validation
+- StaticModelEntitiesGroupGridSize = 100 for spatial optimization
+- ValidateUIMovies with VP6/VP8 codec validation
+
+Graphics Enhancements:
+- SkyBlendPanoramicWithGradientEnable = true
+- Dynamic environment mapping improvements
+- Enhanced terrain patch instancing
+- Improved LOD transition states
+
+Build System:
+- UseVehicleAnimStripping = true for Ant animations
+- GenerateCbaFiles = false for optimized animation data
+- Improved blueprint bundle collection system
+- Enhanced texture atlas settings
+
+Platform Support:
+- Gen4a/Gen4b quality level 2 (high settings)
+- Platform-specific mipmap counts optimized
+- Improved shader compilation for consoles
+
+Note: Focus on large-scale destruction and dynamic weather systems
+[content]
+--
+-- Internal Pipeline settings
+--
+--   This is not really the best place to change settings locally,
+--   please see GlobalSettings.lua instead and use it if at all
+--   possible
+--
+
+local Dx10PathEnable = false
+local Dx10PlusPathEnable = false
+local Dx10Dot1PathEnable = false
+local Dx11PathEnable = true
+local GLES20PathEnable = false
+local Gen4aDx11PathEnable = false
+local Gen4aDx12PathEnable = true
+local AutoPathEnable = false
+local SkipAllPaths = false
+
+Pipeline = 
+{
+	Verbose = false,
+	ShowReason = true,
+	AddToPerforce = false,
+
+	-- Debugging/profiling options
+	Profiler = false,
+	DebugMode = false,
+	EmitPlaintextDbx = false,
+	EnableTimingLog = false,
+	EnableParallelDispatch = false,
+	BundleDebugging = false,
+	ResourceDebugging = false,
+
+	AsyncOpWrite = true,
+	DumpOplogStats = false,
+
+	--ServiceMode = true,
+}
+
+--------------------------------------------------------------
+
+Core = 
+{
+	LogLevel = "Info",
+	StudioBus = "4803@10.20.96.148"  -- dice-bm150
+}
+
+Cache = 
+{
+	BuildTimeThreshold = 0,
+}
+
+AntRule = 
+{
+	GenerateCbaFiles = false,
+	UseVehicleAnimStripping = true,
+}
+
+Ant = 
+{
+--	Setting this to true sometimes breaks reimport
+	ShowSyncDialogOnReimport = false,
+	AllowTraditionalAssetsWithRootcontrollerEnabled = true,
+}
+
+Havok = 
+{
+	WriteShapeLog = false,
+	WriteMemoryLog = false,
+	WriteMaterialsLog = false,
+	ErrorOnStaticValidationError = true,	
+	DetailExport = true,
+	LogTriangleDensity = true,
+	HavokImportVersion = 1,
+}
+
+HavokGroupPhysicsEntity =
+{
+	WriteShapeLog = false,
+	WriteMemoryLog = false,
+	WriteMaterialsLog = false,
+	WriteGroupGeneralLog = false,
+	WritePartInfoLog = false,
+	ErrorOnStaticValidationError = true,	
+	DetailExport = true,
+	LogTriangleDensity = true,
+	HavokImportVersion = 1,
+
+	AllowDefaultCollisionShape = true
+}
+
+Texture =
+{
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	GLES20PathEnable = GLES20PathEnable,
+
+	SkipMipmapsPs3Enable = true,
+	CudaEnable = true,
+	WaitOnCudaEnable = false,
+	MultithreadedCompressionEnable = true,
+	DefaultTextureGroup = "TextureGroups/Default";
+}
+
+Enlighten =
+{
+	PackedLRBDirection = GLES20PathEnable,
+	OutputFormat = "EnlightenOutputFormat_Fp16"
+}
+
+ObjectBlueprint =
+{
+	AllowDefaultPartMaterial = true,
+	AllowDefaultEntityMaterial = true,
+}
+
+Blueprint = 
+{
+	InvalidConnectionAsWarning = true,
+}
+
+BlueprintImport =
+{
+	UseDefaultRaycastRoot = false,
+	OptimizeGeometries = true,
+	ErrorOnSceneMismatch = true,
+}
+
+Mesh = 
+{
+	Verbose = false,
+	ZOnlyMeshEnable = true,
+	Ps3EdgeEnable = true,
+	Ps3EdgeCompressPositionsEnable = true,	
+	Ps3EdgeCompressIndicesEnable = true,	
+	Ps3EdgeMinSubsetTriangleCount = 0,
+	GLES20PathEnable = GLES20PathEnable,
+	
+	MinStreamingLodSize = 0,
+	
+	SootSkipShaderNames =
+	{
+		"Template",
+		"Tmpl",
+		"NoSoot"
+	},
+	WarningsAsErrorsEnable = false,
+	
+	-- EnlightenScaleUvCharts = true,
+	-- EnlightenSaveInputMeshEnable = true,
+	-- RadiosityPixelSize_Low = 4.0,
+	-- RadiosityPixelSize_Medium = 2.0,
+	-- RadiosityPixelSize_High = 1.0,
+	-- RadiosityPixelSize_Higher = 0.5,
+	-- RadiosityPixelSize_Max = 0.25,
+}
+
+Level = 
+{
+	SpatialSubdivision = true,
+	EnableGroupLogs = false,
+	GroupStaticModelEntities = true,
+}
+
+SubLevel = 
+{
+	SpatialSubdivision = true,
+	EnableGroupLogs = false,
+	OptimizeMaterialGrid = true,
+	GroupStaticModelEntities = true,
+	StaticModelEntitiesGroupGridSize = 100,
+}
+
+BlueprintBundleCollection =
+{
+	InclusionWildcards =
+	{
+--		{ Collection="MyBundleCollection1", Wildcard="MyWildcard1" },
+--		{ Collection="MyBundleCollection1", Wildcard="MyWildcard2" },
+--		{ Collection="MyBundleCollection2", Wildcard="MyWildcard3" }
+	}
+}
+
+ShaderState =
+{
+	TerrainDebugColorEnable = false,
+	TerrainOverdrawModeEnable = false,
+	DynamicEnvmapModeEnable = true,
+
+	Win32QualityLevel = -1,
+	XenonQualityLevel = 0,
+	Ps3QualityLevel = 0,
+	Gen4aQualityLevel = 2,
+	Gen4bQualityLevel = 2,
+	GLES20QualityLevel = 0,
+
+	GLES20PathEnable = GLES20PathEnable
+}
+
+ShaderProgramDatabase =
+{
+	ShaderDebugInfoEnable = false,
+	DxShaderDebugInfoEnable = false,
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	GLES20PathEnable = GLES20PathEnable,
+	Gen4aDx11PathEnable = Gen4aDx11PathEnable,
+	Gen4aDx12PathEnable = Gen4aDx12PathEnable,
+	AutoPathEnable = AutoPathEnable,
+	SkipAllPaths = SkipAllPaths,
+	
+	Ps3OptimizationLevel = 3,
+	
+	DynamicEnvmapModeEnable = true,	
+	
+	SkyCloudLayersEnable = false,
+	SkyBlendPanoramicWithGradientEnable = true,
+	
+    GBufferLayout0Enable = false,
+    GBufferLayout1Enable = false,
+    GBufferLayout2Enable = false,
+    GBufferLayout3Enable = false,
+    GBufferLayout4Enable = true,
+    GBufferLayout5Enable = false,
+    GBufferLayout6Enable = false,
+    GBufferLayout7Enable = false
+}
+
+ShaderDatabase = 
+{
+	ShaderDebugInfoEnable = false,
+	DxShaderDebugInfoEnable = false,
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	GLES20PathEnable = GLES20PathEnable,
+	Gen4aDx11PathEnable = Gen4aDx11PathEnable,
+	Gen4aDx12PathEnable = Gen4aDx12PathEnable,	
+	AutoPathEnable = AutoPathEnable,
+	SkipAllPaths = SkipAllPaths,
+
+	GLSLOptimizerEnable = true,
+	GLSLOptimizerWarningsAndErrorsEnable = false,
+
+	-- Until we have implemented support for ogles srgb.
+	-- Will do texture filtering before transform, so won't look exactly the same.
+	PixelShaderSrgbConversionEnable = GLES20PathEnable,
+
+	Ps3OptimizationLevel = 3,
+	Ps3PackVertexElementsEnable = true,
+	Ps3ForceHalfPrecisionEnable = false,
+	Ps3ForceVertexDynamicBranchesEnable = false,
+	Ps3ForcePixelDynamicBranchesEnable = false,
+	
+	MaxTessellationFactor = 
+	{
+		Default = 15,
+		Xenon = 0,
+		Ps3 = 0,
+		Gen4a = 7,
+		Gen4b = 7,
+		Android = 0,
+		iOS = 0
+	},
+
+	ForceCompileInConstantsEnable = true,
+	NonFiniteColoringEnable = false,
+	ManualSourceChangeEnable = false,
+	StateMetricsEnable = false,
+	StateSolutionCacheEnable = false,
+	SeparateWorldTransformEnable = false,
+    GBufferLayout0Enable = false,
+    GBufferLayout1Enable = false,
+    GBufferLayout2Enable = false,
+    GBufferLayout3Enable = false,
+    GBufferLayout4Enable = true,
+    GBufferLayout5Enable = false,
+    GBufferLayout6Enable = false,
+    GBufferLayout7Enable = false
+}
+
+Terrain = 
+{
+	SplineDecalsSubdivisionCount = 1,
+	MaskFunctionsEnable = false,
+	EnlightenPatchResolution = 32,
+}
+
+TerrainLayerCombinationsPipeline =
+{
+	getClampTextureCountToGen3Enabe = false,
+}
+
+TerrainLayerCombinations =
+{
+	getClampTextureCountToGen3Enabe = false,
+}
+
+TerrainStreamingTree =
+{
+	OptimizeUsingProceduralMask = true
+}
+
+Award =
+{
+	OutputAwardXml = true,
+	OutputRankXml = true,
+	InvalidAwardCodeCharacters = "-. ",
+	AllowEmptyAwardCodes = false,
+	CheckStatCategories = true,
+	SetSpecificDataToChildAwards = true,
+}
+
+Persistence =
+{
+	OutputXml = true,
+	OutputBlazeProperties = true,
+	DeltaGameReports = true,
+}
+
+Unlock =
+{
+	ExportUnlocks = true
+}
+
+AtlasTexture =
+{
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	GLES20PathEnable = GLES20PathEnable,
+	
+	SkipMipmaps = 0,
+	SkipMipmapsPs3 = 0,
+	SkipMipmapsXenon = 0,	
+	SkipMipmapsGen4a = 0,
+	SkipMipmapsGen4b = 0,
+	SkipMipmapsAndroid = 0,
+	SkipMipmapsiOS = 0,
+
+	MinMipmapCount = 6,
+	MinMipmapCountPs3 = 4,
+	MinMipmapCountXenon = 4,
+	MinMipmapCountGen4a = 6,
+	MinMipmapCountGen4b = 6,
+	MinMipmapCountAndroid = 5,
+	MinMipmapCountiOS = 5,
+
+	MinNormalMipmapCount = 4,
+	MinNormalMipmapCountPs3 = 2,
+	MinNormalMipmapCountXenon = 2,
+	MinNormalMipmapCountGen4a = 3,
+	MinNormalMipmapCountGen4b = 3,
+	MinNormalMipmapCountAndroid = 3,
+	MinNormalMipmapCountiOS = 3,
+}
+
+Audio =
+{
+	EnableDevelopmentFeatures = false,
+}
+
+UIActionscriptInjection =
+{
+	RemoveTraces = true,
+	DefinesToKeep =
+	{
+		--"LOG",
+		--"DEBUG",
+	}
+}
+
+UI =
+{
+	TextureGroupPath = "TextureGroups/UI",
+}
+
+VeniceLevel =
+{
+	GenerateCombatAreaTextures = false,
+	ValidateUIMovies = false,
+	ValidateUIMoviesVp6 = true,
+	ValidateUIMoviesVp8 = false,
+	ValidateUIMoviesKbpsMin = 10000,
+	ValidateUIMoviesKbpsMax = 10000,
+}
+
+UIWidgetBlueprint =
+{
+	PlatformOverride = ",
+}
+
+FsTextCollection =
+{
+	FileLogEnable = false,
+}
+
+SoldierWeaponBlueprint = 
+{
+	DisableOnDemandLoading = true,
+}
+[/version]
+
+[version]
+2017 (FIFA 18)
+[notes]
+FIFA 18 - Sports game with advanced character rendering and lighting.
+
+FIFA-Specific Features:
+- FailOnDuplicateGuids = true for data integrity
+- ValidateReferentialIntegrity = false (FIFA divergence)
+- FailOnResolveError = false (FIFA divergence)
+- MmapOps = true for faster pipeline startup
+
+Advanced Lighting:
+- LightProbeMode = DoubleShL2 for high-quality ambient
+- SupportedLightMapMode configurations per platform
+- LightmapGenBakedShadowMode = PackedShadowMaps
+- ShadowmapRectilinearWarpEnable and AtlasShadowmapsEnable
+
+Rendering Pipeline:
+- GBufferLayout4Enable = true
+- TonemapForceHDRGrading per platform (PS4/XB1 enabled)
+- TonemapEnableLumaOutput settings
+- PhysicalSkyMGPUInterpolateScatteringEnable
+
+Build Optimizations:
+- IndexerBatchThreshold = 1000000 (Perforce workaround)
+- MasterPipelineKey for cache invalidation
+- EnableTimingLog and EnableStallLog options
+- RandomizedBuildOrder for distributed builds
+
+Mobile/Platform Support:
+- Android and iOS quality scalable settings
+- OSX remote compilation support
+- NX (Nintendo Switch) platform support added
+[content]
+--
+-- Internal Pipeline settings
+--
+--   This is not really the best place to change settings locally,
+--   please see GlobalSettings.lua instead and use it if at all
+--   possible
+--
+
+-- windows shader paths
+local Dx10PathEnable = false
+local Dx10PlusPathEnable = false
+local Dx10Dot1PathEnable = false
+local Dx11PathEnable = true
+local Gen4aDx11PathEnable = false
+local Gen4aDx12PathEnable = true 
+local GLES20PathEnable = false
+local AutoPathEnable = false
+
+local LowSupportedLightMapMode		= "SupportedLightMapModes_SingleDirection"
+local HighSupportedLightMapMode		= "SupportedLightMapModes_RgbDirection"
+
+local SupportedLightMapModeGen4a	= HighSupportedLightMapMode
+local SupportedLightMapModeGen4b	= HighSupportedLightMapMode
+local SupportedLightMapModeWin32	= HighSupportedLightMapMode
+local SupportedLightMapModeAndroid	= LowSupportedLightMapMode
+local SupportedLightMapModeIOS		= LowSupportedLightMapMode
+local SupportedLightMapModeOSX		= LowSupportedLightMapMode
+
+-- local LightProbeMode = "EnlightenLightProbeMode_DoubleShL1"
+-- local LightProbeMode = "EnlightenLightProbeMode_ShL1"
+-- local LightProbeMode = "EnlightenLightProbeMode_ShL2"
+local LightProbeMode = "EnlightenLightProbeMode_DoubleShL2"
+
+Pipeline = 
+{
+	Verbose = false,
+	--Rebuild = false,
+	ShowReason = true,
+	AddToPerforce = false,
+
+	FailOnDuplicateGuids = true,
+	ValidateReferentialIntegrity = false,
+	FailOnResolveError = false,
+	
+	-- Memory-map Avalanche oplog / build records instead of transfering it
+	-- Speeds up pipeline / FrostEd startup by many seconds for large oplogs
+	MmapOps = true,
+
+	-- Debugging/profiling options
+	DebugMode = false,
+	EmitPlaintextDbx = false,
+	EnableTimingLog = false,
+	BundleDebugging = false,
+	ResourceDebugging = false,
+
+	-- FIFA_BEGIN | DIVERGENCE | jgarvock | 2016-04-18 | Due to Perforce bug, disable the Perforce dependency check in the pipeline.
+	IndexerBatchThreshold = 1000000,
+	-- FIFA_END
+
+	AsyncOpWrite = true,
+	DumpOplogStats = false,
+
+	--ServiceMode = true,
+
+	AvalancheMonitorWarningMB = 1024,
+	AvalancheMonitorErrorMB = 512,
+}
+
+--------------------------------------------------------------
+
+Core = 
+{
+	LogLevel = "Info",
+	StudioBus = "4803@10.20.96.148"  -- dice-bm150
+}
+
+Cache = 
+{
+	BuildTimeThreshold = 0,
+}
+
+Ant = 
+{
+--	Setting this to true sometimes breaks reimport
+	ShowSyncDialogOnReimport = false,
+}
+
+-- for aitestbed
+AntRule = 
+{
+    GenerateCbaFiles = true
+}
+
+Havok = 
+{
+	WriteShapeLog = false,
+	WriteMemoryLog = false,
+	WriteMaterialsLog = false,
+	ErrorOnStaticValidationError = true,	
+	DetailExport = true,
+	LogTriangleDensity = true,
+	HavokImportVersion = 1,
+}
+
+HavokGroupPhysicsEntity =
+{
+	WriteShapeLog = false,
+	WriteMemoryLog = false,
+	WriteMaterialsLog = false,
+	WriteGroupGeneralLog = false,
+	WritePartInfoLog = false,
+	ErrorOnStaticValidationError = true,	
+	DetailExport = true,
+	LogTriangleDensity = true,
+	HavokImportVersion = 1,
+
+	AllowDefaultCollisionShape = true
+}
+
+Texture =
+{
+	CudaEnable = true,
+	WaitOnCudaEnable = false,
+	MultithreadedCompressionEnable = true,
+	DefaultTextureGroup = "Globals/TextureGroups/Default";
+}
+
+Enlighten =
+{
+	-- OutputFormat = "EnlightenOutputFormat_Fp16",
+	OutputFormat = "EnlightenOutputFormat_R9G9B9E5",
+	LightProbeMode = LightProbeMode,
+	XGE64BitEnable = true,
+
+	SupportedLightMapModeGen4a = SupportedLightMapModeGen4a,
+	SupportedLightMapModeGen4b = SupportedLightMapModeGen4b,
+	SupportedLightMapModeWin32 = SupportedLightMapModeWin32,
+	SupportedLightMapModeAndroid = SupportedLightMapModeAndroid,
+	SupportedLightMapModeIOS = SupportedLightMapModeIOS,
+	SupportedLightMapModeOSX = SupportedLightMapModeOSX,
+}
+
+ObjectBlueprint =
+{
+	AllowDefaultPartMaterial = true,
+	AllowDefaultEntityMaterial = true,
+}
+
+BlueprintImport =
+{
+	UseDefaultRaycastRoot = false,
+	OptimizeGeometries = true,
+	ErrorOnSceneMismatch = true,
+}
+
+Mesh = 
+{
+	Verbose = false,
+	ZOnlyMeshEnable = true,
+	MinStreamingLodSize = 0,
+
+	SootSkipShaderNames =
+	{
+		"Template",
+		"Tmpl",
+		"NoSoot"
+	},
+	WarningsAsErrorsEnable = false,
+	
+	EnlightenClampIllegalUVs = false,
+	-- EnlightenScaleUvCharts = true,
+	-- EnlightenSaveInputMeshEnable = true,
+	-- RadiosityPixelSize_Lower = 16.0,
+	-- RadiosityPixelSize_Lowest = 8.0,
+	-- RadiosityPixelSize_Low = 4.0,
+	-- RadiosityPixelSize_Medium = 2.0,
+	-- RadiosityPixelSize_High = 1.0,
+	-- RadiosityPixelSize_Higher = 0.5,
+	-- RadiosityPixelSize_Max = 0.25,
+	
+	-- LightmapDxtBlockSizeEnable = true,
+}
+
+Level = 
+{
+	SpatialSubdivision = true,
+	EnableGroupLogs = false,
+	GroupStaticModelEntities = true,
+}
+
+SubLevel = 
+{
+	SpatialSubdivision = true,
+	EnableGroupLogs = false,
+	OptimizeMaterialGrid = true,
+	GroupStaticModelEntities = true,
+}
+
+BlueprintBundleCollection =
+{
+	InclusionWildcards =
+	{
+--		{ Collection="MyBundleCollection1", Wildcard="MyWildcard1" },
+--		{ Collection="MyBundleCollection1", Wildcard="MyWildcard2" },
+--		{ Collection="MyBundleCollection2", Wildcard="MyWildcard3" }
+	}
+}
+
+ShaderState =
+{
+	TerrainDebugColorEnable = false,
+	TerrainOverdrawModeEnable = false,
+	DynamicEnvmapModeEnable = true,
+	SupportedLightMapModeGen4a = SupportedLightMapModeGen4a,
+	SupportedLightMapModeGen4b = SupportedLightMapModeGen4b,
+	SupportedLightMapModeWin32 = SupportedLightMapModeWin32,
+	SupportedLightMapModeAndroid = SupportedLightMapModeAndroid,
+	SupportedLightMapModeIOS = SupportedLightMapModeIOS,
+	SupportedLightMapModeOSX = SupportedLightMapModeOSX,
+
+	-- FIFA_BEGIN | DIVERGENCE | awood@ea.com | 2016-05-19 | Option to not use Forward Simple (see matching pipeline setting)
+	ForwardSimpleEnable = false,
+	-- FIFA_END
+
+	Win32QualityLevel = -1,
+	Gen4aQualityLevel = 2,
+	Gen4bQualityLevel = 2,
+	GLES20QualityLevel = 0
+}
+
+MeshOperations = 
+{
+	-- Path to the default shader used for MaterialOptimization.
+	DefaultShaderPath = "Systems/MaterialOptimization/MatOpt_Default_Shader"
+}
+
+ShaderProgramDatabase =
+{
+	GBufferLayout0Enable = false;
+	GBufferLayout4Enable = true;
+
+	ShaderDebugInfoEnable = false,
+	DxShaderDebugInfoEnable = false,
+	-- FIFA_BEGIN | SENDBACK | EACANADA\adave | 2016-07-13 | Narrow effect of 'DxShaderDebugInfoEnable' to a filtered list of shaders
+	DxShaderDebugInfoShaderFilter = ",
+	-- FIFA_END
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	Gen4aDx11PathEnable = Gen4aDx11PathEnable,
+	Gen4aDx12PathEnable = Gen4aDx12PathEnable,
+	GLES20PathEnable = GLES20PathEnable,
+	AutoPathEnable = AutoPathEnable,
+
+	DynamicEnvmapModeEnable = true,	
+
+	OsxRemoteCompilationEnable = false,
+	OsxRemoteCompilationHost = "10.46.145.220",	
+	
+	ProceduralSkyCloudLayersEnable = true,
+	ProceduralSkyPanoramicGradientBlendMethod = "PanoramicGradientBlendMethod_Texture",
+	ProceduralSkyReceiveHeightFog = false,
+	SkyFlowMapEnable = true,
+
+	TonemapForceHDRGradingWin32 = false,
+	TonemapForceHDRGradingPS4 = true,
+	TonemapForceHDRGradingXB1 = true,
+	TonemapEnableLumaOutputWin32 = false,
+	TonemapEnableLumaOutputPS4 = false,
+	TonemapEnableLumaOutputXB1 = false,
+}
+
+ShaderDatabase = 
+{
+	
+	GBufferLayout0Enable = false;
+	GBufferLayout4Enable = true;
+
+	ShaderDebugInfoEnable = false,
+	DxShaderDebugInfoEnable = false,
+	-- FIFA_BEGIN | SENDBACK | EACANADA\adave | 2016-07-13 | Narrow effect of 'DxShaderDebugInfoEnable' to a filtered list of shaders
+	DxShaderDebugInfoShaderFilter = ",
+	-- FIFA_END
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	Gen4aDx11PathEnable = Gen4aDx11PathEnable,
+	Gen4aDx12PathEnable = Gen4aDx12PathEnable,
+	GLES20PathEnable = GLES20PathEnable,
+	AutoPathEnable = AutoPathEnable,
+
+	GLSLOptimizerEnable = true,
+	GLSLOptimizerWarningsAndErrorsEnable = false,
+
+	MaxTessellationFactor = 
+	{
+		Default = 15,
+		Gen4a = 7,
+		Gen4b = 7,
+		Android = 0,
+		iOS = 0
+	},
+
+	UseLightProbeInstanceVectorBuffer = true,
+	LightProbeMode = LightProbeMode,
+
+	CacheEnable = true,
+
+	DeferredShadingEnable = true,
+	-- FIFA_BEGIN | DIVERGENCE | awood | 2015-01-19 | forward/deferred
+	-- This should probably not be enabled in real games.
+	-- We keep this here to make testing of the forward path
+	-- easier.
+	TogglableDeferredShadingEnable = true,
+	-- FIFA_END
+
+	ShowStatsLog = false,
+
+	ForceCompileInConstantsEnable = true,
+	NonFiniteColoringEnable = false,
+	ManualSourceChangeEnable = false,
+	StateMetricsEnable = false,
+	StateSolutionCacheEnable = false,
+	SeparateWorldTransformEnable = false,
+
+	OsxRemoteCompilationEnable = false,
+	OsxRemoteCompilationHost = "10.46.145.220",
+
+	-- 0 is ShaderShadowmapQuality_Low, 1 is ShaderShadowmapQuality_High
+	-- Settings the quality to high will result in an signigificant increase of the VGPR count on PS4 and XBOX One for the forward shading.	
+	ForwardLocalLightShadowmapQuality = 0,
+	-- FIFA_BEGIN | DIVERGENCE | delksnitis | 2016-04-05 | adding BakedShadowSample shader node & packed baked shadowmap functionality
+	LightmapGenBakedShadowMode = "LightmapGenBakedShadowMode_PackedShadowMaps", -- if you change this value you must also change the value of WorldRender.LightmapGenBakeCoverageMapEnable in Game.cfg
+	-- FIFA_END
+	
+	-- FIFA_BEGIN | DIVERGENCE | delksnitis | 2017-02-15 | FIFA shadow settings for RTW/atlas shadows
+	ShadowmapRectilinearWarpEnable = true,
+	AtlasShadowmapsEnable = true,
+	-- FIFA_END
+
+	-- fb-khalidk - enable offfline PSO generation for XB1
+	Xb1BuildPSOsEnable = false,
+	--ShowXb1PsoStatsLog = true,
+	
+	--ForwardDebugShadersEnable = true,
+	
+	-- // MADDEN_BEGIN | SENDBACK | kgarcia | 2017-03-28 | Removing secondary (flux) lightmap sky vis, currently unused.
+	UseEnlightenMixSkyVisibility = false
+	-- // MADDEN_END	
+}
+
+Terrain = 
+{
+	SplineDecalsSubdivisionCount = 1,
+	MaskFunctionsEnable = false,
+	EnlightenPatchResolution = 32,
+}
+
+TerrainStreamingTree =
+{
+	OptimizeUsingProceduralMask = true
+}
+
+LinearMedia = 
+{
+	EnableJITLocalBuilds = false,
+	GenerateDebugData = false,
+}
+
+Award =
+{
+	OutputAwardXml = true,
+	OutputRankXml = true,
+	InvalidAwardCodeCharacters = "-. ",
+	AllowEmptyAwardCodes = false,
+	CheckStatCategories = true,
+	SetSpecificDataToChildAwards = true,
+}
+
+Persistence =
+{
+	OutputXml = true,
+	OutputBlazeProperties = true,
+	DeltaGameReports = true,
+}
+
+Unlock =
+{
+	ExportUnlocks = true
+}
+
+AtlasTexture =
+{
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	
+	SkipMipmaps = 0,
+	SkipMipmapsGen4a = 0,
+	SkipMipmapsGen4b = 0,
+	SkipMipmapsAndroid = 0,
+	SkipMipmapsiOS = 0,
+
+	MinMipmapCount = 6,
+	MinMipmapCountGen4a = 5,
+	MinMipmapCountGen4b = 5,
+	MinMipmapCountAndroid = 5,
+	MinMipmapCountiOS = 5,
+
+	MinNormalMipmapCount = 4,
+	MinNormalMipmapCountGen4a = 3,
+	MinNormalMipmapCountGen4b = 3,
+	MinNormalMipmapCountAndroid = 3,
+	MinNormalMipmapCountiOS = 3,
+}
+
+Audio =
+{
+	EnableDevelopmentFeatures = false,
+}
+
+UIActionscriptInjection =
+{
+	RemoveTraces = true,
+	DefinesToKeep =
+	{
+		--"LOG",
+		--"DEBUG",
+	}
+}
+
+UI =
+{
+	TextureGroupPath = "Globals/TextureGroups/UI",
+}
+
+VeniceLevel =
+{
+	GenerateCombatAreaTextures = false,
+}
+
+UIWidgetBlueprint =
+{
+	PlatformOverride = ",
+}
+
+FsTextCollection =
+{
+	FileLogEnable = false,
+}
+
+LuaRunner = 
+{
+	StripDebugSymbols =
+	{
+		Default = false,
+		Gen4a	= false,
+		Gen4b	= false,
+		Android = false,
+		iOS		= false,
+		OSX		= false,
+	}
+}
+
+BundleRefTable = 
+{
+	LogAssets = false,
+}
+
+EmitterGraph = 
+{
+	OutputDebugShaderSourceEnable = false,
+
+	DxOptimizationLevel = 3,
+	DxShaderDebugInfoEnable = false,
+}
+[/version]
+
+[version]
+2017 (Mass Effect)
+[notes]
+Mass Effect: Andromeda integration.
+
+Key Features:
+- VoiceOver/FaceFX/Conversation pipeline configurations
+- LuaRunner script stripping for shipping builds
+- Shader compression and optimization settings
+- Enlighten deferred projection support
+- SPIR-V shader compilation path (optional)
+
+Platform Support:
+- Gen4a (PS4) and Gen4b (Xbox One)
+- Enhanced shader debugging options
+- OSX remote compilation support
+[content]
+--
+-- Internal Pipeline settings
+--
+--   This is not really the best place to change settings locally,
+--   please see GlobalSettings.lua instead and use it if at all
+--   possible
+--
+
+-- windows shader paths
+local Dx10PathEnable = false
+local Dx10PlusPathEnable = false
+local Dx10Dot1PathEnable = false
+local Dx11PathEnable = true
+local Gen4aDx11PathEnable = false
+local Gen4aDx12PathEnable = true 
+local GLES20PathEnable = false
+local AutoPathEnable = false
+-- MEC_START - 2016-06-07 - keven - [JIRA:MEC-4105] - Expose shader obj compression setting
+local Gen4aDxEnableShaderObjectCompression = false
+-- MEC_END
+
+-- MEC_START - 2016-06-07 - keven - [TEMP:2016-08-01] - Compress DX shaders on DX12
+Gen4aDxEnableShaderObjectCompression = true
+-- MEC_END
+
+local LowSupportedLightMapMode		= "SupportedLightMapModes_SingleDirection"
+local HighSupportedLightMapMode		= "SupportedLightMapModes_RgbDirection"
+
+-- MEC_START - 2016-10-07 - fabien - [DIVERGENCE] Disable RGB lightmaps to reduce shader permutations
+local SupportedLightMapModeGen4a	= LowSupportedLightMapMode
+local SupportedLightMapModeGen4b	= LowSupportedLightMapMode
+local SupportedLightMapModeWin32	= LowSupportedLightMapMode
+-- MEC_END
+local SupportedLightMapModeAndroid	= LowSupportedLightMapMode
+local SupportedLightMapModeIOS		= LowSupportedLightMapMode
+local SupportedLightMapModeOSX		= LowSupportedLightMapMode
+
+-- local LightProbeMode = "EnlightenLightProbeMode_DoubleShL1"
+-- local LightProbeMode = "EnlightenLightProbeMode_ShL1"
+local LightProbeMode = "EnlightenLightProbeMode_ShL2"
+
+Pipeline = 
+{
+	Verbose = false,
+	--Rebuild = false,
+	ShowReason = true,
+	AddToPerforce = false,
+
+	-- Debugging/profiling options
+	DebugMode = false,
+	EmitPlaintextDbx = false,
+	-- MEC_START - 2015-11-12 - nicolasd [DIVERGENCE] Mass Effect specific settings
+	-- EnableTimingLog = false,
+	EnableTimingLog = true,
+	-- MEC_END
+	BundleDebugging = false,
+	ResourceDebugging = false,
+
+	AsyncOpWrite = true,
+	-- MEC_START - 2016-05-03 - jbozalina - [PREPORT:2016.1] Parallel asset builds
+	--DumpOplogStats = false,
+	DumpOplogStats = true,
+	-- MEC_END
+
+	--ServiceMode = true,
+
+	-- MEC_START - 2015-03-03 - foreilly - [DIVERGENCE] Enable DatabaseResolveFailureAsErrorEnable for our game
+	DatabaseResolveFailureAsErrorEnable = true,
+	-- MEC_END
+
+	-- MEC_START - 2015-11-13 - andras - [DIVERGENCE] Enable export operations from the pipeline
+	ExportDir = "/data/export",
+	-- MEC_END
+}
+
+--------------------------------------------------------------
+
+Core = 
+{
+	LogLevel = "Info",
+	StudioBus = "4803@10.20.96.148"  -- dice-bm150
+}
+
+Cache = 
+{
+	BuildTimeThreshold = 0,
+}
+
+Ant = 
+{
+--	Setting this to true sometimes breaks reimport
+	ShowSyncDialogOnReimport = false,
+}
+
+Havok = 
+{
+	WriteShapeLog = false,
+	WriteMemoryLog = false,
+	WriteMaterialsLog = false,
+	ErrorOnStaticValidationError = true,	
+	DetailExport = true,
+	LogTriangleDensity = true,
+	HavokImportVersion = 1,
+}
+
+HavokGroupPhysicsEntity =
+{
+	WriteShapeLog = false,
+	WriteMemoryLog = false,
+	WriteMaterialsLog = false,
+	WriteGroupGeneralLog = false,
+	WritePartInfoLog = false,
+	ErrorOnStaticValidationError = true,	
+	DetailExport = true,
+	LogTriangleDensity = true,
+	HavokImportVersion = 1,
+
+	AllowDefaultCollisionShape = true
+}
+
+Texture =
+{
+	CudaEnable = true,
+	WaitOnCudaEnable = false,
+	MultithreadedCompressionEnable = true,
+	DefaultTextureGroup = "Globals/TextureGroups/Default";
+}
+
+Enlighten =
+{
+	-- OutputFormat = "EnlightenOutputFormat_Fp16",
+	OutputFormat = "EnlightenOutputFormat_R9G9B9E5",
+	LightProbeMode = LightProbeMode,
+	XGE64BitEnable = true,
+
+	SupportedLightMapModeGen4a = SupportedLightMapModeGen4a,
+	SupportedLightMapModeGen4b = SupportedLightMapModeGen4b,
+	SupportedLightMapModeWin32 = SupportedLightMapModeWin32,
+	SupportedLightMapModeAndroid = SupportedLightMapModeAndroid,
+	SupportedLightMapModeIOS = SupportedLightMapModeIOS,
+	SupportedLightMapModeOSX = SupportedLightMapModeOSX,
+}
+
+ObjectBlueprint =
+{
+	AllowDefaultPartMaterial = true,
+	AllowDefaultEntityMaterial = true,
+}
+
+BlueprintImport =
+{
+	UseDefaultRaycastRoot = false,
+	OptimizeGeometries = true,
+	ErrorOnSceneMismatch = true,
+}
+
+Mesh = 
+{
+	Verbose = false,
+	ZOnlyMeshEnable = true,
+	MinStreamingLodSize = 0,
+
+	SootSkipShaderNames =
+	{
+		"Template",
+		"Tmpl",
+		"NoSoot"
+	},
+	WarningsAsErrorsEnable = false,
+	
+	-- EnlightenScaleUvCharts = true,
+	-- EnlightenSaveInputMeshEnable = true,
+	-- RadiosityPixelSize_Lower = 16.0,
+	-- RadiosityPixelSize_Lowest = 8.0,
+	-- RadiosityPixelSize_Low = 4.0,
+	-- RadiosityPixelSize_Medium = 2.0,
+	-- RadiosityPixelSize_High = 1.0,
+	-- RadiosityPixelSize_Higher = 0.5,
+	-- RadiosityPixelSize_Max = 0.25,
+	
+	-- LightmapDxtBlockSizeEnable = true,
+}
+
+Level = 
+{
+	SpatialSubdivision = true,
+	EnableGroupLogs = false,
+	GroupStaticModelEntities = true,
+}
+
+SubLevel = 
+{
+	SpatialSubdivision = true,
+	EnableGroupLogs = false,
+	OptimizeMaterialGrid = true,
+	GroupStaticModelEntities = true,
+}
+
+BlueprintBundleCollection =
+{
+	InclusionWildcards =
+	{
+--		{ Collection="MyBundleCollection1", Wildcard="MyWildcard1" },
+--		{ Collection="MyBundleCollection1", Wildcard="MyWildcard2" },
+--		{ Collection="MyBundleCollection2", Wildcard="MyWildcard3" }
+	}
+}
+
+ShaderState =
+{
+	TerrainDebugColorEnable = false,
+	TerrainOverdrawModeEnable = false,
+	DynamicEnvmapModeEnable = true,
+	SupportedLightMapModeGen4a = SupportedLightMapModeGen4a,
+	SupportedLightMapModeGen4b = SupportedLightMapModeGen4b,
+	SupportedLightMapModeWin32 = SupportedLightMapModeWin32,
+	SupportedLightMapModeAndroid = SupportedLightMapModeAndroid,
+	SupportedLightMapModeIOS = SupportedLightMapModeIOS,
+	SupportedLightMapModeOSX = SupportedLightMapModeOSX,
+
+	Win32QualityLevel = -1,
+	Gen4aQualityLevel = 2,
+	Gen4bQualityLevel = 2,
+	GLES20QualityLevel = 0
+}
+
+MeshOperations = 
+{
+	-- Path to the default shader used for MaterialOptimization.
+	DefaultShaderPath = "Systems/MaterialOptimization/MatOpt_Default_Shader"
+}
+
+ShaderProgramDatabase =
+{
+	GBufferLayout0Enable = false;
+	GBufferLayout4Enable = true;
+
+	ShaderDebugInfoEnable = false,
+	DxShaderDebugInfoEnable = false,
+
+	-- MEC_START - 2016-11-19 - fabien - [DIVERGENCE] Enable WarningsAsErrors on shader programs
+	WarningsAsErrors = true,
+	-- MEC_END
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	Gen4aDx11PathEnable = Gen4aDx11PathEnable,
+	Gen4aDx12PathEnable = Gen4aDx12PathEnable,
+	GLES20PathEnable = GLES20PathEnable,
+	AutoPathEnable = AutoPathEnable,
+
+	-- MEC_START - 2016-06-07 - keven - [JIRA:MEC-4105] - Expose shader obj compression setting
+	Gen4aDxEnableShaderObjectCompression = Gen4aDxEnableShaderObjectCompression,
+	-- MEC_END
+
+	DynamicEnvmapModeEnable = true,	
+	
+	OsxRemoteCompilationEnable = false,
+	OsxRemoteCompilationHost = "10.46.145.220",	
+
+	ProceduralSkyCloudLayersEnable = true,
+	ProceduralSkyBlendPanoramicWithGradientEnable =  true,
+	ProceduralSkyReceiveHeightFog = false,
+	-- MEC_START - 2016-06-28 - fabien - [DIVERGENCE] Enable sky options : SkyFlowMapEnable
+	SkyFlowMapEnable = true,
+	-- MEC_END
+}
+
+ShaderDatabase = 
+{
+	GBufferLayout0Enable = false;
+	GBufferLayout4Enable = true;
+
+	ShaderDebugInfoEnable = false,
+	DxShaderDebugInfoEnable = false,
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	Gen4aDx11PathEnable = Gen4aDx11PathEnable,
+	Gen4aDx12PathEnable = Gen4aDx12PathEnable,
+	GLES20PathEnable = GLES20PathEnable,
+	AutoPathEnable = AutoPathEnable,
+
+	GLSLOptimizerEnable = true,
+	GLSLOptimizerWarningsAndErrorsEnable = false,
+
+	MaxTessellationFactor = 
+	{
+		Default = 15,
+		Gen4a = 7,
+		Gen4b = 7,
+		Android = 0,
+		iOS = 0
+	},
+
+	UseLightProbeInstanceVectorBuffer = true,
+	LightProbeMode = LightProbeMode,
+
+	CacheEnable = true,
+
+	DeferredShadingEnable = true,
+
+	-- This should probably not be enabled in real games.
+	-- We keep this here to make testing of the forward path
+	-- easier.
+	-- MEC_START - 2015-07-23 - skylerd - [DIVERGENCE] Fix double-rendering of deferred objects in forward pass
+	-- as per comment above, this should be false, otherwise all deferred objects have a forward shader built
+	-- TogglableDeferredShadingEnable = true,
+	TogglableDeferredShadingEnable = false,
+	-- MEC_END
+
+	ShowStatsLog = false,
+
+	ForceCompileInConstantsEnable = true,
+	NonFiniteColoringEnable = false,
+	ManualSourceChangeEnable = false,
+	StateMetricsEnable = false,
+	StateSolutionCacheEnable = false,
+	SeparateWorldTransformEnable = false,
+
+	OsxRemoteCompilationEnable = false,
+	OsxRemoteCompilationHost = "10.46.145.220",		
+
+	-- MEC_START - 2016-03-14 - fabien - [PREPORT:2016.2] Support for local light shadows in forward rendering
+	-- 0 is ShaderShadowmapQuality_Low, 1 is ShaderShadowmapQuality_High
+	-- Settings the quality to high will result in an signigificant increase of the VGPR count on PS4 and XBOX One for the forward shading.	
+	ForwardLocalLightShadowmapQuality = 0,
+	-- MEC_END
+}
+
+Terrain = 
+{
+	SplineDecalsSubdivisionCount = 1,
+	MaskFunctionsEnable = false,
+	EnlightenPatchResolution = 32,
+}
+
+TerrainStreamingTree =
+{
+	OptimizeUsingProceduralMask = true
+}
+
+LinearMedia = 
+{
+	EnableJITLocalBuilds = false,
+	GenerateDebugData = false,
+}
+
+Award =
+{
+	OutputAwardXml = true,
+	OutputRankXml = true,
+	InvalidAwardCodeCharacters = "-. ",
+	AllowEmptyAwardCodes = false,
+	CheckStatCategories = true,
+	SetSpecificDataToChildAwards = true,
+}
+
+Persistence =
+{
+	OutputXml = true,
+	OutputBlazeProperties = true,
+	DeltaGameReports = true,
+}
+
+Unlock =
+{
+	ExportUnlocks = true
+}
+
+AtlasTexture =
+{
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	
+	SkipMipmaps = 0,
+	SkipMipmapsGen4a = 0,
+	SkipMipmapsGen4b = 0,
+	SkipMipmapsAndroid = 0,
+	SkipMipmapsiOS = 0,
+
+	MinMipmapCount = 6,
+	MinMipmapCountGen4a = 5,
+	MinMipmapCountGen4b = 5,
+	MinMipmapCountAndroid = 5,
+	MinMipmapCountiOS = 5,
+
+	MinNormalMipmapCount = 4,
+	MinNormalMipmapCountGen4a = 3,
+	MinNormalMipmapCountGen4b = 3,
+	MinNormalMipmapCountAndroid = 3,
+	MinNormalMipmapCountiOS = 3,
+}
+
+Audio =
+-- See AudioPipelineTypes.ddf for the definition of the AudioPipelineSettings type
+{
+	-- Specifies the path to the game's AudioSystemAsset.
+	-- MEC_START - 2014-01-15 - slieutaud - [DIVERGENCE] Support VO TTS
+	-- AudioSystemPath = "Sound/AudioSystem",
+	AudioSystemPath="Game/Audio/Systems/AudioSystem",
+	-- MEC_END
+
+	-- Leaves some debug data hanging around when building assets.
+	-- MEC_START - 2013-05-15 - smorton - [DIVERGENCE] Development settings
+	-- EnableDevelopmentFeatures = false,
+	EnableDevelopmentFeatures = true,
+	-- MEC_END
+
+	-- Set to true in order to include all languages when building localized SoundWaveAssets.
+	-- Does not affect import.
+	EnableLocalizedSandboxes = false,
+
+	-- Generate NewWaveAsset debug data in such a way that it's available in deployed builds.
+	-- Should be disabled when generating retail builds!
+	PersistWaveAssetDebugData = false,
+	
+	-- On reimport, if the saved content hash and the hash of the file on disk don't match, 
+	-- check out the file in perforce. 
+	AutomaticallyCheckOutRawFileOnReimport = false,
+}
+
+UIActionscriptInjection =
+{
+	RemoveTraces = true,
+	DefinesToKeep =
+	{
+		--"LOG",
+		--"DEBUG",
+	}
+}
+
+UI =
+{
+	TextureGroupPath = "Globals/TextureGroups/UI",
+}
+
+VeniceLevel =
+{
+	GenerateCombatAreaTextures = false,
+}
+
+UIWidgetBlueprint =
+{
+	PlatformOverride = ",
+}
+
+FsTextCollection =
+{
+	FileLogEnable = false,
+}
+
+-- MEC_START - 2015-11-12 - nicolasd - [DIVERGENCE] Mass Effect specific settings
+VoiceOver = 
+{
+	OutputDirectory = "Generated/VoiceOver/",
+	GeneratedFileBesideConversation = true,
+	ImportConfigurationPath = "Systems/BioWare/VoiceOver/VoiceOverImportConfiguration",
+	-- MEC_START - 2015-01-31 - slieutaud - [DIVERGENCE] Disable TTS for ship
+	ShouldBindTTS = false,
+	-- MEC_END
+}
+Conversation =
+{
+	VoiceOverOutputDirectory = "Generated/VoiceOver/",
+	FaceFXOutputDirectory = "Generated/FaceFX/",
+	ConversationOutputDirectory = "Generated/Conversation/",
+	GeneratedFileBesideConversation = true,
+	CreateConversationInSubFolder = false,
+	ConversationSidecarNameIsGUID = false,
+}
+
+Conversation_PrefabConv =
+{
+	VoiceOverOutputDirectory = "Generated/VoiceOver/",
+	FaceFXOutputDirectory = "Generated/FaceFX/",
+	ConversationOutputDirectory = "Generated/Conversation/",
+	GeneratedFileBesideConversation = true,
+	CreateConversationInSubFolder = false,
+	ConversationSidecarNameIsGUID = false,
+}
+-- MEC_END
+
+LuaRunner = 
+{
+	StripDebugSymbols =
+	{
+		Default = false,
+		Gen4a	= false,
+		Gen4b	= false,
+		Android = false,
+		iOS		= false,
+		OSX		= false,
+	}
+}
+[/version]
+
+[version]
+2017 (Star Wars Battlefront II)
+[notes]
+Star Wars Battlefront II - Major rendering and raytracing updates.
+
+Key Features:
+- Raytracing support (optional, branch-specific)
+- DX12 path enable toggle
+- Enhanced shader debugging and validation
+- ZSTD compression support with fast mode option
+- Cache salt system for branch isolation
+- RVM (Runtime Validation Mode) database generation
+- Shader block depot with live edit support
+
+Platform Support:
+- Gen4a/Gen4b quality level 2
+- Enhanced PC DX11/DX12 paths
+- GLES20 support maintained
+[content]
+--
+-- Internal Pipeline settings
+--
+--   This is not really the best place to change settings locally,
+--   please see GlobalSettings.lua instead and use it if at all
+--   possible
+--
+
+-- windows shader paths
+local Dx10PathEnable = false
+local Dx10PlusPathEnable = false
+local Dx10Dot1PathEnable = false
+local Dx11PathEnable = true
+local Dx12PathEnable = true
+local Gen4aDx11PathEnable = false
+local Gen4aDx12PathEnable = true 
+local GLES20PathEnable = false
+local AutoPathEnable = false
+
+local LowSupportedLightMapMode		= "SupportedLightMapModes_SingleDirection"
+local HighSupportedLightMapMode		= "SupportedLightMapModes_RgbDirection"
+
+local SupportedLightMapModeGen4a	= HighSupportedLightMapMode
+local SupportedLightMapModeGen4b	= HighSupportedLightMapMode
+local SupportedLightMapModeWin32	= HighSupportedLightMapMode
+local SupportedLightMapModeAndroid	= LowSupportedLightMapMode
+local SupportedLightMapModeIOS		= LowSupportedLightMapMode
+local SupportedLightMapModeOSX		= LowSupportedLightMapMode
+
+-- local LightProbeMode = "EnlightenLightProbeMode_DoubleShL1"
+-- local LightProbeMode = "EnlightenLightProbeMode_ShL1"
+local LightProbeMode = "EnlightenLightProbeMode_ShL2"
+
+local EmitPersistenceInfo = false
+
+local IsAutoBuild = os.getenv("FB_AUTOBUILD")
+local DisableFastCompression = os.getenv("DISABLE_FAST_COMPRESSION")
+
+-- add branch limitation here if necessary
+local Dx12SupportEnforced = IsAutoBuild
+local RaytracingEnabled = (os.getenv("FB_BRANCH_ID") == "game-dev-task4")
+
+Pipeline = 
+{
+	Verbose = false,
+	--Rebuild = false,
+	ShowReason = true,
+	AddToPerforce = false,
+	
+	-- Memory-map Avalanche oplog / build records instead of transfering it
+	-- Speeds up pipeline / FrostEd startup by many seconds for large oplogs
+	MmapOps = true,
+
+	-- Debugging/profiling options
+	DebugMode = false,
+	EmitPlaintextDbx = false,
+	EnableTimingLog = false,
+	BundleDebugging = false,
+	ResourceDebugging = false,
+
+	AsyncOpWrite = true,
+	DumpOplogStats = false,
+	ValidateReferentialIntegrity = true,
+	FailOnResolveError = true,
+	--ForgetOps = true,
+	--ServiceMode = true,
+
+	-- RAGTAG_BEGIN - SENDBACK - THIRDPARTY\behle - 2017-06-01 - Support fast ZSTD compression
+	-- Disable to improve ZSTD compression ratio at the cost of slightly longer build times
+	UseFastCompression = true,
+	-- RAGTAG_END
+	
+	CacheSalt = WalrusSalt,
+	FailOnDuplicateGuids = true
+}
+
+if DisableFastCompression and DisableFastCompression == "true" then
+	print("Using ZSTD22 Compression!")
+	Pipeline.UseFastCompression = false
+end
+
+--------------------------------------------------------------
+
+Core = 
+{
+	-- BreakDebuggerOnAssert = true,
+	LogLevel = "Info",
+	StudioBus = "4803@10.20.96.148"  -- dice-bm150
+}
+
+Cache = 
+{
+	BuildTimeThreshold = 0,
+}
+
+Ant = 
+{
+--	Setting this to true sometimes breaks reimport
+	ShowSyncDialogOnReimport = false,
+	AllowTraditionalAssetsWithRootcontrollerEnabled = true,
+}
+
+Havok = 
+{
+	WriteShapeLog = false,
+	WriteMemoryLog = false,
+	WriteMaterialsLog = false,
+	ErrorOnStaticValidationError = true,	
+	DetailExport = true,
+	LogTriangleDensity = true,
+	HavokImportVersion = 1,
+}
+
+HavokGroupPhysicsEntity =
+{
+	WriteShapeLog = false,
+	WriteMemoryLog = false,
+	WriteMaterialsLog = false,
+	WriteGroupGeneralLog = false,
+	WritePartInfoLog = false,
+	ErrorOnStaticValidationError = true,	
+	DetailExport = true,
+	LogTriangleDensity = true,
+	HavokImportVersion = 1,
+
+	AllowDefaultCollisionShape = true
+}
+
+Texture =
+{
+	CudaEnable = true,
+	WaitOnCudaEnable = false,
+	MultithreadedCompressionEnable = true,
+	DefaultTextureGroup = "Globals/TextureGroups/Default",
+	Bc7AsDefaultFormat = true;
+}
+
+Enlighten =
+{
+	-- OutputFormat = "EnlightenOutputFormat_Fp16",
+	OutputFormat = "EnlightenOutputFormat_R9G9B9E5",
+	LightProbeMode = LightProbeMode,
+
+	SupportedLightMapModeGen4a = SupportedLightMapModeGen4a,
+	SupportedLightMapModeGen4b = SupportedLightMapModeGen4b,
+	SupportedLightMapModeWin32 = SupportedLightMapModeWin32,
+	SupportedLightMapModeAndroid = SupportedLightMapModeAndroid,
+	SupportedLightMapModeIOS = SupportedLightMapModeIOS,
+	SupportedLightMapModeOSX = SupportedLightMapModeOSX,
+}
+
+ObjectBlueprint =
+{
+	AllowDefaultPartMaterial = true,
+	AllowDefaultEntityMaterial = true,
+}
+
+BlueprintImport =
+{
+	UseDefaultRaycastRoot = false,
+	OptimizeGeometries = true,
+	ErrorOnSceneMismatch = true,
+}
+
+Mesh = 
+{
+	Verbose = false,
+	ZOnlyMeshEnable = true,
+	MinStreamingLodSize = 0,
+
+	SootSkipShaderNames =
+	{
+		"Template",
+		"Tmpl",
+		"NoSoot"
+	},
+	WarningsAsErrorsEnable = false,
+	
+	EnlightenClampIllegalUVs = false,
+	EnlightenUvIndex = 0,
+	
+	-- EnlightenScaleUvCharts = true,
+	-- EnlightenSaveInputMeshEnable = true,
+	RadiosityPixelSize_Lowest = 32.0,
+	RadiosityPixelSize_Lower = 8.0,
+	RadiosityPixelSize_Low = 2.0,
+	RadiosityPixelSize_Medium = 0.5,
+	RadiosityPixelSize_High = 0.25,
+	RadiosityPixelSize_Higher = 0.125,
+	RadiosityPixelSize_Max = 0.0625,
+	
+	-- LightmapDxtBlockSizeEnable = true,
+}
+
+Level = 
+{
+	SpatialSubdivision = true,
+	EnableGroupLogs = false,
+	GroupStaticModelEntities = true,
+}
+
+SubLevel = 
+{
+	SpatialSubdivision = true,
+	EnableGroupLogs = false,
+	OptimizeMaterialGrid = true,
+	GroupStaticModelEntities = true,
+}
+
+BlueprintBundleCollection =
+{
+	InclusionWildcards =
+	{
+--		{ Collection="MyBundleCollection1", Wildcard="MyWildcard1" },
+--		{ Collection="MyBundleCollection1", Wildcard="MyWildcard2" },
+--		{ Collection="MyBundleCollection2", Wildcard="MyWildcard3" }
+	}
+}
+
+EmitterSystem =
+{
+	-- Note: these must be synced with the same variables in Scripts/Game.cfg to work (with Emitter prefix)
+	SystemShadersPath = "FX/StandardShaders/Shaders/SS_",
+	SystemVSFPath = "FX/StandardShaders/",
+	WalrusLightingEnable = true,
+}
+
+TerrainShaderState =
+{
+	TerrainDebugColorEnable = false,
+	TerrainOverdrawModeEnable = false,
+
+	-- If you want to switch this off, you will also need to switch these off (Trick: To find them quickly, search solution with this line of comment): 
+	-- Note: Running without patch instancing is now deprecated.  This code will be eventually removed.
+	--   1. Switch off in TerrainLayerCombinationsPipelineParams (TnT\Code\Engine\Terrain\Pipeline\TerrainPipelineTypes.ddf)
+	--   2. Switch off define INSTANCING_ENABLE in visualTerrain.cpp
+	--   3. Switch off in Data\Scripts\Pipeline\Settings.lua
+	--   4. Switch off in WorldShaderStateParams (TnT\Code\Engine\World\Pipeline\Settings.ddf)
+	TerrainPatchInstancingEnable = true,
+	
+	-- If non-empty, only build debug info for shaders matching this filter.
+	-- Example syntax: "player,pitch_default_shader,crowd", where each comma separated string
+	-- is a substring to match.
+	DxShaderDebugInfoShaderFilter = ",
+
+	-- Determines if the ShaderDebugDatabase should be bundled with the game
+	SurfaceShaderDebugInfoEnable = false,
+
+	-- D3D only: strip reflection data. Can signficantly (~35%) reduce the size of the shader data.
+	-- However, it affects the quality of the debugging experience in e.g. RenderDoc, which is
+	-- why it is not enabled by default.
+	DxStripReflectionData = false,
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	Dx12PathEnable = Dx12PathEnable,
+	Gen4aDx11PathEnable = Gen4aDx11PathEnable,
+	Gen4aDx12PathEnable = Gen4aDx12PathEnable,
+	GLES20PathEnable = GLES20PathEnable,
+	AutoPathEnable = AutoPathEnable,
+
+	DynamicEnvmapModeEnable = true,	
+	CreateRvmDatabase = true,	
+}
+
+ShaderProgramDatabase =
+{
+	ShaderDebugInfoEnable = false,
+	DxShaderDebugInfoEnable = false,
+	Dx12PcShaderModel6Enable = true,
+
+	-- If non-empty, only build debug info for shaders matching this filter.
+	-- Example syntax: "player,pitch_default_shader,crowd", where each comma separated string
+	-- is a substring to match.
+	DxShaderDebugInfoShaderFilter = ",
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	Dx12PathEnable = Dx12PathEnable,
+	Gen4aDx11PathEnable = Gen4aDx11PathEnable,
+	Gen4aDx12PathEnable = Gen4aDx12PathEnable,
+	GLES20PathEnable = GLES20PathEnable,
+	AutoPathEnable = AutoPathEnable,
+
+	DynamicEnvmapModeEnable = true,	
+
+	OsxRemoteCompilationEnable = false,
+	OsxRemoteCompilationHost = "10.46.145.220",	
+	
+	ProceduralSkyCloudLayersEnable = false,
+	ProceduralSkyPanoramicGradientBlendMethod = "PanoramicGradientBlendMethod_Horizon",
+	SkyFlowMapEnable = true,
+
+	TonemapForceHDRGradingWin32 = false,
+	TonemapForceHDRGradingPS4 = true,
+	TonemapForceHDRGradingXB1 = true,
+	TonemapEnableLumaOutputWin32 = false,
+	TonemapEnableLumaOutputPS4 = false,
+	TonemapEnableLumaOutputXB1 = false,
+	
+	RaytraceShadingEnable = RaytracingEnabled,
+}
+
+RvmDatabase = 
+{
+	-- Generic Shader Database settings, some might no longer be in use
+	ShaderDebugInfoEnable = false,
+	DxShaderDebugInfoEnable = false,
+	Dx12PcShaderModel6Enable = true,
+	-- Determines if the ShaderDebugDatabase should be bundled with the game
+	SurfaceShaderDebugInfoEnable = false,
+
+	-- If non-empty, only build debug info for shaders matching this filter.
+	-- Example syntax: "player,pitch_default_shader,crowd", where each comma separated string
+	-- is a substring to match.
+	DxShaderDebugInfoShaderFilter = ",
+
+	-- Toggleable separately from debug info as not stripping this data massively blows up the size
+	-- of the blobs, possibly overflowing the 16-bit Rvm database array counter. This should no
+	-- longer be an issue since Dx12BinaryBlob has been resized to 256 bytes, but keep this in mind.
+	DxReflectionInfoEnable = false,
+
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	Dx12PathEnable = Dx12PathEnable,
+	Gen4aDx11PathEnable = Gen4aDx11PathEnable,
+	Gen4aDx12PathEnable = Gen4aDx12PathEnable,
+	GLES20PathEnable = GLES20PathEnable,
+	AutoPathEnable = AutoPathEnable,
+
+	GLSLOptimizerEnable = true,
+	GLSLOptimizerWarningsAndErrorsEnable = false,
+
+	MaxTessellationFactor = 
+	{
+		Default = 10,
+		Gen4a = 7,
+		Gen4b = 7,
+		Android = 0,
+		iOS = 0
+	},
+
+	UseLightProbeInstanceVectorBuffer = true,
+	LightProbeMode = LightProbeMode,
+
+	CacheEnable = true,
+
+	DeferredShadingEnable = true,
+
+	AlphaTestPrePassEnable = false,
+
+	ShowStatsLog = false,
+
+	ForceCompileInConstantsEnable = true,
+	NonFiniteColoringEnable = false,
+	ManualSourceChangeEnable = false,
+	StateMetricsEnable = false,
+	StateSolutionCacheEnable = false,
+	SeparateWorldTransformEnable = false,
+
+	OsxRemoteCompilationEnable = false,
+	OsxRemoteCompilationHost = "10.46.145.220",
+
+	-- 0 is ShaderShadowmapQuality_Low, 1 is ShaderShadowmapQuality_High
+	-- Settings the quality to high will result in an signigificant increase of the VGPR count on PS4 and XBOX One for the forward shading.	
+	ForwardLocalLightShadowmapQuality = 0,
+
+	-- RVM Settings
+	EnableCustomRvmShaders = true,
+
+	DisabledBackendsAreFatal = Dx12SupportEnforced,
+
+	StompArenas = false,
+
+	EnableDebug = false,
+	DumpDebugGraphs = false,
+	DumpFunctionList = false,
+	DebugFunctionPermutations = false,
+	DumpDebugOptimizedBatches = false,
+	DumpDefaultValues = false,
+	DumpPs4ResourceOffsets = false,
+	DumpPs4SrtLayout = false,
+	DumpDx12DescriptorLayout = false,
+	DumpSelectionTrees = false,
+	LimitDebugToMatching = ",
+
+	GenerateDx12BindlessShaders = false,
+	GenerateDx12DefaultShaders = true,
+	GenerateDx12ComputeShaders = false,
+
+	LiveEditSendDebugDatabase = true,
+	LiveEditSkipInitialBuild = false,
+
+	EditorDisabledBackends = {"Dx12PcRvmPipelineBackend"},
+	
+	RaytraceShadingEnable = RaytracingEnabled,
+
+	GBufferSimpleEnable = 
+	{
+		Default = RaytracingEnabled,
+		Gen4a	= false,
+		Gen4b	= false,
+		Linux	= false
+	},
+
+	ForwardReflectionsEnable = 
+	{
+		Default = RaytracingEnabled,
+		Gen4a	= false,
+		Gen4b	= false,
+		Linux	= false
+	},
+
+	RaytraceShadingEnable = RaytracingEnabled,
+	
+	-- This is a really ugly hack to enables certain flag(s) for some shaders that would otherwise crash the Xb1 shader compiler.
+	-- This workaround is here because MS has decided not to fix the FXC compiler and this should be removed once DXC is used.
+	Xb1WorkaroundCrashingShaders = {},
+}
+
+if RaytracingEnabled then
+	-- If Raytracing is enabled we need DX12 in game view
+	RvmDatabase.EditorDisabledBackends = {}
+end
+
+ShaderBlockDepot =
+{
+	DumpBlocks = false,
+	MaxParallelBuilds = 6,
+	WriteLiveEditBlocks = true,
+}
+
+if IsAutoBuild then
+	ShaderBlockDepot.WriteLiveEditBlocks = false
+end
+
+Terrain = 
+{
+	SplineDecalsSubdivisionCount = 1,
+	MaskFunctionsEnable = false,
+	EnlightenPatchResolution = 32,
+}
+
+TerrainStreamingTree =
+{
+	OptimizeUsingProceduralMask = true
+}
+
+LinearMedia = 
+{
+	EnableJITLocalBuilds = false,
+	GenerateDebugData = false,
+}
+
+Award =
+{
+	OutputAwardXml = true,
+	OutputRankXml = true,
+	InvalidAwardCodeCharacters = "-. ",
+	AllowEmptyAwardCodes = false,
+	CheckStatCategories = true,
+	SetSpecificDataToChildAwards = true,
+}
+
+Persistence =
+{
+	OutputXml = EmitPersistenceInfo,
+	OutputBlazeProperties = EmitPersistenceInfo,
+	OutputExcel = EmitPersistenceInfo,	
+	DeltaGameReports = EmitPersistenceInfo,
+}
+
+Unlock =
+{
+	ExportUnlocks = true
+}
+
+AtlasTexture =
+{
+	Dx10PathEnable = Dx10PathEnable,	
+	Dx10PlusPathEnable = Dx10PlusPathEnable,
+	Dx10Dot1PathEnable = Dx10Dot1PathEnable,
+	Dx11PathEnable = Dx11PathEnable,
+	
+	SkipMipmaps = 0,
+	SkipMipmapsGen4a = 0,
+	SkipMipmapsGen4b = 0,
+	SkipMipmapsAndroid = 0,
+	SkipMipmapsiOS = 0,
+
+	MinMipmapCount = 6,
+	MinMipmapCountGen4a = 5,
+	MinMipmapCountGen4b = 5,
+	MinMipmapCountAndroid = 5,
+	MinMipmapCountiOS = 5,
+
+	MinNormalMipmapCount = 4,
+	MinNormalMipmapCountGen4a = 3,
+	MinNormalMipmapCountGen4b = 3,
+	MinNormalMipmapCountAndroid = 3,
+	MinNormalMipmapCountiOS = 3,
+}
+
+Audio =
+-- See AudioPipelineTypes.ddf for the definition of the AudioPipelineSettings type
+{
+	-- Specifies the path to the game's AudioSystemAsset.
+	AudioSystemPath = "Sound/System/AudioSystem",
+
+	-- Leaves some debug data hanging around when building assets.
+	EnableDevelopmentFeatures = false,
+
+	-- Set to true in order to include all languages when building localized SoundWaveAssets.
+	-- Does not affect import.
+	EnableLocalizedSandboxes = false,
+
+	-- Generate NewWaveAsset debug data in such a way that it's available in deployed builds.
+	-- Should be disabled when generating retail builds!
+	PersistWaveAssetDebugData = false,
+	
+	-- On reimport, if the saved content hash and the hash of the file on disk don't match, 
+	-- check out the file in perforce. 
+	AutomaticallyCheckOutRawFileOnReimport = false,
+}
+
+UIActionscriptInjection =
+{
+	RemoveTraces = true,
+	DefinesToKeep =
+	{
+		--"LOG",
+		--"DEBUG",
+	}
+}
+
+local NoValidation = "UITextureFormat_NoValidation"
+local WarnIfNotSrgb = "UITextureFormat_WarnIfNotSrgb"
+local EnforcePasstrough = "UITextureFormat_EnforcePasstrough"
+
+local TagDefault = "TagDefault"
+local TagLinear = "TagLinear"
+local TagSrgb = "TagSrgb"
+local TagPasstrough = "TagPasstrough"
+
+UI =
+{
+	TextureGroupPath	= "TextureGroups/TextureGroup_UI",
+	-- We use this setting to warn of any textures that are not srgb as they could be treated incorrectly
+	-- Change this to NoValidation once we have converted all the old textures
+	TextureValidation	= WarnIfNotSrgb,
+	-- Set texture atlases to srgb so that we get free conversion to linear in ui shaders
+	TextureAtlasGamma	= TagSrgb,
+}
+
+if IsAutoBuild then
+	UI.AlwaysRebuildTextDatabases = true
+end
+
+VeniceLevel =
+{
+	GenerateCombatAreaTextures = false,
+}
+
+UIWidgetBlueprint =
+{
+	PlatformOverride = ",
+}
+
+FsTextCollection =
+{
+	FileLogEnable = false,
+}
+
+LuaRunner = 
+{
+	StripDebugSymbols =
+	{
+		Default = false,
+		Gen4a	= false,
+		Gen4b	= false,
+		Android = false,
+		iOS		= false,
+		OSX		= false,
+	}
+}
+
+EmitterGraph = 
+{
+	OutputDebugShaderSourceEnable = false,
+
+	DxOptimizationLevel = 3,
+	DxShaderDebugInfoEnable = false,
+
+	-- D3D only: strip reflection data. Can signficantly (~35%) reduce the size of the shader data.
+	-- However, it affects the quality of the debugging experience in e.g. RenderDoc, which is
+	-- why it is not enabled by default.
+	DxStripReflectionData = false,
+}
+
+WSUIWidgetBlueprint =
+{
+	EnforceWhitesharkWidgetSuperclass = true,
+	EnforceWhitesharkElementSuperclass = true,
+	TranslationWorkInProgressSeverity = 1
+}
+
+SoldierWeaponBlueprint = 
+{
+	DisableOnDemandLoading = true,
+}
+[/version]

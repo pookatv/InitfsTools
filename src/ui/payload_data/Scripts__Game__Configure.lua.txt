@@ -1,0 +1,6306 @@
+[description]
+Main game configuration script - loads all settings, handles command-line arguments, and applies platform-specific configs.
+
+[version]
+2011 (Battlefield 3 (Alpha), NFS Rivals, Garden Warfare 1, Mirror's Edge)
+[notes]
+Original Battlefield 3 era implementation.
+
+Features:
+- Basic configuration cascade: Settings.lua → Game.cfg → custom configs → local overrides → level configs
+- Command-line argument parsing with -customconfig support
+- Editor detection via core.liveeditingenable
+- Local config files: /local/local.cfg, /local/localeditor.cfg, /local/localgame.cfg
+- Level naming convention: Levels/name/name
+- Online backend override for editor mode
+- Simple command-line option handling: -Table.Member value
+
+Key Functions:
+- commandLine:lookup() - Retrieve command-line args with defaults
+- cmdLineSwitch() - Toggle boolean fields
+- readCfg() - Load config files
+- applySettings() - Parse config strings
+
+Why it was simple: Early Battlefield games had straightforward config needs with PC-only focus.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings 
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			readCfg(commandLine[i+1])
+		else
+			readCfg("Scripts/" .. commandLine[i+1])
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with Venice's epic level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+for _,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+	if table and member then
+		local value = commandLine[_ + 1] 
+		if not _G[table] then _G[table] = {} end
+		_G[table][member] = value 
+	else
+		local varName = string.match(option, "^%-([%w-]+)")
+		if varName then
+			local value = commandLine[_ + 1] 
+			if value then
+				_G[varName] = value
+			end
+		end
+	end
+	
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	Online.Backend = "Backend_Lan"
+	Online.UseFallback = true
+	Client.IsPresenceEnabled = false
+	Server.IsPresenceEnabled = false
+
+	applySettings([=[
+		Server.forceStartMapOnLoad true
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+	]=])
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+[/version]
+
+[version]
+2011 (Battlefield 3 (Beta/Release), Medal Of Honor, Army Of Two)
+[notes]
+Battlefield 3 release version with security hardening.
+
+CRITICAL SECURITY ADDITION:
+- allowCommandlineSettings guard added around command-line parsing
+- Prevents unauthorized command-line manipulation in retail builds
+
+This is identical to the Alpha version except for the security wrapper. Command-line settings can only be modified when allowCommandlineSettings = true (typically only in debug/development builds).
+
+Changes from Alpha:
+- Command-line parsing wrapped in 'if allowCommandlineSettings then' block
+- Game.DisablePreRound true added to editor settings
+
+Why: This security guard prevents unauthorized commands in retail builds.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings 
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			readCfg(commandLine[i+1])
+		else
+			readCfg("Scripts/" .. commandLine[i+1])
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with Venice's epic level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+if allowCommandlineSettings then
+	for _,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+		if table and member then
+			local value = commandLine[_ + 1] 
+			if not _G[table] then _G[table] = {} end
+			_G[table][member] = value 
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[_ + 1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+		
+	end
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	Online.Backend = "Backend_Lan"
+	Online.UseFallback = true
+	Client.IsPresenceEnabled = false
+	Server.IsPresenceEnabled = false
+
+	applySettings([=[
+		Server.forceStartMapOnLoad true
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+		Game.DisablePreRound true
+	]=])
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+[/version]
+
+[version]
+2011 (Need For Speed: The Run)
+[notes]
+Added server BasePath support for dedicated servers.
+
+New Features:
+- serverArgument detection for dedicated server mode
+- Server.BasePath configuration from command-line
+- Server.cfg loading from custom base paths
+- File existence checking before reading server configs
+
+Changes from BF3:
+- Added serverBasePath command-line option
+- Reads Server.cfg from Server.BasePath if specified
+- Uses vfs.open() to check file existence before loading
+
+Why: The Run needed dedicated server support for online racing.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings 
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			readCfg(commandLine[i+1])
+		else
+			readCfg("Scripts/" .. commandLine[i+1])
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with Venice's epic level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle Server BasePath options
+--
+
+if serverArgument then
+	-- Set up server base path
+	local serverBasePath = commandLine:lookup("basePath")
+	if serverBasePath then
+		Server.BasePath = serverBasePath .. '/'
+	end
+
+	-- Additional per-server config.
+	if Server.BasePath then
+		local serverCustomConfig = "Server.cfg"
+		local file = Server.BasePath .. serverCustomConfig
+		
+		local f = vfs.open(file, "r")
+		if f then
+			readCfg(file)
+			f:close();
+		end
+
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+for _,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+	if table and member then
+		local value = commandLine[_ + 1] 
+		if not _G[table] then _G[table] = {} end
+		_G[table][member] = value 
+	else
+		local varName = string.match(option, "^%-([%w-]+)")
+		if varName then
+			local value = commandLine[_ + 1] 
+			if value then
+				_G[varName] = value
+			end
+		end
+	end
+	
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	--[c4][RK]: disable this online override for now!
+	--Online.Backend = "Backend_Lan"
+	--Online.UseFallback = true
+	--Client.IsPresenceEnabled = false
+	--Server.IsPresenceEnabled = false
+	Online.UseFallback = true
+	Server.IsPresenceEnabled = false
+
+	applySettings([=[
+		UnlocksProfile.unlockAllKitsCheat true
+		UnlocksProfile.unlockAllKitUnlocksCheat true
+		UnlocksProfile.unlockVehicleUnlocksCheat true
+		Unlocks.awardConditionsCheat true
+		Unlocks.rankConditionsCheat true
+		Server.forceStartMapOnLoad true
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+	]=])
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+[/version]
+
+[version]
+2013 (Battlefield 4/Hardline)
+[notes]
+Enhanced level naming with SP/MP prefix support.
+
+New Features:
+- allowCommandlineSettings security guard - prevents unauthorized command-line settings
+- SP/MP level prefix support: Levels/SP/SPName/SPName or Levels/MP/MPName/MPName
+- Level name stored back to _G["Game"]["Level"]
+- Command-line parsing wrapped in allowCommandlineSettings check
+
+Changes from 2011:
+- string.upper(string.sub(levelName, 1, 2)) checks for SP/MP prefixes
+- Level path construction for Warsaw's (BF4) naming convention
+- Security: Command-line settings require allowCommandlineSettings = true
+
+Why: BF4 separated single-player and multiplayer levels into different directories.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings 
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			readCfg(commandLine[i+1])
+		else
+			readCfg("Scripts/" .. commandLine[i+1])
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/[(SP|MP)/]name/name to go with Warsaw's epic level naming convention
+if levelName and not string.find(levelName, "/") then
+	if string.len(levelName) > 2 and (string.upper(string.sub(levelName, 1, 2)) == "SP" or string.upper(string.sub(levelName, 1, 2)) == "MP") then
+		levelName = "Levels/" .. string.sub(levelName, 1, 2) .. "/" .. levelName .. "/" .. levelName
+	else
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+	_G["Game"]["Level"] = levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+if allowCommandlineSettings then
+	for _,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.(%w+)")
+
+		if table and member then
+			local value = commandLine[_ + 1] 
+			if not _G[table] then _G[table] = {} end
+			_G[table][member] = value 
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[_ + 1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+		
+	end
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	Online.Backend = "Backend_Lan"
+	Online.UseFallback = true
+	Online.ClientIsPresenceEnabled = false
+	Online.ServerIsPresenceEnabled = false
+
+	applySettings([=[
+		Server.forceStartMapOnLoad true
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+		Game.DisablePreRound true
+	]=])
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+[/version]
+
+[version]
+2014 (Dragon Age Inquisition, Garden Warfare 2, PGA Tour)
+[notes]
+Advanced command-line parsing with nested dot notation.
+
+New Features:
+- Nested property support: -Table.Member.SubMember.Property
+- Pattern matching: ^%-(%w+)%.([%w%.]+) - allows unlimited dots
+- applySettings() wraps complex configuration strings
+- More sophisticated cfgLine construction
+
+CRITICAL SECURITY REGRESSION:
+- allowCommandlineSettings check REMOVED - command-line parsing always enabled
+- This is a step backward from BF4/Hardline security model
+
+Changes from BF4:
+- Command-line parsing supports deep nesting (not just one level)
+- Uses applySettings(cfgLine) instead of direct _G assignment
+
+Why the regression: Garden Warfare 2 is a casual multiplayer game with less competitive integrity concerns than Battlefield. PopCap/EA likely prioritized development flexibility over anti-cheat security.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings 
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			readCfg(commandLine[i+1])
+		else
+			readCfg("Scripts/" .. commandLine[i+1])
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with Venice's epic level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+for _,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+	if table and member then
+		local value = commandLine[_ + 1] 
+		local cfgLine = table .. "." .. member .. " " .. value
+		applySettings(cfgLine)
+	else
+		local varName = string.match(option, "^%-([%w-]+)")
+		if varName then
+			local value = commandLine[_ + 1] 
+			if value then
+				_G[varName] = value
+			end
+		end
+	end
+	
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	Online.Backend = "Backend_Lan"
+	Online.UseFallback = true
+
+	applySettings([=[
+		Server.forceStartMapOnLoad true
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+		Online.ClientIsPresenceEnabled false
+		Online.ServerIsPresenceEnabled false
+	]=])
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+[/version]
+
+[version]
+2015 (Need For Speed)
+[notes]
+Editor-first configuration with early presence settings.
+
+New Features:
+- Presence settings configured BEFORE local.cfg loading
+- Online.ServerIsPresenceEnabled = false by default in editor
+- Online.ClientIsPresenceEnabled = false by default in editor
+- Online.GodMenuOffInWorld = true for editor
+
+Changes from Dragon Age:
+- Editor settings moved to occur before local cfg loading
+- Allows local.cfg to override editor defaults
+- Removed Backend_Lan override
+- Removed UseFallback override
+
+Why: NFS needed local developers to easily override online settings for testing.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings 
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			readCfg(commandLine[i+1])
+		else
+			readCfg("Scripts/" .. commandLine[i+1])
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+-- We just want to have this off by default and allow people to turn it on if the wish within
+-- their local.cfg loaded below
+
+if editorActive then
+	Online.ServerIsPresenceEnabled = false
+	Online.ClientIsPresenceEnabled = false
+	Online.GodMenuOffInWorld = true
+end
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with Venice's epic level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+for _,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+	if table and member then
+		local value = commandLine[_ + 1] 
+		local cfgLine = table .. "." .. member .. " " .. value
+		applySettings(cfgLine)
+	else
+		local varName = string.match(option, "^%-([%w-]+)")
+		if varName then
+			local value = commandLine[_ + 1] 
+			if value then
+				_G[varName] = value
+			end
+		end
+	end
+	
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	applySettings([=[
+		Server.forceStartMapOnLoad true
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+	]=])
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+[/version]
+
+[version]
+2015 (Star Wars Battlefront Alpha/Beta)
+[notes]
+Origin integration disabled in editor.
+
+New Features:
+- Origin.Enabled = false when in editor mode
+- Editor settings applied BEFORE local cfg (opposite of other games)
+
+Changes from NFS 2015:
+- Restored Backend_Lan and UseFallback for editor
+- Added Origin.Enabled = false
+- Editor configuration block moved before local cfg handling
+
+Why: Star Wars Battlefront needed to disable EA's Origin client in development builds.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings 
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			readCfg(commandLine[i+1])
+		else
+			readCfg("Scripts/" .. commandLine[i+1])
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	Online.Backend = "Backend_Lan"
+	Online.UseFallback = true
+	Online.ClientIsPresenceEnabled = false
+	Online.ServerIsPresenceEnabled = false
+	Origin.Enabled = false
+
+	applySettings([=[
+		Server.forceStartMapOnLoad true
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+	]=])
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with Venice's epic level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+for _,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+	if table and member then
+		local value = commandLine[_ + 1] 
+		local cfgLine = table .. "." .. member .. " " .. value
+		applySettings(cfgLine)
+	else
+		local varName = string.match(option, "^%-([%w-]+)")
+		if varName then
+			local value = commandLine[_ + 1] 
+			if value then
+				_G[varName] = value
+			end
+		end
+	end
+	
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+[/version]
+
+[version]
+2015 (Star Wars Battlefront Release)
+[notes]
+Added allowCommandlineSettings security guard.
+
+New Features:
+- Command-line parsing wrapped in allowCommandlineSettings check
+- Security restored after open beta
+
+Changes from Alpha/Beta:
+- if allowCommandlineSettings then wrapper added
+- Prevents unauthorized command-line manipulation in retail builds
+
+Why: Beta had exploits where players used command-line args to cheat.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings 
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			readCfg(commandLine[i+1])
+		else
+			readCfg("Scripts/" .. commandLine[i+1])
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	Online.Backend = "Backend_Lan"
+	Online.UseFallback = true
+	Online.ClientIsPresenceEnabled = false
+	Online.ServerIsPresenceEnabled = false
+	Origin.Enabled = false
+
+	applySettings([=[
+		Server.forceStartMapOnLoad true
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+	]=])
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with Venice's epic level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+if allowCommandlineSettings then
+	for _,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+		if table and member then
+			local value = commandLine[_ + 1] 
+			local cfgLine = table .. "." .. member .. " " .. value
+			applySettings(cfgLine)
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[_ + 1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+	end
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+[/version]
+
+[version]
+2016 (Battlefield 1 Alpha/Beta)
+[notes]
+Automatic Origin disabling + game-specific settings.
+
+New Features:
+- Automatic Origin disabling when presence is off
+- if Online.ClientIsPresenceEnabled == "0" or "false" then Origin.Enabled = false
+- Game-specific editor settings:
+  - VeniceUI.LoadingMoviesEnabled false
+  - SyncedBFSettings.RoundTimeLimit 0
+  - BFServer.MapSequencerEnabled false
+
+Changes from Battlefront:
+- Origin disable logic automated (not just in editor block)
+- Additional BF1-specific debug settings
+
+Why: BF1's WWI setting needed specific tuning for round timers and UI.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings 
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			readCfg(commandLine[i+1])
+		else
+			readCfg("Scripts/" .. commandLine[i+1])
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with Venice's epic level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Disable Origin support if presence is disabled
+--
+
+if Online.ClientIsPresenceEnabled == "0" or string.lower(Online.ClientIsPresenceEnabled) == "false" then
+	if Origin then
+		Origin.Enabled = false
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+for _,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+	if table and member then
+		local value = commandLine[_ + 1] 
+		local cfgLine = table .. "." .. member .. " " .. value
+		applySettings(cfgLine)
+	else
+		local varName = string.match(option, "^%-([%w-]+)")
+		if varName then
+			local value = commandLine[_ + 1] 
+			if value then
+				_G[varName] = value
+			end
+		end
+	end
+	
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	Online.Backend = "Backend_Lan"
+	Online.UseFallback = true
+	Online.ClientIsPresenceEnabled = false
+	Online.ServerIsPresenceEnabled = false
+	Origin.Enabled = false
+
+	applySettings([=[
+		Server.forceStartMapOnLoad true
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+		VeniceUI.LoadingMoviesEnabled false
+		SyncedBFSettings.RoundTimeLimit 0
+		BFServer.MapSequencerEnabled false
+	]=])
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+[/version]
+
+[version]
+2016 (Battlefield 1 Release)
+[notes]
+Origin nil check added for safety.
+
+New Features:
+- if Origin then wrapper before Origin.Enabled = false
+- Prevents crashes if Origin module not loaded
+
+Changes from Beta:
+- Defensive programming: checks if Origin exists before accessing
+
+Why: Some builds didn't have Origin compiled in, causing crashes.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings 
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			readCfg(commandLine[i+1])
+		else
+			readCfg("Scripts/" .. commandLine[i+1])
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with Venice's epic level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Disable Origin support if presence is disabled
+--
+
+if Online.ClientIsPresenceEnabled == "0" or string.lower(Online.ClientIsPresenceEnabled) == "false" then
+	if Origin then
+		Origin.Enabled = false
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+for _,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+	if table and member then
+		local value = commandLine[_ + 1] 
+		local cfgLine = table .. "." .. member .. " " .. value
+		applySettings(cfgLine)
+	else
+		local varName = string.match(option, "^%-([%w-]+)")
+		if varName then
+			local value = commandLine[_ + 1] 
+			if value then
+				_G[varName] = value
+			end
+		end
+	end
+	
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	Online.Backend = "Backend_Lan"
+	Online.UseFallback = true
+	Online.ClientIsPresenceEnabled = false
+	Online.ServerIsPresenceEnabled = false
+
+	if Origin then
+		Origin.Enabled = false
+	end
+
+	applySettings([=[
+		Server.forceStartMapOnLoad true
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+		VeniceUI.LoadingMoviesEnabled false
+		SyncedBFSettings.RoundTimeLimit 0
+		BFServer.MapSequencerEnabled false
+	]=])
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+[/version]
+
+[version]
+2017 (FIFA, Mass Effect Andromeda, NFS Payback)
+[notes]
+Multi-platform config support + FrostEd GameView.
+
+New Features:
+- entity.EditorGameViewEnable detection - GameView mode support
+- Scripts/GameView.cfg loaded for docked editor
+- Multi-platform local.cfg paths:
+  - /local/local.cfg
+  - /scratch/local.cfg (console dev kits)
+  - /scratch/Local.cfg (case-sensitive PS4)
+- DisabledAsserts.cfg support with useDisabledAssertsCfg flag
+
+Changes from BF1:
+- FrostEd GameView integration
+- Console development kit support
+- Assert management system
+
+Why: Cross-platform development needed unified config system.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+-- FrostEd Game View
+local isGameView = commandLine:lookup("entity.EditorGameViewEnable")
+if isGameView then
+	if isGameView == "1" or isGameView == "true" then
+		readCfg("Scripts/GameView.cfg")
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if tostring(commandLine[i+1]):find("/") then
+			readCfg(tostring(commandLine[i+1]))
+		else
+			readCfg("Scripts/" .. tostring(commandLine[i+1]))
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+	readCfg("/scratch/local.cfg", _G)
+	-- ps4 data drive is case sensitive :(
+	readCfg("/scratch/Local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with the standard level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+
+if allowCommandlineSettings then
+	for _,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+		if table and member then
+			local value = commandLine[_ + 1]
+			local cfgLine = table .. "." .. member .. " " .. value
+			applySettings(cfgLine)
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[_ + 1]
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+
+	end
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	Online.Backend = "Backend_Lan"
+	Online.UseFallback = true
+	Online.ClientIsPresenceEnabled = false
+	Online.ServerIsPresenceEnabled = false
+
+	applySettings([=[
+		Server.forceStartMapOnLoad true
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+	]=])
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+
+--------------------------------------------------------------------------
+-- Handle disabled asserts
+--
+
+if commandLine:lookup('useDisabledAssertsCfg', true) then
+	-- Read common disabled asserts cfg file
+	readCfg("/Local/DisabledAsserts.cfg", _G)
+end
+[/version]
+
+[version]
+2017 (Need For Speed Payback)
+[notes]
+Underscore support in command-line params for tweakables.
+
+New Features:
+- Pattern matching enhanced: ^%-(%w+)%.([%w%._]+) - now supports underscores
+- Origin.DisableInLiveEditMode = true
+- Editor settings applied BEFORE local cfg loading
+
+Changes from FIFA/Mass Effect:
+- Underscore support for NFS-specific tweakable variables
+- Origin behavior different (DisableInLiveEditMode vs Enabled)
+- Removed Backend_Lan and UseFallback
+
+Why: NFS Payback had runtime tweakable variables like 'Car_Handling_Drift' that needed underscores.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings 
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+-- FrostEd Game View
+local isGameView = commandLine:lookup("entity.EditorGameViewEnable")
+if isGameView then
+	if isGameView == "1" or isGameView == "true" then
+		readCfg("Scripts/GameView.cfg")
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			readCfg(commandLine[i+1])
+		else
+			readCfg("Scripts/" .. commandLine[i+1])
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	Online.ClientIsPresenceEnabled = false
+	Online.ServerIsPresenceEnabled = false
+
+	applySettings([=[
+		Server.forceStartMapOnLoad true
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+		Origin.DisableInLiveEditMode true
+	]=])
+end
+
+--
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with the standard level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+
+if allowCommandlineSettings then
+	for _,option in ipairs(commandLine) do
+		-- NFS_START - DIVERGENCE - 2017-05-30 DICE\dmalcus - Allow underscore in commandline params (to allow setting tweakables)
+		local table,member = string.match(option, "^%-(%w+)%.([%w%._]+)")
+		-- NFS_END
+
+		if table and member then
+			local value = commandLine[_ + 1] 
+			local cfgLine = table .. "." .. member .. " " .. value
+			applySettings(cfgLine)
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[_ + 1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+
+	end
+end
+
+core.import("Scripts/Game/DebugSettings.lua")
+
+--------------------------------------------------------------------------
+-- Handle disabled asserts
+--
+
+if commandLine:lookup('useDisabledAssertsCfg', true) then
+	-- Read common disabled asserts cfg file
+	readCfg("/Local/DisabledAsserts.cfg", _G)
+end
+[/version]
+
+[version]
+2017 (Star Wars Battlefront II)
+[notes]
+User domain detection + branch configuration.
+
+New Features:
+- require 'os' - OS library for environment variables
+- userDomain = os.getenv("USERDOMAIN") - Windows domain detection
+- Scripts/branch.cfg support (before Game.cfg)
+- Scripts/EnabledAsserts.cfg at end (specific asserts to enable)
+- hostUserDomain command-line option
+
+Changes from NFS Payback:
+- Domain-specific configuration support
+- Branch-specific settings (for DLC development)
+- EnabledAsserts.cfg addition (opposite of DisabledAsserts)
+
+Why: SWBF2's DLC development needed branch-specific configs and domain-aware settings for EA studios.
+[content]
+--
+-- Game configuration script
+--
+
+require "os"
+
+-- Local helper functions
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings 
+
+-- WALRUS - EAMONTREAL\plalonde - [DIVERGENCE] - Adding for domain specific configs.
+userDomain = cmdLineOption('hostUserDomain')
+if userDomain == nil or userDomain == '' then
+	if platform == 'Win32' then
+		userDomain = os.getenv("USERDOMAIN")
+	end
+end
+-- WALRUS
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+-- FrostEd Game View
+local isGameView = commandLine:lookup("entity.EditorGameViewEnable")
+if isGameView then
+	if isGameView == "1" or isGameView == "true" then
+		readCfg("Scripts/GameView.cfg")
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			readCfg(commandLine[i+1])
+		else
+			readCfg("Scripts/" .. commandLine[i+1])
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with the standard level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+
+if allowCommandlineSettings then
+	for _,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+		if table and member then
+			local value = commandLine[_ + 1] 
+			local cfgLine = table .. "." .. member .. " " .. value
+			applySettings(cfgLine)
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[_ + 1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+
+	end
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	Online.Backend = "Backend_Lan"
+	Online.UseFallback = true
+	Online.ClientIsPresenceEnabled = false
+	Online.ServerIsPresenceEnabled = false
+	Origin.Enabled = false
+
+	applySettings([=[
+		Server.forceStartMapOnLoad true
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+	]=])
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+
+--------------------------------------------------------------------------
+-- Handle disabled asserts
+--
+
+if commandLine:lookup('useDisabledAssertsCfg', true) then
+	-- Read common disabled asserts cfg file
+	readCfg("/Local/DisabledAsserts.cfg", _G)
+end
+
+
+
+-- WALRUS - cljungstedt - [DIVERGENCE] - enable content assert
+readCfg("Scripts/EnabledAsserts.cfg")
+-- WALRUS
+[/version]
+
+[version]
+2018 (Battlefield V Alpha/Beta)
+[notes]
+Enhanced pattern matching with %S+ for broader character support.
+
+New Features:
+- Command-line pattern: ^%-(%w+)%.(%S+) - supports ANY non-whitespace characters after dot
+- Allows special characters in member names
+
+Changes from SWBF2:
+- Pattern changed from [%w%.] to %S+ for more flexibility
+- Removed domain detection
+- Removed branch.cfg support
+- Removed EnabledAsserts.cfg
+
+Why: BFV needed to support more complex configuration variable names.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings 
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			readCfg(commandLine[i+1])
+		else
+			readCfg("Scripts/" .. commandLine[i+1])
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with Venice's epic level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Disable Origin support if presence is disabled
+--
+
+if Online.ClientIsPresenceEnabled == "0" or string.lower(Online.ClientIsPresenceEnabled) == "false" then
+	if Origin then
+		Origin.Enabled = false
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+for _,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.(%S+)")
+
+	if table and member then
+		local value = commandLine[_ + 1] 
+		local cfgLine = table .. "." .. member .. " " .. value
+		applySettings(cfgLine)
+	else
+		local varName = string.match(option, "^%-([%w-]+)")
+		if varName then
+			local value = commandLine[_ + 1] 
+			if value then
+				_G[varName] = value
+			end
+		end
+	end
+	
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	Online.Backend = "Backend_Lan"
+	Online.UseFallback = true
+	Online.ClientIsPresenceEnabled = false
+	Online.ServerIsPresenceEnabled = false
+
+	if Origin then
+		Origin.Enabled = false
+	end
+
+	applySettings([=[
+		Server.forceStartMapOnLoad true
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+		VeniceUI.LoadingMoviesEnabled false
+		SyncedBFSettings.RoundTimeLimit 0
+		BFServer.MapSequencerEnabled false
+	]=])
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+[/version]
+
+[version]
+2018 (Battlefield V Release)
+[notes]
+Thin client support + enhanced editor settings.
+
+New Features:
+- Thin client detection: commandLine:lookup("thinclient")
+- Client.UseMouseAndKeyboardSystem = false for thin clients (later: Input.UseMouseAndKeyboardSystem)
+- Online.DisableSpecTreeValidation = true in editor
+- Online.EnableOfflineCatalogItems = true in editor
+- UI.IgnoreLevelAccessibleForUserCheck = true in editor
+
+Changes from Beta:
+- Added thin client/streaming support
+- More comprehensive editor offline mode
+- Better catalog/spec handling
+
+Why: BFV supported cloud gaming/streaming (Stadia-style) which needed headless thin client mode.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings 
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			readCfg(commandLine[i+1])
+		else
+			readCfg("Scripts/" .. commandLine[i+1])
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+-- CASABLANCA_START - 2019/05/09 - Green, Alexander - [DIVERGENCE] Prevent mouse and keyboard creation for thin clients.
+local thinClient = commandLine:lookup("thinclient")
+if thinClient then
+	if thinClient == "1" or thinClient == "true" then
+		Client.UseMouseAndKeyboardSystem = false
+	end
+end
+-- CASABLANCA_END
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with Venice's epic level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Disable Origin support if presence is disabled
+--
+
+if Online.ClientIsPresenceEnabled == "0" or string.lower(Online.ClientIsPresenceEnabled) == "false" then
+	if Origin then
+		Origin.Enabled = false
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+for _,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.(%S+)")
+
+	if table and member then
+		local value = commandLine[_ + 1] 
+		local cfgLine = table .. "." .. member .. " " .. value
+		applySettings(cfgLine)
+	else
+		local varName = string.match(option, "^%-([%w-]+)")
+		if varName then
+			local value = commandLine[_ + 1] 
+			if value then
+				_G[varName] = value
+			end
+		end
+	end
+	
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	Online.Backend = "Backend_Lan"
+	Online.UseFallback = true
+	Online.ClientIsPresenceEnabled = false
+	Online.ServerIsPresenceEnabled = false
+	Online.DisableSpecTreeValidation = true
+	Online.EnableOfflineCatalogItems = true
+
+	if Origin then
+		Origin.Enabled = false
+	end
+
+	applySettings([=[
+		BFServer.MapSequencerEnabled false
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+		Server.forceStartMapOnLoad true
+		SyncedBFSettings.RoundTimeLimit 0
+		UI.IgnoreLevelAccessibleForUserCheck true
+		VeniceUI.LoadingMoviesEnabled false
+	]=])
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+[/version]
+
+[version]
+2019 (FIFA 20, Anthem, Battle for Neighborville)
+[notes]
+Enhanced disabled asserts config handling.
+
+New Features:
+- tostring() wrapper for commandLine values in -customconfig
+- Changed DisabledAsserts.cfg path: '/Local/' → '/Local/'
+- useDisabledAssertsCfg flag with default true
+
+Changes from BFV:
+- Wrapped commandLine[i+1] in tostring() for safety
+- Formalized disabled asserts configuration system
+
+Why: Improved robustness when handling command-line arguments and standardized assert management.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings 
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+-- FrostEd Game View
+local isGameView = commandLine:lookup("entity.EditorGameViewEnable")
+if isGameView then
+	if isGameView == "1" or isGameView == "true" then
+		readCfg("Scripts/GameView.cfg")
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if tostring(commandLine[i+1]):find("/") then
+			readCfg(tostring(commandLine[i+1]))
+		else
+			readCfg("Scripts/" .. tostring(commandLine[i+1]))
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+-- CASABLANCA_START - 2019/05/09 - Green, Alexander - [DIVERGENCE] Prevent mouse and keyboard creation for thin clients.
+local thinClient = commandLine:lookup("thinclient")
+if thinClient then
+	if thinClient == "1" or thinClient == "true" then
+		Input.UseMouseAndKeyboardSystem = false
+	end
+end
+-- CASABLANCA_END
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+	readCfg("/scratch/local.cfg", _G)
+	-- ps4 data drive is case sensitive :(
+	readCfg("/scratch/Local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with Venice's epic level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Disable Origin support if presence is disabled
+--
+
+if Online.ClientIsPresenceEnabled == "0" or string.lower(Online.ClientIsPresenceEnabled) == "false" then
+	if Origin then
+		Origin.Enabled = false
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+if allowCommandlineSettings then
+	for _,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+		if table and member then
+			local value = commandLine[_ + 1]
+			local cfgLine = table .. "." .. member .. " " .. value
+			applySettings(cfgLine)
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[_ + 1]
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+
+	end
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	Online.Backend = "Backend_Lan"
+	Online.UseFallback = true
+	Online.ClientIsPresenceEnabled = false
+	Online.ServerIsPresenceEnabled = false
+	Online.DisableSpecTreeValidation = true
+	Online.EnableOfflineCatalogItems = true
+
+	if Origin then
+		Origin.Enabled = false
+	end
+
+	applySettings([=[
+		BFServer.MapSequencerEnabled false
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+		Server.forceStartMapOnLoad true
+		SyncedBFSettings.RoundTimeLimit 0
+		UI.IgnoreLevelAccessibleForUserCheck true
+		VeniceUI.LoadingMoviesEnabled false
+	]=])
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+
+--------------------------------------------------------------------------
+-- Handle disabled asserts
+--
+
+if commandLine:lookup('useDisabledAssertsCfg', true) then
+	-- Read common disabled asserts cfg file
+	readCfg("/Local/DisabledAsserts.cfg", _G)
+end
+[/version]
+
+[version]
+2019 (Need For Speed Heat)
+[notes]
+NFS-specific simplified editor configuration.
+
+Changes from FIFA 20/Anthem:
+- Removed BFV-specific editor settings
+- Removed online backend configuration
+- Removed Origin disabling logic
+- Removed thin client support
+- Simplified editor block: only Network.GhostCountWarning and Origin.DisableInLiveEditMode
+- Editor settings moved BEFORE local cfg loading
+
+Why: NFS Heat needed minimal editor overhead with focus on performance.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings 
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+-- FrostEd Game View
+local isGameView = commandLine:lookup("entity.EditorGameViewEnable")
+if isGameView then
+	if isGameView == "1" or isGameView == "true" then
+		readCfg("Scripts/GameView.cfg")
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			readCfg(commandLine[i+1])
+		else
+			readCfg("Scripts/" .. commandLine[i+1])
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	applySettings([=[
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+		Origin.DisableInLiveEditMode true
+	]=])
+end
+
+--
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with the standard level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+
+if allowCommandlineSettings then
+	for _,option in ipairs(commandLine) do
+		-- NFS_START - DIVERGENCE - 2017-05-30 DICE\dmalcus - Allow underscore in commandline params (to allow setting tweakables)
+		local table,member = string.match(option, "^%-(%w+)%.([%w%._]+)")
+		-- NFS_END
+
+		if table and member then
+			local value = commandLine[_ + 1] 
+			local cfgLine = table .. "." .. member .. " " .. value
+			applySettings(cfgLine)
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[_ + 1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+
+	end
+end
+
+core.import("Scripts/Game/DebugSettings.lua")
+
+--------------------------------------------------------------------------
+-- Handle disabled asserts
+--
+
+if commandLine:lookup('useDisabledAssertsCfg', true) then
+	-- Read common disabled asserts cfg file
+	readCfg("/Local/DisabledAsserts.cfg", _G)
+end
+[/version]
+
+[version]
+2020 (Star Wars Squadrons)
+[notes]
+Config logging + EditorGameViewPresence system.
+
+New Features:
+- printCfg() function - Logs all config file contents at boot
+- EditorGameViewPresence: 'disabled', 'enabled', 'enabledwithorigin'
+- Entity.ExecutionMode detection
+- Blaze.ForceDirectLogin configuration
+- Network.OutputStreamOverflowInfo = true
+- EnabledAsserts.cfg support (from SWBF2)
+
+Changes from NFS Heat:
+- User domain detection restored (from SWBF2)
+- Comprehensive config logging for debugging
+- Three-tier editor presence system
+- Editor settings moved back to END (after local cfg)
+
+Why: Squadrons needed detailed boot logging for debugging VR issues and flexible online/offline editor modes.
+
+Comment: INCOM_START/INCOM_END tags show Motive Studio's (formerly EA Montreal) additions.
+[content]
+--
+-- Game configuration script
+--
+
+require "os"
+
+-- Local helper functions
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+-- INCOM_START - 2019-12-03 - jowu - [DIVERGENCE] Print out local settings at boot
+local function printCfg(file)
+	if log then
+		log:debug("Reading cfg '" .. file .. "'")
+	end
+
+	local f = vfs.open(file, "r")
+	
+	if not f then
+		-- File not found
+		if log then
+			log:debug("Failed to find file '" .. file .. "'")
+		end
+			
+		return
+	end
+
+	local firstLine = true
+	local luaScript = false
+	local configTable = {}
+	local str = ''
+
+	while true do
+		local line = f:read("*line")
+		
+		if not line then 
+			break 
+		end
+
+		if firstLine and line == "#!/bin/lua" then
+			firstLine = false
+			luaScript = true
+		end
+		
+		if luaScript then
+			str = str .. "\r\n" .. line
+		else
+			core.parseKeyValueCfgLine(line, configTable)
+		end
+	end
+
+	f:close();
+
+	if luaScript then
+		if str ~= '' then
+			-- Print out raw script content
+			log:info("cfg contains LUA script: " .. file .. str)
+		end
+	else
+		for key,value in pairs(configTable) do
+			if type(value) == "table" then
+				for innerKey,innerValue in pairs(value) do
+					str = str .. "\r\n" .. key .. "." .. innerKey .. " " .. tostring(innerValue)
+				end
+			else
+				str = str .. "\r\n" .. key .. " " .. tostring(value)
+			end
+		end
+		if str ~= '' then
+			log:info("cfg parsed: " .. file .. str)
+		end
+	end
+end
+-- INCOM_END
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings 
+
+userDomain = cmdLineOption('hostUserDomain')
+if userDomain == nil or userDomain == '' then
+	if platform == 'Win32' then
+		userDomain = os.getenv("USERDOMAIN")
+	end
+end
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+-- FrostEd Game View
+local isGameView = commandLine:lookup("entity.EditorGameViewEnable")
+if isGameView then
+	if isGameView == "1" or isGameView == "true" then
+		readCfg("Scripts/GameView.cfg")
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			readCfg(commandLine[i+1])
+			-- INCOM_START - 2019-12-03 - jowu - [DIVERGENCE] Print out local settings at boot
+			printCfg(commandLine[i+1])
+			-- INCOM_END
+		else
+			readCfg("Scripts/" .. commandLine[i+1])
+			-- INCOM_START - 2019-12-03 - jowu - [DIVERGENCE] Print out local settings at boot
+			printCfg("Scripts/" .. commandLine[i+1])
+			-- INCOM_END
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+	-- INCOM_START - 2019-12-03 - jowu - [DIVERGENCE] Print out local settings at boot
+	printCfg("/local/local.cfg")
+	-- INCOM_END
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+		-- INCOM_START - 2019-12-03 - jowu - [DIVERGENCE] Print out local settings at boot
+		printCfg("/local/localeditor.cfg")
+		-- INCOM_END
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+		-- INCOM_START - 2019-12-03 - jowu - [DIVERGENCE] Print out local settings at boot
+		printCfg("/local/localgame.cfg")
+		-- INCOM_END
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with the standard level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+
+if allowCommandlineSettings then
+	for _,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+		if table and member then
+			local value = commandLine[_ + 1] 
+			local cfgLine = table .. "." .. member .. " " .. value
+			applySettings(cfgLine)
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[_ + 1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+
+	end
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	local executionMode = commandLine:lookup("Entity.ExecutionMode")
+	if not executionMode then
+		executionMode = "
+	end
+
+	local gameViewPresence = commandLine:lookup("EditorGameViewPresence")
+	if not gameViewPresence or executionMode == "ExecutionMode_GameView" then
+		gameViewPresence = "disabled"
+	else
+		gameViewPresence = string.lower(gameViewPresence)
+		if not gameViewPresence == "enabled" and not gameViewPresence == "enabledwithorigin" then
+			gameViewPresence = "disabled"
+		end
+	end
+
+	if gameViewPresence == "enabledwithorigin" then
+		Online.ClientIsPresenceEnabled = true
+		Online.ServerIsPresenceEnabled = true
+		applySettings([=[
+			Origin.Enabled true
+			Origin.DisableInLiveEditMode false
+			Blaze.ForceDirectLogin false
+		]=])
+	elseif gameViewPresence == "enabled" then
+		Online.ClientIsPresenceEnabled = true
+		Online.ServerIsPresenceEnabled = true
+		applySettings([=[
+			Origin.Enabled false
+			Blaze.ForceDirectLogin true
+		]=])
+	else
+		Online.Backend = "Backend_Lan"
+		Online.UseFallback = true
+		Online.ClientIsPresenceEnabled = false
+		Online.ServerIsPresenceEnabled = false
+		Origin.Enabled = false
+	end
+
+	applySettings([=[
+		Server.forceStartMapOnLoad true
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+		Network.OutputStreamOverflowInfo true
+	]=])
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+
+--------------------------------------------------------------------------
+-- Handle disabled asserts
+--
+
+if commandLine:lookup('useDisabledAssertsCfg', true) then
+	-- Read common disabled asserts cfg file
+	readCfg("/Local/DisabledAsserts.cfg", _G)
+end
+
+
+
+readCfg("Scripts/EnabledAsserts.cfg")
+[/version]
+
+[version]
+2021 (Battlefield 2042 Alpha/Beta)
+[notes]
+OnlineSku system + DirtySock/Blaze configuration.
+
+New Features:
+- Scripts/OnlineSku.cfg - Online platform configuration system
+- DiceOnline.DisableDirtySockAndBlazeSDK detection
+- Automatic presence disabling when DirtySock+Blaze disabled
+- Input.UseMouseAndKeyboardSystem (renamed from Client.UseMouseAndKeyboardSystem)
+- parseKeyValueCfgString() now takes location parameter: "Configure.lua"
+- PS5 host drive support removed from local cfg loading
+
+Changes from Squadrons:
+- Removed printCfg() logging system
+- Removed EditorGameViewPresence complexity
+- Removed user domain detection
+- Removed EnabledAsserts.cfg
+- OnlineSku.cfg loaded AFTER local.cfg (so local can override BFOnline.OnlineSku)
+- Simplified editor settings (back to basic configuration)
+
+Why: BF2042's cross-platform online infrastructure needed centralized SKU configuration. DirtySock+Blaze is EA's network backend.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString("Configure.lua", settings, _G)
+end
+
+-- Basic settings 
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+-- FrostEd Game View
+local isGameView = commandLine:lookup("entity.EditorGameViewEnable")
+if isGameView then
+	if isGameView == "1" or isGameView == "true" then
+		readCfg("Scripts/GameView.cfg")
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			readCfg(commandLine[i+1])
+		else
+			readCfg("Scripts/" .. commandLine[i+1])
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+-- CASABLANCA_START - 2019/05/09 - Green, Alexander - [DIVERGENCE] Prevent mouse and keyboard creation for thin clients.
+local thinClient = commandLine:lookup("thinclient")
+if thinClient then
+	if thinClient == "1" or thinClient == "true" then
+		Input.UseMouseAndKeyboardSystem = false
+	end
+end
+-- CASABLANCA_END
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+
+--------------------------------------------------------------------------
+-- Handle online sku configuration, this must come after local so people can use local.cfg to override the BFOnline.OnlineSku value.
+--
+
+readCfg("Scripts/OnlineSku.cfg")
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with Venice's epic level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Disable Origin support if presence is disabled
+--
+
+if Online and Online.ClientIsPresenceEnabled then
+	if Online.ClientIsPresenceEnabled == "0" or string.lower(Online.ClientIsPresenceEnabled) == "false" then
+		if Origin then
+			Origin.Enabled = false
+		end
+	end
+end
+
+--------------------------------------------------------------------------
+-- Disable Client/Server presence if dirtysock+blaze is disabled
+--
+
+if DiceOnline and DiceOnline.DisableDirtySockAndBlazeSDK then
+	if DiceOnline.DisableDirtySockAndBlazeSDK == "1" or string.lower(DiceOnline.DisableDirtySockAndBlazeSDK) == "true" then
+		if Online then
+			Online.ClientIsPresenceEnabled = false
+			Online.ServerIsPresenceEnabled = false
+		end
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+for _,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.(%S+)")
+
+	if table and member then
+		local value = commandLine[_ + 1] 
+		local cfgLine = table .. "." .. member .. " " .. value
+		applySettings(cfgLine)
+	else
+		local varName = string.match(option, "^%-([%w-]+)")
+		if varName then
+			local value = commandLine[_ + 1] 
+			if value then
+				_G[varName] = value
+			end
+		end
+	end
+	
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	applySettings([=[
+		BFServer.MapSequencerEnabled false
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+		Server.forceStartMapOnLoad true
+		SyncedBFSettings.RoundTimeLimit 0
+		UI.IgnoreLevelAccessibleForUserCheck true
+		VeniceUI.LoadingMoviesEnabled false
+	]=])
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+[/version]
+
+[version]
+2021 (Battlefield 2042 Release)
+[notes]
+Developer config system + improved type conversion.
+
+New Features:
+- convertToBoolOrPassthru() - Smart boolean conversion helper
+- Developer config system:
+  - -developercfg command-line option
+  - /local/developer.cfg support
+  - DeveloperCFG setting in local.cfg
+  - Loop-based loading (developer.cfg → local.cfg → repeat if needed)
+- Game.Level assignment from command-line
+
+Changes from Beta:
+- Developer domain-specific configuration support
+- Safer boolean handling for config values
+- Level name stored back to _G["Game"]["Level"]
+
+Why: Large teams needed domain-specific default configs (e.g., DICE Stockholm vs DICE LA vs EA Gothenburg) without manually copying settings.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString("Configure.lua", settings, _G)
+end
+
+local function convertToBoolOrPassthru(value)
+	if value == true then
+		return true
+	elseif value == false then
+		return false
+	end
+	if string.lower(value) == "true" or value == "1" then
+		return true
+	elseif string.lower(value) == "false" or value == "0" then
+		return false
+	end
+	return value
+end
+
+-- Basic settings 
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+-- FrostEd Game View
+local isGameView = commandLine:lookup("entity.EditorGameViewEnable")
+if isGameView then
+	if isGameView == "1" or isGameView == "true" then
+		readCfg("Scripts/GameView.cfg")
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			readCfg(commandLine[i+1])
+		else
+			readCfg("Scripts/" .. commandLine[i+1])
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+-- CASABLANCA_START - 2019/05/09 - Green, Alexander - [DIVERGENCE] Prevent mouse and keyboard creation for thin clients.
+local thinClient = commandLine:lookup("thinclient")
+if thinClient then
+	if thinClient == "1" or thinClient == "true" then
+		Input.UseMouseAndKeyboardSystem = false
+	end
+end
+-- CASABLANCA_END
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- The developer config exist to facilitate domain specific settings.
+	-- This avoids the problem with users having to manually find and copy those settings into the 'local.cfg' file.
+	-- The load order ensures that settings in the local.cfg takes precedence.
+	-- There are two ways to apply these settings,
+	--		1. Via the command line by using '-developercfg' or '-developercfg my_domain.cfg'.
+	--		2. Adding 'DeveloperCFG True' or 'DeveloperCFG my_domain.cfg' to the 'local.cfg' file.
+	-- The configuration will default to 'developer.cfg' when activated and no explicit '.cfg' set.
+	local developerCfg = commandLine:lookup("developercfg", false)
+	if developerCfg == nil then
+		developerCfg = true
+	else
+		developerCfg = convertToBoolOrPassthru(developerCfg)
+	end
+	while(true)
+	do
+		-- Read the developer.cfg if required.
+		if developerCfg then
+			if developerCfg ~= true then
+				readCfg("/local/" .. developerCfg)
+			else
+				readCfg("/local/developer.cfg")
+			end
+		end
+	
+		-- Read common local cfg file
+		readCfg("/local/local.cfg")
+	
+		-- Do another pass if the local.cfg requires it.
+		if developerCfg then
+			break
+		else
+			developerCfg = _G["DeveloperCFG"]
+			if developerCfg then
+				developerCfg = convertToBoolOrPassthru(developerCfg)
+			else
+				break
+			end
+		end
+	end
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg")
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg")
+	end
+end
+
+
+--------------------------------------------------------------------------
+-- Handle online sku configuration, this must come after local so people can use local.cfg to override the BFOnline.OnlineSku value.
+--
+
+readCfg("Scripts/OnlineSku.cfg")
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+local gameTable = _G["Game"]
+if gameTable then
+	if levelName then
+		gameTable["Level"] = levelName
+	else
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with Venice's epic level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Disable Origin support if presence is disabled
+--
+
+if Online and Online.ClientIsPresenceEnabled then
+	if Online.ClientIsPresenceEnabled == "0" or string.lower(Online.ClientIsPresenceEnabled) == "false" then
+		if Origin then
+			Origin.Enabled = false
+		end
+	end
+end
+
+--------------------------------------------------------------------------
+-- Disable Client/Server presence if dirtysock+blaze is disabled
+--
+
+if DiceOnline and DiceOnline.DisableDirtySockAndBlazeSDK then
+	if DiceOnline.DisableDirtySockAndBlazeSDK == "1" or string.lower(DiceOnline.DisableDirtySockAndBlazeSDK) == "true" then
+		if Online then
+			Online.ClientIsPresenceEnabled = false
+			Online.ServerIsPresenceEnabled = false
+		end
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+for _,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.(%S+)")
+
+	if table and member then
+		local value = commandLine[_ + 1] 
+		local cfgLine = table .. "." .. member .. " " .. value
+		applySettings(cfgLine)
+	else
+		local varName = string.match(option, "^%-([%w-]+)")
+		if varName then
+			local value = commandLine[_ + 1] 
+			if value then
+				_G[varName] = value
+			end
+		end
+	end
+	
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	applySettings([=[
+		BFServer.MapSequencerEnabled false
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+		Server.forceStartMapOnLoad true
+		SyncedBFSettings.RoundTimeLimit 0
+		UI.IgnoreLevelAccessibleForUserCheck true
+		VeniceUI.LoadingMoviesEnabled false
+	]=])
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+[/version]
+
+[version]
+2021-2022 (EA Sports: NHL 22, FIFA 22, Madden 22)
+[notes]
+PS5/Xbox Series X support + keyboard shortcuts.
+
+New Features:
+- PS5 host drive paths: /localhost/local.cfg, /scratchhost/local.cfg
+- Scripts/KeyboardShortcutSettings.cfg support
+- Scripts/DisabledAsserts.cfg (deployable instead of local-only)
+- Bot.cfg system for AutoBot integration
+
+Changes from BF2042:
+- Removed OnlineSku.cfg
+- Removed DiceOnline/DirtySock configuration
+- Removed thin client support
+- Removed developer.cfg system
+- Restored Origin/Backend configuration in editor
+- Comment added explaining DisabledAsserts deployment options
+
+Why: Sports titles needed next-gen console support and simpler configuration without Battlefield's online complexity.
+
+Comment: NHL_BEGIN/MADDEN_BEGIN tags show EA Sports-specific additions.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+-- FrostEd Game View
+local isGameView = commandLine:lookup("entity.EditorGameViewEnable")
+if isGameView then
+	if isGameView == "1" or isGameView == "true" then
+		readCfg("Scripts/GameView.cfg")
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if tostring(commandLine[i+1]):find("/") then
+			readCfg(tostring(commandLine[i+1]))
+		else
+			readCfg("Scripts/" .. tostring(commandLine[i+1]))
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+	readCfg("/scratch/local.cfg", _G)
+	-- ps4 data drive is case sensitive :(
+	readCfg("/scratch/Local.cfg", _G)
+	-- ps5 host drive
+	readCfg("/localhost/local.cfg", _G)
+	readCfg("/scratchhost/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with the standard level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+
+if allowCommandlineSettings then
+	for _,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+		if table and member then
+			local value = commandLine[_ + 1]
+			local cfgLine = table .. "." .. member .. " " .. value
+			applySettings(cfgLine)
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[_ + 1]
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+
+	end
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	Online.Backend = "Backend_Lan"
+	Online.UseFallback = true
+	Online.ClientIsPresenceEnabled = false
+	Online.ServerIsPresenceEnabled = false
+
+	applySettings([=[
+		Server.forceStartMapOnLoad true
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+	]=])
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+
+readCfg("Scripts/KeyboardShortcutSettings.cfg", _G)
+
+--------------------------------------------------------------------------
+-- Handle disabled asserts
+--
+
+if commandLine:lookup('useDisabledAssertsCfg', true) then
+	-- Read common disabled asserts cfg file
+-- NHL_BEGIN | PREPORT:8205709 | mmariano | 2021-5-7 | [FIFA] - dev-na - All platforms - Asserts listed in the DisabledAsserts.cfg are being thrown when using packaged builds
+	-- Use the following line for DisabledAsserts as a local configuration file.  Will not work with deployed builds
+	--readCfg("/Local/DisabledAsserts.cfg", _G)
+	-- Use the following line for DisabledAsserts as a deployable configuration file.
+	readCfg("Scripts/DisabledAsserts.cfg", _G)
+-- NHL_END
+end
+[/version]
+
+[version]
+2022 (Need For Speed Unbound)
+[notes]
+FrostEd docked detection update.
+
+New Features:
+- Core.EditorIsDocked (replaces entity.EditorGameViewEnable)
+- Simplified editor detection
+
+Changes from EA Sports:
+- Removed PS5 host drive paths
+- Removed KeyboardShortcutSettings.cfg
+- Removed Online.Backend and Online.UseFallback in editor
+- Reverted to NFS-specific underscore pattern: [%w%._]+
+- Editor settings moved BEFORE local cfg again
+
+Why: FrostEd's docking system was refactored for the next-gen editor UI.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings 
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+-- FrostEd Game View
+local isGameView = commandLine:lookup("Core.EditorIsDocked")
+if isGameView then
+	if isGameView == "1" or isGameView == "true" then
+		readCfg("Scripts/GameView.cfg")
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i+1]:find("/") then
+			readCfg(commandLine[i+1])
+		else
+			readCfg("Scripts/" .. commandLine[i+1])
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	applySettings([=[
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+		Origin.DisableInLiveEditMode true
+	]=])
+end
+
+--
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with the standard level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+
+if allowCommandlineSettings then
+	for _,option in ipairs(commandLine) do
+		-- NFS_START - DIVERGENCE - 2017-05-30 DICE\dmalcus - Allow underscore in commandline params (to allow setting tweakables)
+		local table,member = string.match(option, "^%-(%w+)%.([%w%._]+)")
+		-- NFS_END
+
+		if table and member then
+			local value = commandLine[_ + 1] 
+			local cfgLine = table .. "." .. member .. " " .. value
+			applySettings(cfgLine)
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[_ + 1] 
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+
+	end
+end
+
+core.import("Scripts/Game/DebugSettings.lua")
+
+--------------------------------------------------------------------------
+-- Handle disabled asserts
+--
+
+if commandLine:lookup('useDisabledAssertsCfg', true) then
+	-- Read common disabled asserts cfg file
+	readCfg("/Local/DisabledAsserts.cfg", _G)
+end
+[/version]
+
+[version]
+2022 (Skate Closed Playtest - Early 6/14/2022)
+[notes]
+MAJOR REFACTOR: Frostbite standardization initiative.
+
+New Features:
+- core.cmdLineOption() replaces commandLine:lookup()
+- Global cmdLineOption() for backward compatibility
+- Scripts/Game/DefaultSettings/ structure:
+  - DefaultSettings.lua (Frostbite-owned defaults)
+  - Platform/base{platform}.lua (Frostbite platform defaults)
+  - Licensee/DefaultSettings/Platform/{platform}.lua (game-specific platform overrides)
+- Scripts/branch.cfg moved BEFORE platform settings
+- Editor script organization:
+  - Scripts/Editor/LaunchedFromFrostEd.lua
+  - Scripts/Editor/Common.lua
+  - Scripts/Editor/GameView.lua
+  - Scripts/Editor/Native.lua
+- Core.ExecutionMode detection: ExecutionMode_GameView, ExecutionMode_Editor
+- launchedFromFrostEd detection
+- Fast startup level detection moved to top
+- Scripts/Game/LiveEditingSettings.lua for editor
+- core.parseCmdLineSettings() - centralized command-line parsing
+- Scripts/DisabledAsserts.cfg with deployment comments
+
+Changes from NFS Unbound:
+- Removed local helper functions (moved to core)
+- Removed allowCommandlineSettings check (now in parseCmdLineSettings)
+- Platform-specific settings split into base (device capabilities) vs defaults (recommended settings)
+- Command-line parsing happens BEFORE and AFTER DebugSettings.lua
+
+Why: Frostbite wanted consistent configuration across all licensees while allowing game-specific overrides. The DefaultSettings structure enforces separation between engine defaults and game customization.
+
+Technical: This is the template Skate developed that would eventually become the mainline Frostbite standard.
+[content]
+--
+-- Game configuration script
+--
+
+-- Global help function(backward compat for Game.cfg)
+function cmdLineOption(optionName, default)
+	return core.cmdLineOption(optionName, default)
+end
+
+-- Local helper functions
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+	if (core.cmdLineOption(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+-- Basic settings 
+core.import("Scripts/Game/Settings.lua")
+
+-- (Frostbite owned) Default settings 
+core.import("Scripts/Game/DefaultSettings/DefaultSettings.lua")
+
+-- (Licensee owned) Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+--------------------------------------------------------------------------
+-- (Licensee owned) Branch-specific overrides are above Game.cfg, but below Drone and Local
+-- Make sure your branch.cfg file is specified with "isolate" in the p4 streamspec's Paths
+readCfg("Scripts/branch.cfg")
+
+-- (Frostbite owned) Read good default platform specific settings set by Frostbite.
+core.import("Scripts/Game/DefaultSettings/Platform/base" .. platform .. ".lua")
+
+-- (Licensee owned) Read licensee specific platform specific settings.
+core.import("Scripts/Game/Licensee/DefaultSettings/Platform/" .. platform .. ".lua")
+
+local level = cmdLineOption('level')
+if level then
+    log:debug("Level specified on commandline, enabling fast startup")
+
+    -- Level names without slashes are assumed to be shorthand for
+
+    --Levels / name / name naming convention
+
+    if not string.find(level, " / ") then
+        level = "Levels / "..level.." / "..level
+
+    end
+
+
+    Game.Level = level
+end
+            -- GameView and Native editor settings
+local launchedFromEditor = commandLine:lookup("launchedFromFrostEd")
+if launchedFromEditor then
+
+    core.import("Scripts / Editor / LaunchedFromFrostEd.lua")
+
+    -- FrostEd GameView and NativeEditor
+
+    local executionMode = commandLine:lookup("Core.ExecutionMode")
+
+    if executionMode then
+
+        if executionMode == "ExecutionMode_GameView" or executionMode == "ExecutionMode_Editor" then
+
+            core.import("Scripts / Editor / Common.lua")
+
+            if executionMode == "ExecutionMode_GameView" then
+
+                core.import("Scripts / Editor / GameView.lua")
+
+            else
+                core.import("Scripts / Editor / Native.lua")
+
+            end
+        end
+
+    end
+end
+
+--------------------------------------------------------------------------
+--Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i + 1]:find("/") then
+            readCfg(commandLine[i + 1])
+		else
+			readCfg("Scripts/" .. commandLine[i + 1])
+
+        end
+    end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+        editorActive = true
+
+    end
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not core.cmdLineOption('noLocalCfg', false) then
+	-- Read common local cfg file
+    readCfg("/local/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+        readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+        readCfg("/local/LocalGame.cfg", _G)
+
+    end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = core.cmdLineOption("level")
+if not levelName then
+    local gameTable = _G["Game"]
+	if gameTable then
+
+        levelName = gameTable["Level"]
+    end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with the standard level naming convention
+if levelName and not string.find(levelName, "/") then
+    levelName = "Levels/" .. levelName.. "/" .. levelName
+end
+
+if levelName then
+
+    readCfg(levelName.. ".cfg")
+end
+
+-- Force specific settings when running through FrostEd
+if editorActive then
+
+    core.import("Scripts/Game/LiveEditingSettings.lua")
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = { } end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+
+    print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print(k, v) end
+end
+
+-- Handle<Table>.<Member> settings
+
+-- We need to parse the cmdline settings here because the DebugSettings.lua looks for settings
+-- coming from the cmdline to determine whether or not to set other settings.
+core.parseCmdLineSettings()
+
+-- Settings that are used when debugging
+core.import("Scripts/Game/DebugSettings.lua")
+
+-- We need to reparse cmdline settings after DebugSettings because the DebugSettings code could be setting
+-- settings values that are also set on the cmdline.On Windows(and several platforms) the cmdline is reparsed
+-- when reading the UserOptions but is not on other platforms.By rereading the settings here, we make sure the
+-- cmdline settings are consistently set across all platforms.
+core.parseCmdLineSettings()
+
+--------------------------------------------------------------------------
+-- Handle disabled asserts
+--
+
+if core.cmdLineOption('useDisabledAssertsCfg', true) then
+	-- Read common disabled asserts cfg file
+	-- Use the following line for DisabledAsserts as a local configuration file.Will not work with deployed builds
+	-- readCfg("/Local/DisabledAsserts.cfg", _G)
+	-- Use the following line for DisabledAsserts as a deployable configuration file.
+    readCfg("Scripts/DisabledAsserts.cfg", _G)
+end
+[/version]
+
+[version]
+2022 (Skate Closed Playtest - Late 7/11/2022)
+[notes]
+Platform capability vs defaults separation.
+
+Changes from Early CPT:
+- Platform file structure refined:
+  - Scripts/Game/Platform/base/base{platform}.lua - Device capabilities (ALWAYS true)
+  - Scripts/Game/Platform/{platform}.lua - Recommended defaults (licensee can override)
+- Removed DefaultSettings/ wrapper from platform paths
+- Comments clarified: 'device capabilities' vs 'good default values'
+
+Why: Frostbite needed clear separation between immutable hardware facts (base) and recommended settings (defaults).
+
+Example:
+- base/baseWin32.lua: HasKeyboard = true, HasMouse = true (hardware fact)
+- Win32.lua: Input.DefaultController = 'Keyboard' (recommended default, can be overridden)
+[content]
+--
+-- Game configuration script
+--
+
+-- Global help function(backward compat for Game.cfg)
+function cmdLineOption(optionName, default)
+	return core.cmdLineOption(optionName, default)
+end
+
+-- Local helper functions
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+	if (core.cmdLineOption(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+-- Basic settings 
+core.import("Scripts/Game/Settings.lua")
+
+-- Read platform specific settings that are always true regardless of licensee.
+-- The settings should be about the device capilities.
+core.import("Scripts/Game/Platform/base/base" .. platform .. ".lua")
+
+-- Read platform specific settings that are good default values for the platform.
+-- Licensees can override these values by having their own file that stomps over
+-- the platform file or set the values in their own Game.cfg.
+core.import("Scripts/Game/Platform/" .. platform .. ".lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+-- GameView and Native editor settings
+local launchedFromEditor = commandLine:lookup("launchedFromFrostEd")
+if launchedFromEditor then
+	core.import("Scripts/Editor/LaunchedFromFrostEd.lua")
+
+	-- FrostEd GameView and NativeEditor
+	local executionMode = commandLine:lookup("Core.ExecutionMode")
+	if executionMode then
+		if executionMode == "ExecutionMode_GameView" or executionMode == "ExecutionMode_Editor" then
+			core.import("Scripts/Editor/Common.lua")
+			if executionMode == "ExecutionMode_GameView" then
+				core.import("Scripts/Editor/GameView.lua")
+			else
+				core.import("Scripts/Editor/Native.lua")
+			end
+		end
+	end
+end
+
+--------------------------------------------------------------------------
+-- Branch-specific overrides are above Game.cfg, but below Drone and Local
+-- Make sure your branch.cfg file is specified with "isolate" in the p4 streamspec's Paths
+readCfg("Scripts/branch.cfg")
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if commandLine[i + 1]:find("/") then
+            readCfg(commandLine[i + 1])
+		else
+			readCfg("Scripts/" .. commandLine[i + 1])
+
+        end
+    end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+        editorActive = true
+
+    end
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not core.cmdLineOption('noLocalCfg', false) then
+	-- Read common local cfg file
+    readCfg("/local/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+        readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+        readCfg("/local/LocalGame.cfg", _G)
+
+    end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = core.cmdLineOption("level")
+if not levelName then
+    local gameTable = _G["Game"]
+	if gameTable then
+
+        levelName = gameTable["Level"]
+    end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with the standard level naming convention
+if levelName and not string.find(levelName, "/") then
+    levelName = "Levels/" .. levelName.. "/" .. levelName
+end
+
+if levelName then
+
+    readCfg(levelName.. ".cfg")
+end
+
+-- Force specific settings when running through FrostEd
+if editorActive then
+
+    core.import("Scripts/Game/LiveEditingSettings.lua")
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = { } end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+
+    print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print(k, v) end
+end
+
+-- Handle<Table>.<Member> settings
+
+-- We need to parse the cmdline settings here because the DebugSettings.lua looks for settings
+-- coming from the cmdline to determine whether or not to set other settings.
+core.parseCmdLineSettings()
+
+-- Settings that are used when debugging
+core.import("Scripts/Game/DebugSettings.lua")
+
+-- We need to reparse cmdline settings after DebugSettings because the DebugSettings code could be setting
+-- settings values that are also set on the cmdline.On Windows(and several platforms) the cmdline is reparsed
+-- when reading the UserOptions but is not on other platforms.By rereading the settings here, we make sure the
+-- cmdline settings are consistently set across all platforms.
+core.parseCmdLineSettings()
+
+--------------------------------------------------------------------------
+-- Handle disabled asserts
+--
+
+if core.cmdLineOption('useDisabledAssertsCfg', true) then
+	-- Read common disabled asserts cfg file
+	-- Use the following line for DisabledAsserts as a local configuration file.Will not work with deployed builds
+	-- readCfg("/Local/DisabledAsserts.cfg", _G)
+	-- Use the following line for DisabledAsserts as a deployable configuration file.
+    readCfg("Scripts/DisabledAsserts.cfg", _G)
+end
+[/version]
+
+[version]
+2023 (Dead Space Remake, PGA Tour)
+[notes]
+Simplified branch-first configuration.
+
+Changes from Skate Late CPT:
+- Removed DefaultSettings structure
+- Removed Platform/base/ structure
+- Branch.cfg moved to AFTER GameView detection
+- core.parseKeyValueCfgString() takes location parameter: "Configure.lua"
+- allowCommandlineSettings check restored
+- Editor settings inline (not LiveEditingSettings.lua)
+- Removed core.parseCmdLineSettings() double-call pattern
+- Bot.cfg support (PGA Tour only)
+
+Why: Dead Space/PGA Tour used simpler config needs than Skate's complex cross-platform requirements. Reverted to pre-Skate pattern with branch.cfg support.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString("Configure.lua", settings, _G)
+end
+
+-- Basic settings 
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+-- FrostEd Game View
+local isGameView = commandLine:lookup("Core.EditorIsDocked")
+if isGameView then
+	if isGameView == "1" or isGameView == "true" then
+		readCfg("Scripts/GameView.cfg")
+	end
+end
+
+--------------------------------------------------------------------------
+-- Branch-specific overrides are above Game.cfg, but below Drone and Local
+-- Make sure your branch.cfg file is specified with "isolate" in the p4 streamspec's Paths
+readCfg("Scripts / branch.cfg")
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,
+    v in ipairs(commandLine) do
+	if string.lower(v) == " - customconfig" then
+		if commandLine[i + 1]:find(" / ") then
+
+            readCfg(commandLine[i + 1])
+		else
+
+            readCfg("Scripts / "..commandLine[i + 1])
+
+        end
+
+    end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+
+        editorActive = true
+
+    end
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+    -- Read common local cfg file
+
+    readCfg(" / local / local.cfg", _G)
+
+	if editorActive == true then
+        -- Read local cfg with editor specific settings
+
+        readCfg(" / local / localeditor.cfg", _G)
+	else
+
+        --Read local cfg with standalone specific settings
+
+        readCfg(" / local / LocalGame.cfg", _G)
+
+    end
+end
+    --------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+
+    local gameTable = _G["Game"]
+	if gameTable then
+
+        levelName = gameTable["Level"]
+
+    end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+--Levels / name / name to go with the standard level naming convention
+if levelName and not string.find(levelName, " / ") then
+
+    levelName = "Levels / "..levelName.." / "..levelName
+end
+
+if levelName then
+
+    readCfg(levelName..".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = { } end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+
+    print "------------Commandline parameters:"
+	for k,
+    v in pairs(commandLine) do print(k, v) end
+end
+
+-- GOLF_BEGIN | DIVERGENCE | evcomes | 2020 - 05 - 11 | Adding the Bot.cfg file which is only useful for AutoBot enabled titles and should not be sent back.
+-- Bots
+local useBotConfig = commandLine:lookup("AutoBot.BotType") 
+if useBotConfig then
+
+    readCfg("Scripts / Bot.cfg")
+
+    readCfg("Scripts / Bot_"..useBotConfig..".cfg")
+end
+-- GOLF_END
+
+-- Handle<Table>.< Member > settings
+
+
+if allowCommandlineSettings then
+	for _,
+    option in ipairs(commandLine) do
+
+        local table,
+    member = string.match(option, " ^% -(% w +) %.([% w %.] +)")
+
+		if table and member then
+
+            local value = commandLine[_ + 1]
+
+            local cfgLine = table.."."..member.." "..value
+
+            core.parseKeyValueCfgString("Configure.lua#commandLine", cfgLine, _G)
+		else
+
+            local varName = string.match(option, " ^% -([% w -] +)")
+			if varName then
+
+                local value = commandLine[_ + 1] 
+				if value then
+
+                    _G[varName] = value
+
+                end
+
+            end
+
+        end
+
+
+    end
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+
+    Online.ClientIsPresenceEnabled = false
+
+    Online.ServerIsPresenceEnabled = false
+
+
+    applySettings([= [
+        Network.GhostCountWarning true
+
+        Network.GhostCountWarningInfo true
+    ] =])
+end
+
+--
+
+core.import("Scripts / Game / DebugSettings.lua")
+
+--------------------------------------------------------------------------
+-- Handle disabled asserts
+--
+
+if commandLine: lookup('useDisabledAssertsCfg', true) then
+    -- Read common disabled asserts cfg file
+
+    readCfg(" / Local / DisabledAsserts.cfg", _G)
+end
+[/version]
+
+[version]
+2023-2024 (EA Sports: FC 24, Madden 24, NHL 24)
+[notes]
+Enhanced platform support + FIFA→FC transition.
+
+New Features:
+- /local/Local.cfg (case-sensitive Android support)
+- /sdcard/local.cfg (Nintendo Switch SD card)
+- FIFA/fifagame/fifagame → fc/FCGame/FCGame level name redirect
+- Bot.cfg system restored (Madden)
+- allowCommandlineSettings restored
+
+Changes from Dead Space:
+- More comprehensive local.cfg paths
+- Sports-specific bot configuration
+- Level name migration for FC rebrand
+
+Why: EA Sports needed Switch support and FIFA rebranding to FC (EA Sports FC).
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+-- FrostEd Game View
+local isGameView = commandLine:lookup("Core.EditorIsDocked")
+if isGameView then
+	if isGameView == "1" or isGameView == "true" then
+		readCfg("Scripts/GameView.cfg")
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if tostring(commandLine[i+1]):find("/") then
+			readCfg(tostring(commandLine[i+1]))
+		else
+			readCfg("Scripts/" .. tostring(commandLine[i+1]))
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+	readCfg("/scratch/local.cfg", _G)
+	-- ps4 data drive is case sensitive :(
+	readCfg("/scratch/Local.cfg", _G)
+	readCfg("/local/Local.cfg", _G)
+	-- ps5 host drive
+	readCfg("/localhost/local.cfg", _G)
+	readCfg("/scratchhost/local.cfg", _G)
+
+	-- FIFA_BEGIN | TEMP | EACANADA\dhan | 2022-12-15 | Switch migration.  Temporary fix missing tags
+	-- nx might also have it on sd card ---
+	readCfg("/sdcard/local.cfg", _G)
+	-- FIFA_END
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if levelName and string.lower(levelName) == "fifa/fifagame/fifagame" then
+	levelName = "fc/FCGame/FCGame"
+end
+
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with the standard level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+
+if allowCommandlineSettings then
+	for _,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+		if table and member then
+			local value = commandLine[_ + 1]
+			local cfgLine = table .. "." .. member .. " " .. value
+			applySettings(cfgLine)
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[_ + 1]
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+
+	end
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	Online.Backend = "Backend_Lan"
+	Online.UseFallback = true
+	Online.ClientIsPresenceEnabled = false
+	Online.ServerIsPresenceEnabled = false
+
+	applySettings([=[
+		Server.forceStartMapOnLoad true
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+	]=])
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+
+--------------------------------------------------------------------------
+-- Handle disabled asserts
+--
+
+if commandLine:lookup('useDisabledAssertsCfg', true) then
+	-- Read common disabled asserts cfg file
+	readCfg("/Local/DisabledAsserts.cfg", _G)
+end
+[/version]
+
+[version]
+2024 (Dragon Age: The Veilguard)
+[notes]
+BioWare's dual editor mode detection.
+
+New Features:
+- Core.EditorIsDocked + Core.ExecutionMode dual detection
+- if isEditorDocked OR (isGameView == ExecutionMode_GameView) then
+- branch.cfg support (from Anthem)
+
+Changes from FC 24:
+- Removed Switch/PS5 host paths
+- Removed Bot.cfg
+- Removed FIFA level redirect
+- branch.cfg moved BEFORE GameView detection
+- BW_START/BW_END tags with attribution
+
+Why: Dragon Age needed flexible editor configuration for different development modes.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString("Configure.lua", settings, _G)
+end
+
+-- Basic settings 
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+-- FrostEd Game View
+local isEditorDocked = commandLine:lookup("Core.EditorIsDocked") 
+local isGameView = commandLine:lookup("Core.ExecutionMode")
+if isEditorDocked and (isEditorDocked == "1" or isEditorDocked == "true") then
+	readCfg("Scripts/GameView.cfg")
+else 
+	if isGameView and (isGameView == "ExecutionMode_GameView") then
+		readCfg("Scripts/GameView.cfg")
+	end
+end
+
+
+-- BW_START - 2018-09-12 - Sydney Tang - [JIRA:FB-104771] Add branch-specific cfg file
+--------------------------------------------------------------------------
+-- Branch-specific overrides are above Game.cfg, but below Drone and Local
+-- Make sure your branch.cfg file is specified with "isolate" in the p4 streamspec's Paths
+readCfg("Scripts / branch.cfg")
+-- BW_END
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,
+    v in ipairs(commandLine) do
+	if string.lower(v) == " - customconfig" then
+		if commandLine[i + 1]:find(" / ") then
+
+            readCfg(commandLine[i + 1])
+		else
+
+            readCfg("Scripts / "..commandLine[i + 1])
+
+        end
+
+    end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+
+        editorActive = true
+
+    end
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+    --
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+    -- Read common local cfg file
+
+    readCfg(" / local / local.cfg", _G)
+
+	if editorActive == true then
+        -- Read local cfg with editor specific settings
+
+        readCfg(" / local / localeditor.cfg", _G)
+	else
+
+        --Read local cfg with standalone specific settings
+
+        readCfg(" / local / LocalGame.cfg", _G)
+
+    end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+
+    local gameTable = _G["Game"]
+	if gameTable then
+
+        levelName = gameTable["Level"]
+
+    end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+--Levels / name / name to go with the standard level naming convention
+if levelName and not string.find(levelName, " / ") then
+
+    levelName = "Levels / "..levelName.." / "..levelName
+end
+
+if levelName then
+
+    readCfg(levelName..".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+    --
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = { } end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+
+    print "------------Commandline parameters:"
+	for k,
+    v in pairs(commandLine) do print(k, v) end
+end
+
+-- Handle<Table>.< Member > settings
+
+
+if allowCommandlineSettings then
+	for _,
+    option in ipairs(commandLine) do
+
+        local table,
+    member = string.match(option, " ^% -(% w +) %.([% w %.] +)")
+
+		if table and member then
+
+            local value = commandLine[_ + 1]
+
+            local cfgLine = table.."."..member.." "..value
+
+            core.parseKeyValueCfgString("Configure.lua#commandLine", cfgLine, _G)
+		else
+
+            local varName = string.match(option, " ^% -([% w -] +)")
+			if varName then
+
+                local value = commandLine[_ + 1] 
+				if value then
+
+                    _G[varName] = value
+
+                end
+
+            end
+
+        end
+
+
+    end
+end
+
+--------------------------------------------------------------------------
+    -- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+    -- BW_START - 2018 / 09 / 17 - aldaza - [DIVERGENCE:DVT - 840] Add a button to allow quick online play from FrostEd
+
+    --There was a divergence here that only disabled presence if offline mode was chosen, but it was removed in CL80319 by dadamitskiy
+    --[MOR - 7005] Allow online presence and Origin to boot up when running from FrostEd or GameView.Also addresses startup crash from FrostEd.
+
+    --But this script on vanilla FB has following 2 lines uncommented
+    --Online.ClientIsPresenceEnabled = false
+    --Online.ServerIsPresenceEnabled = false
+    -- BW_END
+
+
+    applySettings([= [
+        Network.GhostCountWarning true
+
+        Network.GhostCountWarningInfo true
+    ] =])
+end
+
+--
+
+core.import("Scripts / Game / DebugSettings.lua")
+
+--------------------------------------------------------------------------
+-- Handle disabled asserts
+--
+
+if commandLine: lookup('useDisabledAssertsCfg', true) then
+    -- Read common disabled asserts cfg file
+
+    readCfg(" / Local / DisabledAsserts.cfg", _G)
+end
+[/version]
+
+[version]
+2024 (Madden NFL 25)
+[notes]
+Bot.cfg + enhanced platform support.
+
+New Features:
+- AutoBot.UseBotConfig detection
+- Scripts/Bot.cfg loading
+- /sdcard/local.cfg (Switch support)
+- All PS5/PS4/Android paths restored
+
+Changes from Dragon Age:
+- Bot configuration system
+- MADDEN_BEGIN tags
+- Complete platform path coverage
+
+Why: Madden needed AutoBot testing infrastructure for AI player simulation.
+[content]
+--
+-- Game configuration script
+--
+
+-- Local helper functions
+function commandLine:lookup(name, default)
+	local value = self[string.lower(name)]
+
+	return value or default
+end
+
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+
+	if (commandLine:lookup(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+function cmdLineOption(optionName, default)
+	return commandLine:lookup(optionName, default)
+end
+
+local function readCfg(name)
+	log:debug("reading cfg: " .. name)
+	core.readKeyValueCfg(name, _G)
+end
+
+local function applySettings(settings)
+	core.parseKeyValueCfgString(settings, _G)
+end
+
+-- Basic settings
+
+core.import("Scripts/Game/Settings.lua")
+
+-- Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+-- FrostEd Game View
+local isGameView = commandLine:lookup("Core.EditorIsDocked")
+if isGameView then
+	if isGameView == "1" or isGameView == "true" then
+		readCfg("Scripts/GameView.cfg")
+	end
+end
+
+-- MADDEN_BEGIN | DIVERGENCE | patrickmoore | 2017-10-26 | Adding missing tag
+-- Bots
+local useBotConfig = commandLine:lookup("AutoBot.UseBotConfig") 
+if useBotConfig then
+	readCfg("Scripts/Bot.cfg")
+end
+-- MADDEN_END
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,v in ipairs(commandLine) do
+	if string.lower(v) == "-customconfig" then
+		if tostring(commandLine[i+1]):find("/") then
+			readCfg(tostring(commandLine[i+1]))
+		else
+			readCfg("Scripts/" .. tostring(commandLine[i+1]))
+		end
+	end
+end
+
+local editorActive = false
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+if liveEditingEnable then
+	if liveEditingEnable == "1" or liveEditingEnable == "true" then
+		editorActive = true
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+
+if not commandLine:lookup('noLocalCfg', false) then
+	-- Read common local cfg file
+	readCfg("/local/local.cfg", _G)
+	readCfg("/scratch/local.cfg", _G)
+	-- ps4 data drive is case sensitive :(
+	readCfg("/scratch/Local.cfg", _G)
+	readCfg("/local/Local.cfg", _G)
+	-- ps5 host drive
+	readCfg("/localhost/local.cfg", _G)
+	readCfg("/scratchhost/local.cfg", _G)
+
+	if editorActive == true then
+		-- Read local cfg with editor specific settings
+		readCfg("/local/localeditor.cfg", _G)
+	else
+		-- Read local cfg with standalone specific settings
+		readCfg("/local/localgame.cfg", _G)
+	end
+end
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = commandLine:lookup("level")
+if not levelName then
+	local gameTable = _G["Game"]
+	if gameTable then
+		levelName = gameTable["Level"]
+	end
+end
+
+-- Level names without slashes are assumed to be shorthand for
+-- Levels/name/name to go with the standard level naming convention
+if levelName and not string.find(levelName, "/") then
+	levelName = "Levels/" .. levelName .. "/" .. levelName
+end
+
+if levelName then
+	readCfg(levelName .. ".cfg")
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = {} end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+	print "------------Commandline parameters:"
+	for k,v in pairs(commandLine) do print (k,v) end
+end
+
+-- Handle <Table>.<Member> settings
+
+
+if allowCommandlineSettings then
+	for _,option in ipairs(commandLine) do
+		local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+		if table and member then
+			local value = commandLine[_ + 1]
+			local cfgLine = table .. "." .. member .. " " .. value
+			applySettings(cfgLine)
+		else
+			local varName = string.match(option, "^%-([%w-]+)")
+			if varName then
+				local value = commandLine[_ + 1]
+				if value then
+					_G[varName] = value
+				end
+			end
+		end
+
+	end
+end
+
+--------------------------------------------------------------------------
+-- Force specific settings when running through FrostEd
+--
+
+if editorActive then
+	Online.Backend = "Backend_Lan"
+	Online.UseFallback = true
+	Online.ClientIsPresenceEnabled = false
+	Online.ServerIsPresenceEnabled = false
+
+	applySettings([=[
+		Server.forceStartMapOnLoad true
+		Network.GhostCountWarning true
+		Network.GhostCountWarningInfo true
+	]=])
+end
+
+--
+
+core.import("Scripts/Game/DebugSettings.lua")
+
+--------------------------------------------------------------------------
+-- Handle disabled asserts
+--
+
+if commandLine:lookup('useDisabledAssertsCfg', true) then
+	-- Read common disabled asserts cfg file
+	readCfg("/Local/DisabledAsserts.cfg", _G)
+end
+[/version]
+
+[version]
+2025+ (Skate, Battlefield 6, Current Mainline)
+[notes]
+FINAL STANDARDIZATION: Frostbite's modern unified template.
+
+This is the culmination of 14 years of Frostbite configuration evolution. This template represents the 'gold standard' that all future Frostbite games will use.
+
+Major New Features:
+- core.cmdLineOption() as primary API (commandLine:lookup() deprecated)
+- DefaultSettings/ structure:
+  - Scripts/Game/DefaultSettings/DefaultSettings.lua (Frostbite core defaults)
+  - Scripts/Game/DefaultSettings/Platform/base{platform}.lua (hardware capabilities)
+  - Scripts/Game/Licensee/DefaultSettings/Platform/{platform}.lua (game-specific overrides)
+- Editor framework:
+  - Scripts/Editor/LaunchedFromFrostEd.lua
+  - Scripts/Editor/Common.lua
+  - Scripts/Editor/GameView.lua
+  - Scripts/Editor/Native.lua
+  - ExecutionMode_UniversalEditor support (new unified editor)
+- cleanLevelName() helper function - normalizes paths (backslash → forward slash)
+- core.parseLocalCfgs(editorActive) - centralized local config loading
+- core.parseCmdLineSettings() - called BEFORE and AFTER DebugSettings.lua
+- readCfg() with allowAssignVar parameter - tracks runtime-modifiable variables
+- readCfg() with fileNotFoundIsError parameter - distinguishes required vs optional configs
+- ignoreDisabledAssertsCfg flag (replaces useDisabledAssertsCfg logic)
+- --customconfig support (Skate only)
+- Scripts/branch.cfg moved to AFTER platform defaults
+
+Architectural Philosophy:
+1. Frostbite owns: Settings.lua, DefaultSettings/, Platform/base/ (immutable facts)
+2. Games own: Game.cfg, Licensee/DefaultSettings/, branch.cfg (overrides)
+3. Developers own: local.cfg, localeditor.cfg (personal settings)
+4. Command-line: Final authority (overrides everything)
+
+Key Improvements from 2011:
+- Separation of concerns (engine vs game vs developer)
+- Platform capability detection (base) vs recommended defaults (platform)
+- Centralized command-line parsing
+- Runtime variable modification tracking (_AllowAssignVar suffix)
+- Better editor mode detection
+- Comprehensive error handling
+
+This is the template that will carry Frostbite into the next generation of games.
+[content]
+--
+-- Game configuration script
+--
+
+-- Global help function(backward compat for Game.cfg)
+function cmdLineOption(optionName, default)
+	return core.cmdLineOption(optionName, default)
+end
+
+-- Local helper functions
+local function cmdLineSwitch(switchName, fieldName, inTable)
+	local table = inTable or Game
+	if (core.cmdLineOption(switchName)) then
+		table[fieldName] = true
+	end
+end
+
+local function readCfg(name, allowAssignVar, fileNotFoundIsError)
+	core.readKeyValueCfg(name, _G, allowAssignVar, fileNotFoundIsError)
+end
+
+-- Basic settings 
+core.import("Scripts/Game/Settings.lua")
+
+-- (Frostbite owned) Default settings 
+core.import("Scripts/Game/DefaultSettings/DefaultSettings.lua")
+
+-- (Licensee owned) Import old-school cfg files for backwards compatibility
+local defaultConfigFile = commandLine:lookup("defaultConfig")
+if defaultConfigFile then
+	readCfg(defaultConfigFile)
+else
+	readCfg("Scripts/Game.cfg")
+end
+
+local function cleanLevelName(levelName)
+	-- Level names without slashes are assumed to be shorthand for
+	-- Levels/name/name to go with the standard level naming convention
+	if levelName and string.find(levelName, "\\") then
+		levelName = levelName:gsub("\\", "/")
+	end
+
+	if levelName and not string.find(levelName, "/") then
+		levelName = "Levels/" .. levelName .. "/" .. levelName
+	end
+
+	return levelName
+end
+--------------------------------------------------------------------------
+-- (Licensee owned) Branch-specific overrides are above Game.cfg, but below Drone and Local
+-- Make sure your branch.cfg file is specified with "isolate" in the p4 streamspec's Paths
+readCfg("Scripts / branch.cfg")
+    --(Frostbite owned) Read good default platform specific settings set by Frostbite.
+core.import("Scripts / Game / DefaultSettings / Platform / base"..platform..".lua")
+
+--(Licensee owned) Read licensee specific platform specific settings.
+core.import("Scripts / Game / Licensee / DefaultSettings / Platform / "..platform..".lua")
+
+local level = cmdLineOption('level')
+
+if level then
+
+    log:debug("Level specified on commandline, enabling fast startup")
+
+
+    Game.Level = cleanLevelName(level)
+end
+
+-- GameView and Native editor settings
+local launchedFromEditor = commandLine:lookup("launchedFromFrostEd")
+if launchedFromEditor then
+
+    core.import("Scripts / Editor / LaunchedFromFrostEd.lua")
+
+    -- FrostEd GameView and NativeEditor
+
+    local executionMode = commandLine:lookup("Core.ExecutionMode")
+	if executionMode then
+		if executionMode == "ExecutionMode_GameView" or executionMode == "ExecutionMode_Editor" or executionMode == "ExecutionMode_UniversalEditor" then
+
+            core.import("Scripts / Editor / Common.lua")
+			if executionMode == "ExecutionMode_GameView" then
+
+                core.import("Scripts / Editor / GameView.lua")
+			else
+
+                core.import("Scripts / Editor / Native.lua")
+
+            end
+
+        end
+
+    end
+end
+
+--------------------------------------------------------------------------
+-- Handle any Drone override options
+--
+
+for i,
+    v in ipairs(commandLine) do
+	if string.lower(v) == " - customconfig" or string.lower(v) == "--customconfig" then
+		if commandLine[i + 1]:find(" / ") then
+
+            readCfg(commandLine[i + 1], true, true)
+		else
+
+            readCfg("Scripts / "..commandLine[i + 1], true, true)
+
+        end
+
+    end
+end
+
+local liveEditingEnable = commandLine:lookup("core.liveeditingenable")
+local editorActive = liveEditingEnable and(liveEditingEnable == "1" or liveEditingEnable == "true")
+
+--------------------------------------------------------------------------
+-- Handle local overrides
+--
+-- This needs to run before we load the level cfg as we can specify the fast startup level name here!
+-- local cfgs will be read again by UserOptions / Options.lua
+
+core.parseLocalCfgs(editorActive)
+
+--------------------------------------------------------------------------
+-- Handle level specific configuration
+--
+
+local levelName = core.cmdLineOption("level")
+if not levelName then
+
+    local gameTable = _G["Game"]
+	if gameTable then
+
+        levelName = gameTable["Level"]
+
+    end
+end
+
+levelName = cleanLevelName(levelName)
+
+if levelName then
+
+    readCfg(levelName..".cfg")
+end
+
+-- Force specific settings when running through FrostEd
+if editorActive then
+
+    core.import("Scripts / Game / LiveEditingSettings.lua")
+end
+
+--------------------------------------------------------------------------
+    -- Handle commandline options
+    --
+    --   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+if not Game then Game = { } end
+
+cmdLineSwitch("verbose", "Verbose")
+
+if Game.Verbose then
+
+    print "------------Commandline parameters:"
+	for k,
+    v in pairs(commandLine) do print(k, v) end
+end
+
+-- Handle<Table>.< Member > settings
+    -- We need to parse the cmdline settings here because the DebugSettings.lua looks for settings
+-- coming from the cmdline to determine whether or not to set other settings.
+    core.parseCmdLineSettings()
+
+-- Settings that are used when debugging
+core.import("Scripts / Game / DebugSettings.lua")
+
+-- We need to reparse cmdline settings after DebugSettings because the DebugSettings code could be setting
+-- settings values that are also set on the cmdline.On Windows(and several platforms) the cmdline is reparsed
+--when reading the UserOptions / Options.lua but is not on other platforms.By rereading the settings here,
+    we make sure the
+-- cmdline settings are consistently set across all platforms.
+    core.parseCmdLineSettings()
+
+--------------------------------------------------------------------------
+-- Handle disabled asserts
+--
+
+if not core.cmdLineOption('ignoreDisabledAssertsCfg', false) then
+    -- Read common disabled asserts cfg file
+    -- Use the following line for DisabledAsserts as a local configuration file.Will not work with deployed builds
+    -- readCfg(" / Local / DisabledAsserts.cfg")
+    -- Use the following line for DisabledAsserts as a deployable configuration file.
+readCfg("Scripts/DisabledAsserts.cfg", _G)
+end
+[/version]

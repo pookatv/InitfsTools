@@ -1,0 +1,217 @@
+[description]
+Core server administration - manages ban lists, level rotation, and persistent server state.
+
+[version]
+2011+ (Universal)
+[notes]
+Comprehensive server management system.
+
+Data Structures:
+- banList = {} - Table of banned players: { [onlineId] = { time=timestamp, name=string } }
+- levelList = {} - Array of level names for rotation
+- currentLevelIndex = 0 - Current position in rotation
+- maxLevelIndex = 0 - Total levels in rotation
+
+Server Lifecycle Callbacks (Empty Stubs):
+- Server_LoadLevel() - Called before level load
+- Server_UnloadLevel() - Called before level unload
+- Server_LevelLoaded() - Called after level load completes
+- Server_LevelUnloaded() - Called after level unload completes
+- Server_ScriptTick() - Called every server tick (increments ticks counter)
+
+Ban Management:
+- Server_PlayerBanned(onlineId, name) - Add player to ban list with timestamp
+- Server_UnbanPlayer(id) - Remove player from ban list
+- Server_ListBans() - Print all banned players with timestamps
+
+Level Rotation:
+- Server_LoadNextLevel() - Load next level in rotation, wraps to beginning
+- Server_AddLevel(levelName) - Add level to rotation
+- Server_RemoveLevel(levelIndex) - Remove level from rotation, compacts array
+- Server_ListLevels() - Print rotation with '<< ' marking current level
+
+Persistence:
+- writeServerData() - Serializes banList and levelList to serverAdminSave.lua
+- Uses tableToString() for serialization
+- Skips on Xbox 360 (Xenon) and PS3 (no file system access)
+
+Platform Detection:
+- dice.getCurrentPlatformName() - Returns platform string
+- Writes to file only on platforms with file system access
+
+This system allows server administrators to manage bans and level rotation via remote console commands, with state persisting across server restarts.
+[content]
+require "vfs"
+require "os"
+
+banList = {}
+levelList = {}
+currentLevelIndex = 0
+maxLevelIndex = 0
+
+function Server_LoadLevel()
+
+--  print("Server_LoadLevel called")
+
+end
+
+function Server_UnloadLevel()
+
+--  print("Server_UnloadLevel called")
+
+end
+
+
+function Server_LevelLoaded()
+
+--  print("Server_LevelLoaded called")
+
+end
+
+function Server_LevelUnloaded()
+
+--  print("Server_LevelUnloaded called")
+
+end
+
+
+ticks = 0
+
+function Server_ScriptTick()
+
+--  print("Server_ScriptTick called; ticks = " .. ticks)
+
+  ticks = ticks + 1
+
+end
+
+function Server_PlayerBanned(onlineId, name)
+
+  print("Server_PlayerBanned called: Player " .. onlineId .. " banned")
+
+  banList[onlineId] = { ["time"]=os.time(), ["name"]=name }
+  
+  writeServerData()
+
+end
+
+function Server_UnbanPlayer(id)
+
+  if (banList[id] ~= nil) then
+    print("Player " .. id .. " unbanned")
+    banList[id] = nil
+    
+    if (banList[id] ~= nil) then
+	  print("Player was not removed for some reason")
+    end
+    
+    writeServerData()
+  else
+    print("No player with id " .. id .. " is banned")
+  end
+
+end
+
+function Server_ListBans()
+ 
+  --Server_PlayerBanned(174636, "gunnar")
+  --Server_PlayerBanned(345636, "olle")
+  
+  for k,v in pairs(banList) do
+    currentTime = os.date("%c", v.time)
+    print("[" .. k .. "]: " .. v.name .. "," .. currentTime)
+  end
+  
+end
+
+function Server_LoadNextLevel()
+
+  if (levelList[currentLevelIndex] ~= nil) then
+	print("Loading level: " .. levelList[currentLevelIndex])
+	loadNextLevel(levelList[currentLevelIndex])
+	if (currentLevelIndex < maxLevelIndex) then
+	  currentLevelIndex = currentLevelIndex + 1
+	else
+	  currentLevelIndex = 1
+	end
+  else
+    print("Levelindex " .. currentLevelIndex .. " do not exist")
+  end
+  
+end
+
+function Server_AddLevel(levelName)
+
+  maxLevelIndex = maxLevelIndex + 1	
+  levelList[maxLevelIndex] = levelName
+  print("Added level '" .. levelName .. "' to level list")
+  writeServerData()
+  if (currentLevelIndex == 0) then
+    currentLevelIndex = 1
+  end
+  
+end
+
+function Server_RemoveLevel(levelIndex)
+
+  if (levelList[levelIndex] ~= nil) then
+	print("Removing level '" .. levelList[levelIndex] .. "' at index: " .. levelIndex)
+	--table.remove(levelList, levelIndex)
+	for i=levelIndex,(maxLevelIndex-1),1 do
+	  levelList[i] = levelList[i+1]
+	end
+	table.remove(levelList, maxLevelIndex)
+	maxLevelIndex = maxLevelIndex - 1
+	
+	writeServerData()
+	if (currentLevelIndex > maxLevelIndex) then
+      currentLevelIndex = maxLevelIndex
+    end
+  else
+    print("No level at index: " .. levelIndex)
+  end
+
+end
+
+function Server_ListLevels()
+   
+  for k,v in pairs(levelList) do
+	if (k == currentLevelIndex) then
+	  print("[" .. k .. "]: " .. v .. " <<")
+	else
+	  print("[" .. k .. "]: " .. v)
+	end
+  end
+  
+end
+
+function writeServerData()
+
+  local currentPlatform = string.lower(dice.getCurrentPlatformName())
+  if (currentPlatform == "xenon" or currentPlatform == "ps3") then
+    return
+  end
+  
+  local f = vfs.open(serverSaveFilePath, "w")
+  
+  if not f then
+	-- File not found
+	return
+  end
+  
+  serializedTable = tableToString(banList)
+  
+  f:write("banList = " .. serializedTable .. "\n")
+  
+  --print("Wrote to file: banList = " .. serializedTable)
+  
+  serializedTable = tableToString(levelList)
+  
+  f:write("levelList = " .. serializedTable .. "\n")
+  
+  --print("Wrote to file: levelList = " .. serializedTable)
+  
+  f:close()
+
+end
+[/version]

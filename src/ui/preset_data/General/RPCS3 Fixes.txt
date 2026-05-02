@@ -1,0 +1,11 @@
+[notes]
+General fixes for PS3 games played in the RPCS3 emulator, which can also significantly increase emulation performance. Warning: do not apply these commands on a retail PS3!
+[/notes]
+
+WorldRender.MaxPointLightCount 0 // Further gets rid of neon rectangles and black/white graphical artifacts
+WorldRender.MaxSpotLightCount 0 // Fixes flickering and many RGB artifacts on screen. Trade-off: Makes characters darker in character customization screen
+WorldRender.MaxSpotLightShadowCount 0 // Helps remove bright RGB artifacts appearing
+WorldRender.PlanarReflectionEnable 0 // Helps remove bright RGB artifacts appearing
+WorldRender.Ps3TilingEnable 0 // Removes colored artifacts from ever appearing
+WorldRender.PunctualLightsEnable 0 // Fixes objects being super bright
+WorldRender.SkyEnvmapEnable 0 // Fixes bad tiling artifacts in charater customization

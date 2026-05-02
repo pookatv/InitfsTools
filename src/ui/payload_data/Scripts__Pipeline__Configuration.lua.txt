@@ -1,0 +1,2075 @@
+[description]
+Pipeline configuration script - coordinates asset compilation settings, imports GlobalSettings.lua and others, and handles command-line overrides for the Frostbite build pipeline.
+
+[version]
+2011 (Battlefield 3 Alpha, Command & Conquer: Generals 2)
+[notes]
+Original pipeline configuration with Maya integration.
+
+Loading Order:
+1. GlobalSettings.lua (common settings)
+2. commandLine.startupScript (if specified - Drone custom settings)
+3. MayaExport/Startup.lua (Maya DCC integration)
+4. Settings.lua (game-specific settings)
+5. commandLine.config (if specified - Drone custom settings)
+
+Maya Version Detection:
+- MAYA_VERSION environment variable
+- Supports: 8.5 (850) and 2009
+
+Command-Line Switches (Boolean):
+- debug → Pipeline.DebugMode
+- validateData → Pipeline.ValidateData
+- addToPerforce → Pipeline.AddToPerforce
+- noconsole → Pipeline.NoConsole
+- verbose → Pipeline.Verbose
+- trace → Pipeline.EnableTracing
+- nohal → Pipeline.DisableHalDevice
+- trim → Pipeline.TrimLayout
+- updateIndex → Pipeline.UpdateIndexOnly
+
+Command-Line Arguments (String):
+- opfilter → Pipeline.OpFilter
+
+Diagnostics:
+- Pipeline.Verbose triggers settings dump and command-line dump
+
+This represents the earliest asset pipeline configuration with Maya exporter integration.
+[content]
+--
+-- Pipeline Configuration
+--
+--   This is an internal script used for configuring the pipeline. Normal
+--   users should typically not edit this file, as most end-user settings
+--   are exposed through the GlobalSettings.lua file
+--
+
+--
+-- Import common settings
+--
+
+core.import(allScriptsRoot .. "GlobalSettings.lua", "global settings");
+
+-- Import session startup script, if specified on commandLine
+-- 
+-- This is used by Drone to change settings
+
+if commandLine.startupscript then
+	core.import("/data/" .. commandLine.startupScript, _G)
+end
+
+--
+-- Import Maya exporter settings
+--
+
+core.import(allScriptsRoot .. "MayaExport/Startup.lua", "MayaExport configuration")
+
+core.import(scriptsRoot .. "Settings.lua")
+
+--   -config commandLine switch is used by Drone to configure custom settings
+if commandLine.config then
+	core.readKeyValueCfg("/data/Scripts/" .. commandLine.config, _G)	
+end
+
+--------------------------------------------------------------------------
+-- Configuration scripts will set the MAYA_VERSION environment variable
+-- to indicate which Maya version to use for the current branch
+--
+
+local MayaVersion = os.getenv("MAYA_VERSION")
+
+if MayaVersion == "8.5" then
+	MayaDependencies.MayaVersion = 850
+elseif MayaVersion == "2009" then
+	MayaDependencies.MayaVersion = 2009
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+local function cmdLineSwitch(switchName, fieldName)
+	if (commandLine[string.lower(switchName)]) then
+		Pipeline[fieldName] = true
+	end
+end
+
+local function cmdLineArg(switchName, fieldName)
+	local entry = commandLine[string.lower(switchName)]
+	
+	if (entry) then
+		Pipeline[fieldName] = entry
+		--print("Set " .. fieldName .. " to " .. entry)
+	end
+end
+
+cmdLineSwitch("debug", "DebugMode");
+cmdLineSwitch("validateData", "ValidateData");
+cmdLineSwitch("addToPerforce", "AddToPerforce");
+cmdLineSwitch("noconsole", "NoConsole");
+cmdLineSwitch("verbose", "Verbose");
+cmdLineSwitch("trace", "EnableTracing");
+cmdLineSwitch("nohal", "DisableHalDevice");
+cmdLineSwitch("trim", "TrimLayout");
+cmdLineSwitch("updateIndex", "UpdateIndexOnly");
+
+cmdLineArg("opfilter", "OpFilter")
+
+--
+--  Parse commandline options that may occur multiple times ("list" options)
+--
+
+----------------------------------------------------------------------------------------
+--
+-- Diagnostics dump
+--
+
+if Pipeline.Verbose then
+	print "
+	print "Pipeline settings summary:"
+	print "------------------------------------------------------"
+	
+	for k,v in pairs(Pipeline) do
+		print(k, v)
+	end
+	
+	print "
+
+	print "Command line:"
+	print "------------------------------------------------------"
+	
+	for _,v in pairs(commandLine) do
+		print(_,v)
+	end
+
+	print "
+end
+[/version]
+
+[version]
+2011-2013 (Battlefield 3/4, NFS The Run, Medal of Honor, Army of Two)
+[notes]
+Maya integration removed from mainline.
+
+Changes from Alpha:
+- Removed MayaExport/Startup.lua import
+- Removed MAYA_VERSION environment variable handling
+- Removed MayaDependencies.MayaVersion configuration
+
+Why: Games transitioned to FBX workflow, eliminating need for Maya-specific exporter configuration in pipeline.
+[content]
+--
+-- Pipeline Configuration
+--
+--   This is an internal script used for configuring the pipeline. Normal
+--   users should typically not edit this file, as most end-user settings
+--   are exposed through the GlobalSettings.lua file
+--
+
+--
+-- Import common settings
+--
+
+core.import(allScriptsRoot .. "GlobalSettings.lua", "global settings");
+
+-- Import session startup script, if specified on commandLine
+-- 
+-- This is used by Drone to change settings
+
+if commandLine.startupscript then
+	core.import("/data/" .. commandLine.startupScript, _G)
+end
+
+core.import(scriptsRoot .. "Settings.lua")
+
+--   -config commandLine switch is used by Drone to configure custom settings
+if commandLine.config then
+	core.readKeyValueCfg("/data/Scripts/" .. commandLine.config, _G)	
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+local function cmdLineSwitch(switchName, fieldName)
+	if (commandLine[string.lower(switchName)]) then
+		Pipeline[fieldName] = true
+	end
+end
+
+local function cmdLineArg(switchName, fieldName)
+	local entry = commandLine[string.lower(switchName)]
+	
+	if (entry) then
+		Pipeline[fieldName] = entry
+		--print("Set " .. fieldName .. " to " .. entry)
+	end
+end
+
+cmdLineSwitch("debug", "DebugMode");
+cmdLineSwitch("validateData", "ValidateData");
+cmdLineSwitch("addToPerforce", "AddToPerforce");
+cmdLineSwitch("noconsole", "NoConsole");
+cmdLineSwitch("verbose", "Verbose");
+cmdLineSwitch("trace", "EnableTracing");
+cmdLineSwitch("nohal", "DisableHalDevice");
+cmdLineSwitch("trim", "TrimLayout");
+cmdLineSwitch("updateIndex", "UpdateIndexOnly");
+
+cmdLineArg("opfilter", "OpFilter")
+
+--
+--  Parse commandline options that may occur multiple times ("list" options)
+--
+
+----------------------------------------------------------------------------------------
+--
+-- Diagnostics dump
+--
+
+if Pipeline.Verbose then
+	print "
+	print "Pipeline settings summary:"
+	print "------------------------------------------------------"
+	
+	for k,v in pairs(Pipeline) do
+		print(k, v)
+	end
+	
+	print "
+
+	print "Command line:"
+	print "------------------------------------------------------"
+	
+	for _,v in pairs(commandLine) do
+		print(_,v)
+	end
+
+	print "
+end
+[/version]
+
+[version]
+2013-2014 (Need For Speed Rivals, Garden Warfare)
+[notes]
+No functional changes from 2011-2013.
+
+Identical configuration - this represents the stable mainline template used across multiple franchises during this period.
+[content]
+--
+-- Pipeline Configuration
+--
+--   This is an internal script used for configuring the pipeline. Normal
+--   users should typically not edit this file, as most end-user settings
+--   are exposed through the GlobalSettings.lua file
+--
+
+--
+-- Import common settings
+--
+
+core.import(allScriptsRoot .. "GlobalSettings.lua", "global settings");
+
+-- Import session startup script, if specified on commandLine
+-- 
+-- This is used by Drone to change settings
+
+if commandLine.startupscript then
+	core.import("/data/" .. commandLine.startupScript, _G)
+end
+
+--
+-- Import settings
+--
+
+core.import(scriptsRoot .. "Settings.lua")
+
+--   -config commandLine switch is used by Drone to configure custom settings
+if commandLine.config then
+	core.readKeyValueCfg("/data/Scripts/" .. commandLine.config, _G)	
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+local function cmdLineSwitch(switchName, fieldName)
+	if (commandLine[string.lower(switchName)]) then
+		Pipeline[fieldName] = true
+	end
+end
+
+local function cmdLineArg(switchName, fieldName)
+	local entry = commandLine[string.lower(switchName)]
+	
+	if (entry) then
+		Pipeline[fieldName] = entry
+		--print("Set " .. fieldName .. " to " .. entry)
+	end
+end
+
+cmdLineSwitch("debug", "DebugMode");
+cmdLineSwitch("validateData", "ValidateData");
+cmdLineSwitch("addToPerforce", "AddToPerforce");
+cmdLineSwitch("noconsole", "NoConsole");
+cmdLineSwitch("verbose", "Verbose");
+cmdLineSwitch("trace", "EnableTracing");
+cmdLineSwitch("nohal", "DisableHalDevice");
+cmdLineSwitch("trim", "TrimLayout");
+cmdLineSwitch("updateIndex", "UpdateIndexOnly");
+
+cmdLineArg("opfilter", "OpFilter")
+
+--
+--  Parse commandline options that may occur multiple times ("list" options)
+--
+
+----------------------------------------------------------------------------------------
+--
+-- Diagnostics dump
+--
+
+if Pipeline.Verbose then
+	print "
+	print "Pipeline settings summary:"
+	print "------------------------------------------------------"
+	
+	for k,v in pairs(Pipeline) do
+		print(k, v)
+	end
+	
+	print "
+
+	print "Command line:"
+	print "------------------------------------------------------"
+	
+	for _,v in pairs(commandLine) do
+		print(_,v)
+	end
+
+	print "
+end
+[/version]
+
+[version]
+2014 (Dragon Age, Need For Speed/Payback, GW2/BFN, PGA Tour, SWBF1, BF1)
+[notes]
+Warnings.lua integration.
+
+New Feature:
+- core.import(scriptsRoot .. 'Warnings.lua')
+
+Why: Asset validation warnings system added to pipeline for better error reporting during compilation.
+[content]
+--
+-- Pipeline Configuration
+--
+--   This is an internal script used for configuring the pipeline. Normal
+--   users should typically not edit this file, as most end-user settings
+--   are exposed through the GlobalSettings.lua file
+--
+
+--
+-- Import common settings
+--
+
+core.import(allScriptsRoot .. "GlobalSettings.lua", "global settings");
+
+-- Import session startup script, if specified on commandLine
+-- 
+-- This is used by Drone to change settings
+
+if commandLine.startupscript then
+	core.import("/data/" .. commandLine.startupScript, _G)
+end
+
+--
+-- Import settings
+--
+
+core.import(scriptsRoot .. "Settings.lua")
+core.import(scriptsRoot .. "Warnings.lua")
+
+--   -config commandLine switch is used by Drone to configure custom settings
+if commandLine.config then
+	core.readKeyValueCfg("/data/Scripts/" .. commandLine.config, _G)	
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+local function cmdLineSwitch(switchName, fieldName)
+	if (commandLine[string.lower(switchName)]) then
+		Pipeline[fieldName] = true
+	end
+end
+
+local function cmdLineArg(switchName, fieldName)
+	local entry = commandLine[string.lower(switchName)]
+	
+	if (entry) then
+		Pipeline[fieldName] = entry
+		--print("Set " .. fieldName .. " to " .. entry)
+	end
+end
+
+cmdLineSwitch("debug", "DebugMode");
+cmdLineSwitch("validateData", "ValidateData");
+cmdLineSwitch("addToPerforce", "AddToPerforce");
+cmdLineSwitch("noconsole", "NoConsole");
+cmdLineSwitch("verbose", "Verbose");
+cmdLineSwitch("trace", "EnableTracing");
+cmdLineSwitch("nohal", "DisableHalDevice");
+cmdLineSwitch("trim", "TrimLayout");
+cmdLineSwitch("updateIndex", "UpdateIndexOnly");
+
+cmdLineArg("opfilter", "OpFilter")
+
+--
+--  Parse commandline options that may occur multiple times ("list" options)
+--
+
+----------------------------------------------------------------------------------------
+--
+-- Diagnostics dump
+--
+
+if Pipeline.Verbose then
+	print "
+	print "Pipeline settings summary:"
+	print "------------------------------------------------------"
+	
+	for k,v in pairs(Pipeline) do
+		print(k, v)
+	end
+	
+	print "
+
+	print "Command line:"
+	print "------------------------------------------------------"
+	
+	for _,v in pairs(commandLine) do
+		print(_,v)
+	end
+
+	print "
+end
+[/version]
+
+[version]
+2015 (Battlefield Hardline)
+[notes]
+No changes from 2014 - stable template.
+
+This represents the mature pipeline configuration used through mid-2010s Frostbite development.
+[content]
+--
+-- Pipeline Configuration
+--
+--   This is an internal script used for configuring the pipeline. Normal
+--   users should typically not edit this file, as most end-user settings
+--   are exposed through the GlobalSettings.lua file
+--
+
+--
+-- Import common settings
+--
+
+core.import(allScriptsRoot .. "GlobalSettings.lua", "global settings");
+
+-- Import session startup script, if specified on commandLine
+-- 
+-- This is used by Drone to change settings
+
+if commandLine.startupscript then
+	core.import("/data/" .. commandLine.startupScript, _G)
+end
+
+core.import(scriptsRoot .. "Settings.lua")
+core.import(scriptsRoot .. "Warnings.lua")
+
+--   -config commandLine switch is used by Drone to configure custom settings
+if commandLine.config then
+	core.readKeyValueCfg("/data/Scripts/" .. commandLine.config, _G)	
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+local function cmdLineSwitch(switchName, fieldName)
+	if (commandLine[string.lower(switchName)]) then
+		Pipeline[fieldName] = true
+	end
+end
+
+local function cmdLineArg(switchName, fieldName)
+	local entry = commandLine[string.lower(switchName)]
+	
+	if (entry) then
+		Pipeline[fieldName] = entry
+		--print("Set " .. fieldName .. " to " .. entry)
+	end
+end
+
+cmdLineSwitch("debug", "DebugMode");
+cmdLineSwitch("validateData", "ValidateData");
+cmdLineSwitch("addToPerforce", "AddToPerforce");
+cmdLineSwitch("noconsole", "NoConsole");
+cmdLineSwitch("verbose", "Verbose");
+cmdLineSwitch("trace", "EnableTracing");
+cmdLineSwitch("nohal", "DisableHalDevice");
+cmdLineSwitch("trim", "TrimLayout");
+cmdLineSwitch("updateIndex", "UpdateIndexOnly");
+
+cmdLineArg("opfilter", "OpFilter")
+
+--
+--  Parse commandline options that may occur multiple times ("list" options)
+--
+
+----------------------------------------------------------------------------------------
+--
+-- Diagnostics dump
+--
+
+if Pipeline.Verbose then
+	print "
+	print "Pipeline settings summary:"
+	print "------------------------------------------------------"
+	
+	for k,v in pairs(Pipeline) do
+		print(k, v)
+	end
+	
+	print "
+
+	print "Command line:"
+	print "------------------------------------------------------"
+	
+	for _,v in pairs(commandLine) do
+		print(_,v)
+	end
+
+	print "
+end
+[/version]
+
+[version]
+2017 (FIFA 18, Battlefront II, Squadrons)
+[notes]
+Function parameters support added.
+
+New Feature:
+- cmdLineArg('functionParameters', 'FunctionParameters')
+
+Why: Pipeline functions needed parameter passing for custom asset processing operations.
+[content]
+--
+-- Pipeline Configuration
+--
+--   This is an internal script used for configuring the pipeline. Normal
+--   users should typically not edit this file, as most end-user settings
+--   are exposed through the GlobalSettings.lua file
+--
+
+--
+-- Import common settings
+--
+
+core.import(allScriptsRoot .. "GlobalSettings.lua", "global settings");
+
+-- Import session startup script, if specified on commandLine
+-- 
+-- This is used by Drone to change settings
+
+if commandLine.startupscript then
+	core.import("/data/" .. commandLine.startupScript, _G)
+end
+
+--
+-- Import settings
+--
+
+core.import(scriptsRoot .. "Settings.lua")
+core.import(scriptsRoot .. "Warnings.lua")
+
+--   -config commandLine switch is used by Drone to configure custom settings
+if commandLine.config then
+	core.readKeyValueCfg("/data/Scripts/" .. commandLine.config, _G)	
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+local function cmdLineSwitch(switchName, fieldName)
+	if (commandLine[string.lower(switchName)]) then
+		Pipeline[fieldName] = true
+	end
+end
+
+local function cmdLineArg(switchName, fieldName)
+	local entry = commandLine[string.lower(switchName)]
+	
+	if (entry) then
+		Pipeline[fieldName] = entry
+		--print("Set " .. fieldName .. " to " .. entry)
+	end
+end
+
+cmdLineSwitch("debug", "DebugMode");
+cmdLineSwitch("validateData", "ValidateData");
+cmdLineSwitch("addToPerforce", "AddToPerforce");
+cmdLineSwitch("noconsole", "NoConsole");
+cmdLineSwitch("verbose", "Verbose");
+cmdLineSwitch("trace", "EnableTracing");
+cmdLineSwitch("nohal", "DisableHalDevice");
+cmdLineSwitch("trim", "TrimLayout");
+cmdLineSwitch("updateIndex", "UpdateIndexOnly");
+
+cmdLineArg("opfilter", "OpFilter")
+cmdLineArg("functionParameters", "FunctionParameters");
+
+--
+--  Parse commandline options that may occur multiple times ("list" options)
+--
+
+----------------------------------------------------------------------------------------
+--
+-- Diagnostics dump
+--
+
+if Pipeline.Verbose then
+	print "
+	print "Pipeline settings summary:"
+	print "------------------------------------------------------"
+	
+	for k,v in pairs(Pipeline) do
+		print(k, v)
+	end
+	
+	print "
+
+	print "Command line:"
+	print "------------------------------------------------------"
+	
+	for _,v in pairs(commandLine) do
+		print(_,v)
+	end
+
+	print "
+end
+[/version]
+
+[version]
+2017 (Mass Effect Andromeda)
+[notes]
+BioWare's Maya integration preserved.
+
+BioWare Divergence:
+- Retained MayaExport/Startup.lua import
+- Retained MAYA_VERSION environment variable handling
+- Supports Maya 8.5 (850) and 2009
+
+Why: BioWare continued using custom Maya exporters while other studios moved to FBX, showing studio-specific workflow preferences.
+[content]
+--
+-- Pipeline Configuration
+--
+--   This is an internal script used for configuring the pipeline. Normal
+--   users should typically not edit this file, as most end-user settings
+--   are exposed through the GlobalSettings.lua file
+--
+
+--
+-- Import common settings
+--
+
+core.import(allScriptsRoot .. "GlobalSettings.lua", "global settings");
+
+-- Import session startup script, if specified on commandLine
+-- 
+-- This is used by Drone to change settings
+
+if commandLine.startupscript then
+	core.import("/data/" .. commandLine.startupScript, _G)
+end
+
+--
+-- Import Maya exporter settings
+--
+
+core.import(allScriptsRoot .. "MayaExport/Startup.lua", "MayaExport configuration")
+
+core.import(scriptsRoot .. "Settings.lua")
+core.import(scriptsRoot .. "Warnings.lua")
+
+--   -config commandLine switch is used by Drone to configure custom settings
+if commandLine.config then
+	core.readKeyValueCfg("/data/Scripts/" .. commandLine.config, _G)	
+end
+
+--------------------------------------------------------------------------
+-- Configuration scripts will set the MAYA_VERSION environment variable
+-- to indicate which Maya version to use for the current branch
+--
+
+local MayaVersion = os.getenv("MAYA_VERSION")
+
+if MayaVersion == "8.5" then
+	MayaDependencies.MayaVersion = 850
+elseif MayaVersion == "2009" then
+	MayaDependencies.MayaVersion = 2009
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+local function cmdLineSwitch(switchName, fieldName)
+	if (commandLine[string.lower(switchName)]) then
+		Pipeline[fieldName] = true
+	end
+end
+
+local function cmdLineArg(switchName, fieldName)
+	local entry = commandLine[string.lower(switchName)]
+	
+	if (entry) then
+		Pipeline[fieldName] = entry
+		--print("Set " .. fieldName .. " to " .. entry)
+	end
+end
+
+cmdLineSwitch("debug", "DebugMode");
+cmdLineSwitch("validateData", "ValidateData");
+cmdLineSwitch("addToPerforce", "AddToPerforce");
+cmdLineSwitch("noconsole", "NoConsole");
+cmdLineSwitch("verbose", "Verbose");
+cmdLineSwitch("trace", "EnableTracing");
+cmdLineSwitch("nohal", "DisableHalDevice");
+cmdLineSwitch("trim", "TrimLayout");
+cmdLineSwitch("updateIndex", "UpdateIndexOnly");
+
+cmdLineArg("opfilter", "OpFilter")
+
+--
+--  Parse commandline options that may occur multiple times ("list" options)
+--
+
+----------------------------------------------------------------------------------------
+--
+-- Diagnostics dump
+--
+
+if Pipeline.Verbose then
+	print "
+	print "Pipeline settings summary:"
+	print "------------------------------------------------------"
+	
+	for k,v in pairs(Pipeline) do
+		print(k, v)
+	end
+	
+	print "
+
+	print "Command line:"
+	print "------------------------------------------------------"
+	
+	for _,v in pairs(commandLine) do
+		print(_,v)
+	end
+
+	print "
+end
+[/version]
+
+[version]
+2018 (Battlefield V)
+[notes]
+Cloth CPU wrapping support.
+
+New Feature (CASABLANCA divergence):
+- cmdLineSwitch('forceclothcpuwrap', 'ForceClothCpuWrap')
+- JIRA: CAS-66326
+- Developer: DICE\mengelbrektsson
+
+Why: BFV's advanced cloth simulation needed CPU fallback for compatibility with older hardware.
+[content]
+--
+-- Pipeline Configuration
+--
+--   This is an internal script used for configuring the pipeline. Normal
+--   users should typically not edit this file, as most end-user settings
+--   are exposed through the GlobalSettings.lua file
+--
+
+--
+-- Import common settings
+--
+
+core.import(allScriptsRoot .. "GlobalSettings.lua", "global settings");
+
+-- Import session startup script, if specified on commandLine
+-- 
+-- This is used by Drone to change settings
+
+if commandLine.startupscript then
+	core.import("/data/" .. commandLine.startupScript, _G)
+end
+
+--
+-- Import settings
+--
+
+core.import(scriptsRoot .. "Settings.lua")
+core.import(scriptsRoot .. "Warnings.lua")
+
+--   -config commandLine switch is used by Drone to configure custom settings
+if commandLine.config then
+	core.readKeyValueCfg("/data/Scripts/" .. commandLine.config, _G)	
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+local function cmdLineSwitch(switchName, fieldName)
+	if (commandLine[string.lower(switchName)]) then
+		Pipeline[fieldName] = true
+	end
+end
+
+local function cmdLineArg(switchName, fieldName)
+	local entry = commandLine[string.lower(switchName)]
+	
+	if (entry) then
+		Pipeline[fieldName] = entry
+		--print("Set " .. fieldName .. " to " .. entry)
+	end
+end
+
+cmdLineSwitch("debug", "DebugMode");
+cmdLineSwitch("validateData", "ValidateData");
+cmdLineSwitch("addToPerforce", "AddToPerforce");
+cmdLineSwitch("noconsole", "NoConsole");
+cmdLineSwitch("verbose", "Verbose");
+cmdLineSwitch("trace", "EnableTracing");
+cmdLineSwitch("nohal", "DisableHalDevice");
+cmdLineSwitch("trim", "TrimLayout");
+cmdLineSwitch("updateIndex", "UpdateIndexOnly");
+-- CASABLANCA - DICE\mengelbrektsson - [DIVERGENCE] - Force CPU Wrapping (CAS-66326)
+cmdLineSwitch("forceclothcpuwrap", "ForceClothCpuWrap");
+-- CASABLANCA
+
+cmdLineArg("opfilter", "OpFilter")
+
+--
+--  Parse commandline options that may occur multiple times ("list" options)
+--
+
+----------------------------------------------------------------------------------------
+--
+-- Diagnostics dump
+--
+
+if Pipeline.Verbose then
+	print "
+	print "Pipeline settings summary:"
+	print "------------------------------------------------------"
+	
+	for k,v in pairs(Pipeline) do
+		print(k, v)
+	end
+	
+	print "
+
+	print "Command line:"
+	print "------------------------------------------------------"
+	
+	for _,v in pairs(commandLine) do
+		print(_,v)
+	end
+
+	print "
+end
+[/version]
+
+[version]
+2018 (FIFA 19-FC 24, NHL 22, NFL 25)
+[notes]
+C++ SettingsManager integration.
+
+Major Addition (FIFA divergence):
+- Automatic Pipeline.* and Cache.* struct parsing from command-line
+- Pattern: -Pipeline.MemberName value or -Cache.MemberName value
+- Direct integration with C++ PipelineApp::applySettingsOnContainer()
+- JIRA: FB-79931
+- Developer: FIFA\dpbrown@ea.com
+
+Why: EA Sports needed seamless C++/Lua settings bridge for their extensive pipeline customization. This allows C++ code to directly query Lua-defined settings.
+
+Technical:
+for index,option in ipairs(commandLine) do
+	local table,member = string.match(option, '^-(%w+)%.([%w%.]+)')
+	if table and member and (table == 'Pipeline' or table == 'Cache') then
+		if not _G[table] then _G[table] = {} end
+		_G[table][member] = commandLine[index+1]
+	end
+end
+[content]
+--
+-- Pipeline Configuration
+--
+--   This is an internal script used for configuring the pipeline. Normal
+--   users should typically not edit this file, as most end-user settings
+--   are exposed through the GlobalSettings.lua file
+--
+
+--
+-- Import common settings
+--
+
+core.import(allScriptsRoot .. "GlobalSettings.lua", "global settings");
+
+-- Import session startup script, if specified on commandLine
+-- 
+-- This is used by Drone to change settings
+
+if commandLine.startupscript then
+	core.import("/data/" .. commandLine.startupScript, _G)
+end
+
+--
+-- Import settings
+--
+
+core.import(scriptsRoot .. "Settings.lua")
+core.import(scriptsRoot .. "Warnings.lua")
+
+--   -config commandLine switch is used by Drone to configure custom settings
+if commandLine.config then
+	core.readKeyValueCfg("/data/Scripts/" .. commandLine.config, _G)	
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+local function cmdLineSwitch(switchName, fieldName)
+	if (commandLine[string.lower(switchName)]) then
+		Pipeline[fieldName] = true
+	end
+end
+
+local function cmdLineArg(switchName, fieldName)
+	local entry = commandLine[string.lower(switchName)]
+	
+	if (entry) then
+		Pipeline[fieldName] = entry
+		--print("Set " .. fieldName .. " to " .. entry)
+	end
+end
+
+cmdLineSwitch("debug", "DebugMode");
+cmdLineSwitch("validateData", "ValidateData");
+cmdLineSwitch("addToPerforce", "AddToPerforce");
+cmdLineSwitch("noconsole", "NoConsole");
+cmdLineSwitch("verbose", "Verbose");
+cmdLineSwitch("trace", "EnableTracing");
+cmdLineSwitch("nohal", "DisableHalDevice");
+cmdLineSwitch("trim", "TrimLayout");
+cmdLineSwitch("updateIndex", "UpdateIndexOnly");
+
+cmdLineArg("opfilter", "OpFilter")
+cmdLineArg("functionParameters", "FunctionParameters");
+
+-- FIFA_BEGIN | PREPORT | dpbrown@ea.com | 26/04/2018 | https://jira.frostbite.ea.com/browse/FB-79931
+--
+-- Parse raw PipelineSettings and CacheSettings struct values
+--
+-- This ensures they can be found when the C++ SettingsManager asks the Lua
+-- settings provider for them.
+--
+-- Custom pipeline settings objects return by createSettings() are not parsed
+-- here, but instead directly from the command line on the C++ side
+-- (PipelineApp::applySettingsOnContainer()), where we also account for
+-- sub/super classes.
+
+for index,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+	if table and member and (table == "Pipeline" or table == "Cache") then
+		local value = commandLine[index+1] 
+		if not _G[table] then _G[table] = {} end
+		_G[table][member] = value 
+	end
+end
+-- FIFA_END
+
+--
+--  Parse commandline options that may occur multiple times ("list" options)
+--
+
+----------------------------------------------------------------------------------------
+--
+-- Diagnostics dump
+--
+
+if Pipeline.Verbose then
+	print "
+	print "Pipeline settings summary:"
+	print "------------------------------------------------------"
+	
+	for k,v in pairs(Pipeline) do
+		print(k, v)
+	end
+	
+	print "
+
+	print "Command line:"
+	print "------------------------------------------------------"
+	
+	for _,v in pairs(commandLine) do
+		print(_,v)
+	end
+
+	print "
+end
+[/version]
+
+[version]
+2019 (Anthem)
+[notes]
+BioWare adopts FIFA's C++ integration.
+
+Changes from BFV:
+- Removed forceclothcpuwrap switch
+- Added FIFA's Pipeline/Cache struct parsing
+- BW_START/BW_END tags (PREPORT:CL3890531)
+- Developer: BioWare\Devin Doucette
+
+Why: BioWare needed the same C++/Lua settings bridge as EA Sports for Anthem's complex asset pipeline.
+[content]
+--
+-- Pipeline Configuration
+--
+--   This is an internal script used for configuring the pipeline. Normal
+--   users should typically not edit this file, as most end-user settings
+--   are exposed through the GlobalSettings.lua file
+--
+
+--
+-- Import common settings
+--
+
+core.import(allScriptsRoot .. "GlobalSettings.lua", "global settings");
+
+-- Import session startup script, if specified on commandLine
+-- 
+-- This is used by Drone to change settings
+
+if commandLine.startupscript then
+	core.import("/data/" .. commandLine.startupScript, _G)
+end
+
+--
+-- Import settings
+--
+
+core.import(scriptsRoot .. "Settings.lua")
+core.import(scriptsRoot .. "Warnings.lua")
+
+--   -config commandLine switch is used by Drone to configure custom settings
+if commandLine.config then
+	core.readKeyValueCfg("/data/Scripts/" .. commandLine.config, _G)	
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+local function cmdLineSwitch(switchName, fieldName)
+	if (commandLine[string.lower(switchName)]) then
+		Pipeline[fieldName] = true
+	end
+end
+
+local function cmdLineArg(switchName, fieldName)
+	local entry = commandLine[string.lower(switchName)]
+	
+	if (entry) then
+		Pipeline[fieldName] = entry
+		--print("Set " .. fieldName .. " to " .. entry)
+	end
+end
+
+cmdLineSwitch("debug", "DebugMode");
+cmdLineSwitch("validateData", "ValidateData");
+cmdLineSwitch("addToPerforce", "AddToPerforce");
+cmdLineSwitch("noconsole", "NoConsole");
+cmdLineSwitch("verbose", "Verbose");
+cmdLineSwitch("trace", "EnableTracing");
+cmdLineSwitch("nohal", "DisableHalDevice");
+cmdLineSwitch("trim", "TrimLayout");
+cmdLineSwitch("updateIndex", "UpdateIndexOnly");
+
+cmdLineArg("opfilter", "OpFilter")
+
+-- BW_START - 2018/01/26 - Devin Doucette - [PREPORT:CL3890531] Parse PipelineSettings and CacheSettings from the command line
+--
+-- Parse raw PipelineSettings and CacheSettings struct values
+--
+-- This ensures they can be found when the C++ SettingsManager asks the Lua
+-- settings provider for them.
+--
+-- Custom pipeline settings objects return by createSettings() are not parsed
+-- here, but instead directly from the command line on the C++ side
+-- (PipelineApp::applySettingsOnContainer()), where we also account for
+-- sub/super classes.
+
+for index,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+	if table and member and (table == "Pipeline" or table == "Cache") then
+		local value = commandLine[index+1] 
+		if not _G[table] then _G[table] = {} end
+		_G[table][member] = value 
+	end
+end
+-- BW_END
+
+--
+--  Parse commandline options that may occur multiple times ("list" options)
+--
+
+----------------------------------------------------------------------------------------
+--
+-- Diagnostics dump
+--
+
+if Pipeline.Verbose then
+	print "
+	print "Pipeline settings summary:"
+	print "------------------------------------------------------"
+	
+	for k,v in pairs(Pipeline) do
+		print(k, v)
+	end
+	
+	print "
+
+	print "Command line:"
+	print "------------------------------------------------------"
+	
+	for _,v in pairs(commandLine) do
+		print(_,v)
+	end
+
+	print "
+end
+[/version]
+
+[version]
+2019 (Need For Speed Heat/Unbound)
+[notes]
+Stream-specific pipeline overrides.
+
+Major New Feature (NFS divergence):
+- core.readKeyValueCfg('/data/Scripts/Pipeline/StreamOverrides.cfg', _G)
+- Loaded AFTER Warnings.lua, BEFORE commandLine.config
+- JIRA: GM3440691
+- Developer: DICE\acarlson
+
+Why: Ghost Games used Perforce streams for parallel development (main/dlc/experimental). StreamOverrides.cfg allowed per-stream pipeline customization.
+
+Command-Line Changes:
+- Removed: trace, nohal switches
+- Kept: All other standard switches
+
+C++ Integration:
+- Mainline adoption (no tags) - FIFA/BioWare pattern now standard
+[content]
+--
+-- Pipeline Configuration
+--
+--   This is an internal script used for configuring the pipeline. Normal
+--   users should typically not edit this file, as most end-user settings
+--   are exposed through the GlobalSettings.lua file
+--
+
+--
+-- Import common settings
+--
+
+core.import(allScriptsRoot .. "GlobalSettings.lua", "global settings");
+
+-- Import session startup script, if specified on commandLine
+-- 
+-- This is used by Drone to change settings
+
+if commandLine.startupscript then
+	core.import("/data/" .. commandLine.startupScript, _G)
+end
+
+--
+-- Import settings
+--
+
+core.import(scriptsRoot .. "Settings.lua")
+core.import(scriptsRoot .. "Warnings.lua")
+
+-- NFS_START - DIVERGENCE - DICE\acarlson - 2019-01-08 - GM3440691 - Load pipeline settings overrides per stream
+core.readKeyValueCfg("/data/Scripts/Pipeline/StreamOverrides.cfg", _G)
+-- NFS_END
+
+--   -config commandLine switch is used by Drone to configure custom settings
+if commandLine.config then
+	core.readKeyValueCfg("/data/Scripts/" .. commandLine.config, _G)	
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+local function cmdLineSwitch(switchName, fieldName)
+	if (commandLine[string.lower(switchName)]) then
+		Pipeline[fieldName] = true
+	end
+end
+
+local function cmdLineArg(switchName, fieldName)
+	local entry = commandLine[string.lower(switchName)]
+	
+	if (entry) then
+		Pipeline[fieldName] = entry
+		--print("Set " .. fieldName .. " to " .. entry)
+	end
+end
+
+cmdLineSwitch("debug", "DebugMode");
+cmdLineSwitch("validateData", "ValidateData");
+cmdLineSwitch("addToPerforce", "AddToPerforce");
+cmdLineSwitch("noconsole", "NoConsole");
+cmdLineSwitch("verbose", "Verbose");
+cmdLineSwitch("trim", "TrimLayout");
+cmdLineSwitch("updateIndex", "UpdateIndexOnly");
+
+cmdLineArg("opfilter", "OpFilter")
+
+--
+-- Parse raw PipelineSettings and CacheSettings struct values
+--
+-- This ensures they can be found when the C++ SettingsManager asks the Lua
+-- settings provider for them.
+--
+-- Custom pipeline settings objects return by createSettings() are not parsed
+-- here, but instead directly from the command line on the C++ side
+-- (PipelineApp::applySettingsOnContainer()), where we also account for
+-- sub/super classes.
+
+for index,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+	if table and member and (table == "Pipeline" or table == "Cache") then
+		local value = commandLine[index+1] 
+		if not _G[table] then _G[table] = {} end
+		_G[table][member] = value 
+	end
+end
+
+--
+--  Parse commandline options that may occur multiple times ("list" options)
+--
+
+----------------------------------------------------------------------------------------
+--
+-- Diagnostics dump
+--
+
+if Pipeline.Verbose then
+	print "
+	print "Pipeline settings summary:"
+	print "------------------------------------------------------"
+	
+	for k,v in pairs(Pipeline) do
+		print(k, v)
+	end
+	
+	print "
+
+	print "Command line:"
+	print "------------------------------------------------------"
+	
+	for _,v in pairs(commandLine) do
+		print(_,v)
+	end
+
+	print "
+end
+[/version]
+
+[version]
+2021 (Battlefield 2042, Dead Space, PGA Tour)
+[notes]
+ContentDatabase settings support.
+
+Major Addition:
+- ContentDatabase struct parsing added to command-line loop
+- Pattern: -ContentDatabase.MemberName value
+- Three tables now supported: ContentDatabase, Pipeline, Cache
+
+Why: Content management system needed runtime configuration options for BF2042's massive asset database.
+
+Command-Line Changes:
+- Removed: StreamOverrides.cfg (NFS-specific)
+- Removed: trace, nohal, functionParameters switches
+
+Simplification:
+- Streamlined to essential pipeline switches only
+[content]
+--
+-- Pipeline Configuration
+--
+--   This is an internal script used for configuring the pipeline. Normal
+--   users should typically not edit this file, as most end-user settings
+--   are exposed through the GlobalSettings.lua file
+--
+
+--
+-- Import common settings
+--
+
+core.import(allScriptsRoot .. "GlobalSettings.lua", "global settings");
+
+-- Import session startup script, if specified on commandLine
+-- 
+-- This is used by Drone to change settings
+
+if commandLine.startupscript then
+	core.import("/data/" .. commandLine.startupScript, _G)
+end
+
+--
+-- Import settings
+--
+
+core.import(scriptsRoot .. "Settings.lua")
+core.import(scriptsRoot .. "Warnings.lua")
+
+--   -config commandLine switch is used by Drone to configure custom settings
+if commandLine.config then
+	core.readKeyValueCfg("/data/Scripts/" .. commandLine.config, _G)	
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+local function cmdLineSwitch(switchName, fieldName)
+	if (commandLine[string.lower(switchName)]) then
+		Pipeline[fieldName] = true
+	end
+end
+
+local function cmdLineArg(switchName, fieldName)
+	local entry = commandLine[string.lower(switchName)]
+	
+	if (entry) then
+		Pipeline[fieldName] = entry
+		--print("Set " .. fieldName .. " to " .. entry)
+	end
+end
+
+cmdLineSwitch("debug", "DebugMode");
+cmdLineSwitch("validateData", "ValidateData");
+cmdLineSwitch("addToPerforce", "AddToPerforce");
+cmdLineSwitch("noconsole", "NoConsole");
+cmdLineSwitch("verbose", "Verbose");
+cmdLineSwitch("trim", "TrimLayout");
+cmdLineSwitch("updateIndex", "UpdateIndexOnly");
+
+cmdLineArg("opfilter", "OpFilter")
+
+--
+-- Parse raw ContentDatabaseSettings, PipelineSettings and CacheSettings values
+--
+-- This ensures they can be found when the C++ SettingsManager asks the Lua
+-- settings provider for them.
+--
+-- Custom pipeline settings objects return by createSettings() are not parsed
+-- here, but instead directly from the command line on the C++ side
+-- (PipelineApp::applySettingsOnContainer()), where we also account for
+-- sub/super classes.
+
+for index,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+	if table and member and (table == "ContentDatabase" or table == "Pipeline" or table == "Cache") then
+		local value = commandLine[index+1] 
+		if not _G[table] then _G[table] = {} end
+		_G[table][member] = value 
+	end
+end
+
+--
+--  Parse commandline options that may occur multiple times ("list" options)
+--
+
+----------------------------------------------------------------------------------------
+--
+-- Diagnostics dump
+--
+
+if Pipeline.Verbose then
+	print "
+	print "Pipeline settings summary:"
+	print "------------------------------------------------------"
+	
+	for k,v in pairs(Pipeline) do
+		print(k, v)
+	end
+	
+	print "
+
+	print "Command line:"
+	print "------------------------------------------------------"
+	
+	for _,v in pairs(commandLine) do
+		print(_,v)
+	end
+
+	print "
+end
+[/version]
+
+[version]
+2024 (Dragon Age: The Veilguard)
+[notes]
+BioWare maintains ContentDatabase support.
+
+Changes from 2021:
+- BW_START/BW_END tags added (PREPORT:CL3890531)
+- Developer: BioWare\Devin Doucette (same as Anthem)
+
+Identical Functionality:
+- Same ContentDatabase/Pipeline/Cache parsing
+- Same command-line switches
+
+Why: BioWare maintained their own fork with attribution tags for tracking divergences.
+[content]
+--
+-- Pipeline Configuration
+--
+--   This is an internal script used for configuring the pipeline. Normal
+--   users should typically not edit this file, as most end-user settings
+--   are exposed through the GlobalSettings.lua file
+--
+
+--
+-- Import common settings
+--
+
+core.import(allScriptsRoot .. "GlobalSettings.lua", "global settings");
+
+-- Import session startup script, if specified on commandLine
+-- 
+-- This is used by Drone to change settings
+
+if commandLine.startupscript then
+	core.import("/data/" .. commandLine.startupScript, _G)
+end
+
+--
+-- Import settings
+--
+
+core.import(scriptsRoot .. "Settings.lua")
+core.import(scriptsRoot .. "Warnings.lua")
+
+--   -config commandLine switch is used by Drone to configure custom settings
+if commandLine.config then
+	core.readKeyValueCfg("/data/Scripts/" .. commandLine.config, _G)	
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+local function cmdLineSwitch(switchName, fieldName)
+	if (commandLine[string.lower(switchName)]) then
+		Pipeline[fieldName] = true
+	end
+end
+
+local function cmdLineArg(switchName, fieldName)
+	local entry = commandLine[string.lower(switchName)]
+	
+	if (entry) then
+		Pipeline[fieldName] = entry
+		--print("Set " .. fieldName .. " to " .. entry)
+	end
+end
+
+cmdLineSwitch("debug", "DebugMode");
+cmdLineSwitch("validateData", "ValidateData");
+cmdLineSwitch("addToPerforce", "AddToPerforce");
+cmdLineSwitch("noconsole", "NoConsole");
+cmdLineSwitch("verbose", "Verbose");
+cmdLineSwitch("trim", "TrimLayout");
+cmdLineSwitch("updateIndex", "UpdateIndexOnly");
+
+cmdLineArg("opfilter", "OpFilter")
+
+-- BW_START - 2018/01/26 - Devin Doucette - [PREPORT:CL3890531] Parse PipelineSettings and CacheSettings from the command line
+--
+-- Parse raw ContentDatabaseSettings, PipelineSettings and CacheSettings values
+--
+-- This ensures they can be found when the C++ SettingsManager asks the Lua
+-- settings provider for them.
+--
+-- Custom pipeline settings objects return by createSettings() are not parsed
+-- here, but instead directly from the command line on the C++ side
+-- (PipelineApp::applySettingsOnContainer()), where we also account for
+-- sub/super classes.
+
+for index,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+	if table and member and (table == "ContentDatabase" or table == "Pipeline" or table == "Cache") then
+		local value = commandLine[index+1] 
+		if not _G[table] then _G[table] = {} end
+		_G[table][member] = value 
+	end
+end
+-- BW_END
+
+--
+--  Parse commandline options that may occur multiple times ("list" options)
+--
+
+----------------------------------------------------------------------------------------
+--
+-- Diagnostics dump
+--
+
+if Pipeline.Verbose then
+	print "
+	print "Pipeline settings summary:"
+	print "------------------------------------------------------"
+	
+	for k,v in pairs(Pipeline) do
+		print(k, v)
+	end
+	
+	print "
+
+	print "Command line:"
+	print "------------------------------------------------------"
+	
+	for _,v in pairs(commandLine) do
+		print(_,v)
+	end
+
+	print "
+end
+[/version]
+
+[version]
+2024 (FC 25)
+[notes]
+EA Sports restores legacy switches.
+
+Changes from Dragon Age:
+- Restored: trace → Pipeline.EnableTracing
+- Restored: nohal → Pipeline.DisableHalDevice
+- Restored: functionParameters argument
+- Reverted to Pipeline/Cache only (removed ContentDatabase)
+
+Why: EA Sports maintained compatibility with older pipeline tools that relied on these switches.
+
+This represents EA Sports' conservative approach - keeping maximum compatibility rather than streamlining.
+[content]
+--
+-- Pipeline Configuration
+--
+--   This is an internal script used for configuring the pipeline. Normal
+--   users should typically not edit this file, as most end-user settings
+--   are exposed through the GlobalSettings.lua file
+--
+
+--
+-- Import common settings
+--
+
+core.import(allScriptsRoot .. "GlobalSettings.lua", "global settings");
+
+-- Import session startup script, if specified on commandLine
+-- 
+-- This is used by Drone to change settings
+
+if commandLine.startupscript then
+	core.import("/data/" .. commandLine.startupScript, _G)
+end
+
+--
+-- Import settings
+--
+
+core.import(scriptsRoot .. "Settings.lua")
+core.import(scriptsRoot .. "Warnings.lua")
+
+--   -config commandLine switch is used by Drone to configure custom settings
+if commandLine.config then
+	core.readKeyValueCfg("/data/Scripts/" .. commandLine.config, _G)	
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+local function cmdLineSwitch(switchName, fieldName)
+	if (commandLine[string.lower(switchName)]) then
+		Pipeline[fieldName] = true
+	end
+end
+
+local function cmdLineArg(switchName, fieldName)
+	local entry = commandLine[string.lower(switchName)]
+	
+	if (entry) then
+		Pipeline[fieldName] = entry
+		--print("Set " .. fieldName .. " to " .. entry)
+	end
+end
+
+cmdLineSwitch("debug", "DebugMode");
+cmdLineSwitch("validateData", "ValidateData");
+cmdLineSwitch("addToPerforce", "AddToPerforce");
+cmdLineSwitch("noconsole", "NoConsole");
+cmdLineSwitch("verbose", "Verbose");
+cmdLineSwitch("trace", "EnableTracing");
+cmdLineSwitch("nohal", "DisableHalDevice");
+cmdLineSwitch("trim", "TrimLayout");
+cmdLineSwitch("updateIndex", "UpdateIndexOnly");
+
+cmdLineArg("opfilter", "OpFilter")
+cmdLineArg("functionParameters", "FunctionParameters");
+
+--
+-- Parse raw PipelineSettings and CacheSettings struct values
+--
+-- This ensures they can be found when the C++ SettingsManager asks the Lua
+-- settings provider for them.
+--
+-- Custom pipeline settings objects return by createSettings() are not parsed
+-- here, but instead directly from the command line on the C++ side
+-- (PipelineApp::applySettingsOnContainer()), where we also account for
+-- sub/super classes.
+
+for index,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+	if table and member and (table == "Pipeline" or table == "Cache") then
+		local value = commandLine[index+1] 
+		if not _G[table] then _G[table] = {} end
+		_G[table][member] = value 
+	end
+end
+
+--
+--  Parse commandline options that may occur multiple times ("list" options)
+--
+
+----------------------------------------------------------------------------------------
+--
+-- Diagnostics dump
+--
+
+if Pipeline.Verbose then
+	print "
+	print "Pipeline settings summary:"
+	print "------------------------------------------------------"
+	
+	for k,v in pairs(Pipeline) do
+		print(k, v)
+	end
+	
+	print "
+
+	print "Command line:"
+	print "------------------------------------------------------"
+	
+	for _,v in pairs(commandLine) do
+		print(_,v)
+	end
+
+	print "
+end
+[/version]
+
+[version]
+2025 (Battlefield 6, NFL 26, Skate Playtest)
+[notes]
+ARCHITECTURAL REVOLUTION: Licensee separation + simplified loading.
+
+This represents a fundamental reorganization of the pipeline configuration system - the most significant architectural change since the original 2011 implementation.
+
+Major Architectural Changes:
+
+1. **Licensee/Frostbite Separation**:
+   - Frostbite owns: Settings.lua, Warnings.lua (core defaults)
+   - Licensees own: Licensee/Settings.lua, Licensee/Warnings.lua (game-specific overrides)
+   - Clear separation of concerns between engine and game teams
+
+2. **New Loading Order**:
+   1. commandLine.startupscript (if specified)
+   2. Settings.lua (Frostbite defaults)
+   3. Licensee/Settings.lua (game overrides) - OPTIONAL
+   4. /data/Scripts/LocalPipeline.cfg (developer overrides)
+   5. Warnings.lua (Frostbite warnings)
+   6. Licensee/Warnings.lua (game warnings) - OPTIONAL
+   7. commandLine.config (Drone custom settings)
+
+3. **Optional Licensee Files**:
+   - core.import() with {required=false} flag
+   - Licensee/Settings.lua and Licensee/Warnings.lua are optional
+   - Allows Frostbite-only configurations without game-specific files
+
+4. **Removed Legacy Systems**:
+   - Removed: GlobalSettings.lua (deprecated since 2011)
+   - Removed: allScriptsRoot (unified to scriptsRoot)
+   - Removed: MayaExport support (FBX workflow standard)
+   - Removed: trace, nohal, functionParameters switches
+
+5. **LocalPipeline.cfg**:
+   - New developer override file: /data/Scripts/LocalPipeline.cfg
+   - Loaded AFTER licensee settings
+   - Allows per-developer customization without modifying version-controlled files
+
+6. **Simplified Command-Line**:
+   - Essential switches only: debug, validateData, addToPerforce, noconsole, verbose, trim, updateIndex
+   - Removed obsolete switches from 2011-2024 era
+   - opfilter argument removed
+
+7. **ContentDatabase Support**:
+   - Retained from 2021 version
+   - Three struct types: ContentDatabase, Pipeline, Cache
+
+Philosophical Shift:
+- 2011-2024: Monolithic configuration with game-specific divergences
+- 2025+: Layered configuration with clear ownership boundaries
+
+This architecture enables:
+- Clean Frostbite updates without breaking games
+- Game teams can override without modifying core files
+- Developer-specific settings without source control conflicts
+- Future-proof extensibility
+
+Comment Change:
+- 'Normal users should typically not edit this file' → 'Licensee developers should not edit this file'
+- Emphasizes Frostbite ownership vs game team customization
+
+This is the modern template that will carry Frostbite pipeline configuration into the next generation.
+[content]
+--
+-- Pipeline Configuration
+--
+--   This is an internal script used for configuring the pipeline. Normal
+--   users should typically not edit this file, as most end-user settings
+--   are exposed through the Pipeline/Licensee/Settings.lua file
+--
+
+-- Import session startup script, if specified on commandLine
+-- 
+-- This is used by Drone to change settings
+
+if commandLine.startupscript then
+	core.import("/data/" .. commandLine.startupScript)
+end
+
+--
+-- Import settings
+--
+
+-- (Frostbite owned) Default pipeline settings
+core.import(scriptsRoot .. "Settings.lua")
+
+-- (Licensee owned) Pipeline settings
+core.import(scriptsRoot .. "Licensee/Settings.lua", nil, {required=false})
+
+-- Read local pipeline settings
+core.readKeyValueCfg("/data/Scripts/LocalPipeline.cfg", _G)
+
+-- (Frostbite owned) Default warnings
+core.import(scriptsRoot .. "Warnings.lua")
+
+-- (Licensee owned) Pipeline warnings
+core.import(scriptsRoot .. "Licensee/Warnings.lua", nil, {required=false})
+
+--   -config commandLine switch is used by Drone to configure custom settings
+if commandLine.config then
+	core.readKeyValueCfg("/data/Scripts/" .. commandLine.config, _G)
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+local function cmdLineSwitch(switchName, fieldName)
+	if (commandLine[string.lower(switchName)]) then
+		Pipeline[fieldName] = true
+	end
+end
+
+local function cmdLineArg(switchName, fieldName)
+	local entry = commandLine[string.lower(switchName)]
+	
+	if (entry) then
+		Pipeline[fieldName] = entry
+		--print("Set " .. fieldName .. " to " .. entry)
+	end
+end
+
+cmdLineSwitch("debug", "DebugMode");
+cmdLineSwitch("validateData", "ValidateData");
+cmdLineSwitch("addToPerforce", "AddToPerforce");
+cmdLineSwitch("noconsole", "NoConsole");
+cmdLineSwitch("verbose", "Verbose");
+cmdLineSwitch("trim", "TrimLayout");
+cmdLineSwitch("updateIndex", "UpdateIndexOnly");
+
+cmdLineArg("opfilter", "OpFilter")
+
+--
+-- Parse raw ContentDatabaseSettings, PipelineSettings and CacheSettings values
+--
+-- This ensures they can be found when the C++ SettingsManager asks the Lua
+-- settings provider for them.
+--
+-- Custom pipeline settings objects return by createSettings() are not parsed
+-- here, but instead directly from the command line on the C++ side
+-- (PipelineApp::applySettingsOnContainer()), where we also account for
+-- sub/super classes.
+
+for index,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+	if table and member and (table == "ContentDatabase" or table == "Pipeline" or table == "Cache") then
+		local value = commandLine[index+1] 
+		if not _G[table] then _G[table] = {} end
+		_G[table][member] = value 
+	end
+end
+
+--
+--  Parse commandline options that may occur multiple times ("list" options)
+--
+
+----------------------------------------------------------------------------------------
+--
+-- Diagnostics dump
+--
+
+if Pipeline.Verbose then
+	print "
+	print "Pipeline settings summary:"
+	print "------------------------------------------------------"
+	
+	for k,v in pairs(Pipeline) do
+		print(k, v)
+	end
+	
+	print "
+
+	print "Command line:"
+	print "------------------------------------------------------"
+	
+	for _,v in pairs(commandLine) do
+		print(_,v)
+	end
+
+	print "
+end
+[/version]
+
+[version]
+2025+ (Skate)
+[notes]
+Skate's variant with refined comment.
+
+Changes from BF6/NFL 26:
+- Comment: 'Normal users' → 'Licensee developers'
+- Emphasized stronger ownership boundaries
+- Removed opfilter argument completely
+
+This represents Skate's finalized version with clearer documentation about who should edit what.
+[content]
+--
+-- Pipeline Configuration
+--
+--   This is an internal script used for configuring the pipeline. Licensee
+--   developers should not edit this file, as end-user settings are exposed
+--   through Scripts/Pipeline/Licensee/Settings.lua
+--
+
+-- Import session startup script, if specified on commandLine
+-- 
+-- This is used by Drone to change settings
+
+if commandLine.startupscript then
+	core.import("/data/" .. commandLine.startupScript)
+end
+
+--
+-- Import settings
+--
+
+-- (Frostbite owned) Default pipeline settings
+core.import(scriptsRoot .. "Settings.lua")
+
+-- (Licensee owned) Pipeline settings
+core.import(scriptsRoot .. "Licensee/Settings.lua", nil, {required=false})
+
+-- Read local pipeline settings
+core.readKeyValueCfg("/data/Scripts/LocalPipeline.cfg", _G)
+
+-- (Frostbite owned) Default warnings
+core.import(scriptsRoot .. "Warnings.lua")
+
+-- (Licensee owned) Pipeline warnings
+core.import(scriptsRoot .. "Licensee/Warnings.lua", nil, {required=false})
+
+--   -config commandLine switch is used by Drone to configure custom settings
+if commandLine.config then
+	core.readKeyValueCfg("/data/Scripts/" .. commandLine.config, _G)
+end
+
+--------------------------------------------------------------------------
+-- Handle commandline options
+--
+--   Commandline options effectively override any settings specified
+--   elsewhere.
+--
+
+local function cmdLineSwitch(switchName, fieldName)
+	if (commandLine[string.lower(switchName)]) then
+		Pipeline[fieldName] = true
+	end
+end
+
+local function cmdLineArg(switchName, fieldName)
+	local entry = commandLine[string.lower(switchName)]
+	
+	if (entry) then
+		Pipeline[fieldName] = entry
+		--print("Set " .. fieldName .. " to " .. entry)
+	end
+end
+
+cmdLineSwitch("debug", "DebugMode");
+cmdLineSwitch("validateData", "ValidateData");
+cmdLineSwitch("addToPerforce", "AddToPerforce");
+cmdLineSwitch("noconsole", "NoConsole");
+cmdLineSwitch("verbose", "Verbose");
+cmdLineSwitch("trim", "TrimLayout");
+cmdLineSwitch("updateIndex", "UpdateIndexOnly");
+
+--
+-- Parse raw ContentDatabaseSettings, PipelineSettings and CacheSettings values
+--
+-- This ensures they can be found when the C++ SettingsManager asks the Lua
+-- settings provider for them.
+--
+-- Custom pipeline settings objects return by createSettings() are not parsed
+-- here, but instead directly from the command line on the C++ side
+-- (PipelineApp::applySettingsOnContainer()), where we also account for
+-- sub/super classes.
+
+for index,option in ipairs(commandLine) do
+	local table,member = string.match(option, "^%-(%w+)%.([%w%.]+)")
+
+	if table and member and (table == "ContentDatabase" or table == "Pipeline" or table == "Cache") then
+		local value = commandLine[index+1] 
+		if not _G[table] then _G[table] = {} end
+		_G[table][member] = value 
+	end
+end
+
+--
+--  Parse commandline options that may occur multiple times ("list" options)
+--
+
+----------------------------------------------------------------------------------------
+--
+-- Diagnostics dump
+--
+
+if Pipeline.Verbose then
+	print "
+	print "Pipeline settings summary:"
+	print "------------------------------------------------------"
+	
+	for k,v in pairs(Pipeline) do
+		print(k, v)
+	end
+	
+	print "
+
+	print "Command line:"
+	print "------------------------------------------------------"
+	
+	for _,v in pairs(commandLine) do
+		print(_,v)
+	end
+
+	print "
+end
+[/version]

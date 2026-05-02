@@ -1,0 +1,16 @@
+[notes]
+Designed for "Skate - DelMar": List of commands that include fixes for offline play!
+[/notes]
+
+DelMarSharing.VideoPreviewEnable false
+DelMarGame.AllowBootPrompts false
+Online.ClientIsPresenceEnabled 0
+Online.ServerIsPresenceEnabled 0
+Origin.Enabled 0
+DelMarOnline.EadpAuth21Enabled false
+DelMarOnline.EnableAmpUsername 0
+DelMarOnline.MatchmakeAfterPeerGameCreation 0
+Origin.AllowProductionEnvironment false
+Online.Environment OnlineEnvironment_Production
+Input.UseMouseAndKeyboardSystem true // Enables Mouse/Keyboard support
+Input.DisableMouseKeyboard false // Enables Mouse/Keyboard support

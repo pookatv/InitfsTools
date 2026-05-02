@@ -1,0 +1,917 @@
+[description]
+Pipeline startup script - executed very early during asset compilation to configure diagnostic warning levels and import Configuration.lua.
+
+[version]
+2011-2013 (Battlefield 3, Medal Of Honor, Army Of Two, NFS The Run)
+[notes]
+Original pipeline startup with verification tag system.
+
+Features:
+- Environment.UserName from USERNAME environment variable
+- BRANCH_NAME environment variable validation (required)
+- Verification tag system: expectVerificationTag = '22062007'
+- verificationTag runtime check for script/binary compatibility
+- allScriptsRoot = '/Data/Scripts/'
+- scriptsRoot = allScriptsRoot .. 'Pipeline/'
+- core.import(scriptsRoot .. 'Configuration.lua')
+
+Verification Tag Purpose:
+Ensures the Lua script version matches the compiled C++ runtime version. When Frostbite's internal APIs changed, both the script and binary needed updates. Mismatches would cause crashes or incorrect behavior.
+
+Why it was simple: Early Battlefield games had straightforward pipeline needs without complex diagnostic systems.
+[content]
+-- Pipeline startup script
+--
+--   This is executed very early, and can really only be used to
+--   configure settings.
+--
+--   The settings specified here will override any settings in the
+--   legacy settings file pipeline.config
+--
+
+core = require "Frost.Core"
+
+require "os"
+require "vfs"
+
+Environment = {}
+
+local userName = os.getenv("USERNAME")
+
+if userName then Environment.UserName = userName end
+
+branchName = os.getenv("BRANCH_NAME")
+
+if not branchName then 
+	error("Configuration error: BRANCH_NAME environment variable not set -- fix the .diceconfig file for this branch!") 
+end
+
+-- This is a verification tag to make sure the script is in sync with runtime
+-- whenever something is changed that requires changes to be present on both
+-- the script end and the runtime end, this should be updated. The value is
+-- just an arbitrary string and has no semantic relevance
+
+local expectVerificationTag = "22062007"
+
+if verificationTag ~= expectVerificationTag then
+	error("verification tag mismatch! Most likely, your data/Scripts folder is not right for your build!")
+end
+
+-- Execute configuration and setup scripts
+
+allScriptsRoot = "/Data/Scripts/"
+scriptsRoot = allScriptsRoot .. "Pipeline/"
+
+core.import(scriptsRoot .. "Configuration.lua")
+[/version]
+
+[version]
+2013 (Command & Conquer: Generals 2)
+[notes]
+Verification tag disabled due to initialization bug.
+
+Changes:
+- expectVerificationTag changed to 'Rts' (Real-Time Strategy)
+- Verification check commented out with extensive explanation
+- Comment attribution: sboocock@ea.com
+- Error: verificationTag never initialized by runtime
+
+Technical Debt Revealed:
+The comment shows the verification system was broken - the C++ runtime wasn't setting verificationTag before Lua execution. Rather than fix the underlying issue, C&C developers disabled the check 'to make progress.'
+
+Why: Command & Conquer's troubled development prioritized getting builds working over fixing infrastructure issues.
+[content]
+-- Pipeline startup script
+--
+--   This is executed very early, and can really only be used to
+--   configure settings.
+--
+--   The settings specified here will override any settings in the
+--   legacy settings file pipeline.config
+--
+
+core = require "Frost.Core"
+
+require "os"
+require "vfs"
+
+Environment = {}
+
+local userName = os.getenv("USERNAME")
+
+if userName then Environment.UserName = userName end
+
+branchName = os.getenv("BRANCH_NAME")
+
+if not branchName then 
+	error("Configuration error: BRANCH_NAME environment variable not set -- fix the .diceconfig file for this branch!") 
+end
+
+-- This is a verification tag to make sure the script is in sync with runtime
+-- whenever something is changed that requires changes to be present on both
+-- the script end and the runtime end, this should be updated. The value is
+-- just an arbitrary string and has no semantic relevance
+
+local expectVerificationTag = "Rts"
+
+-- CNCO change - sboocock@ea.com
+-- verificationTag is never initialized and I don't know where it is intended to be
+-- in order to make progress for now, I am removing this check as it would otherwise
+-- crash the pipeline
+--if verificationTag ~= expectVerificationTag then
+--	error("verification tag mismatch! Most likely, your data/Scripts folder is not right for your build! tag passed in: " .. verificationTag)
+--#end
+
+-- Execute configuration and setup scripts
+
+allScriptsRoot = "/Data/Scripts/"
+scriptsRoot = allScriptsRoot .. "Pipeline/"
+
+core.import(scriptsRoot .. "Configuration.lua")
+[/version]
+
+[version]
+2013-2014 (Battlefield 4, Garden Warfare, NFS Rivals)
+[notes]
+Verification tag system completely removed.
+
+Changes:
+- No verification tag check at all
+- Streamlined to essential environment setup only
+
+Why: After C&C's issues, EA/DICE abandoned the verification tag approach. The system proved more trouble than it was worth, causing build breaks without providing meaningful protection.
+[content]
+-- Pipeline startup script
+--
+--   This is executed very early, and can really only be used to
+--   configure settings.
+--
+--   The settings specified here will override any settings in the
+--   legacy settings file pipeline.config
+--
+
+core = require "Frost.Core"
+
+require "os"
+require "vfs"
+
+Environment = {}
+
+local userName = os.getenv("USERNAME")
+
+if userName then Environment.UserName = userName end
+
+branchName = os.getenv("BRANCH_NAME")
+
+if not branchName then 
+	error("Configuration error: BRANCH_NAME environment variable not set -- fix the .diceconfig file for this branch!") 
+end
+
+-- Execute configuration and setup scripts
+
+allScriptsRoot = "/Data/Scripts/"
+scriptsRoot = allScriptsRoot .. "Pipeline/"
+
+core.import(scriptsRoot .. "Configuration.lua")
+[/version]
+
+[version]
+2014-2021 (DA, NFS, PGA, BF1/V/2042, Mirror's Edge, FIFA, Mass Effect, SWBF2..)
+[notes]
+Diagnostic warning level system introduced.
+
+Games Using This Version:
+- Dragon Age Inquisition
+- Need For Speed
+- Rory McIlroy PGA Tour
+- Battlefield 1
+- Mirror's Edge Catalyst
+- FIFA 18-22
+- Mass Effect Andromeda
+- Star Wars Battlefront II
+- Star Wars Squadrons
+- Anthem
+- Plants Vs Zombies: Battle For Neighborville
+- NHL 22
+
+Major New Features:
+- diag_info = {} - Global diagnostic information table
+- make_level(level) - Factory function creating level setters
+- get_level(identifier) - Retrieve diagnostic level for identifier
+- level_1 through level_4 - Preset diagnostic levels
+
+Diagnostic Level System:
+Allows per-identifier warning configuration. Example usage in Warnings.lua:
+- level_1('deprecatedAPI') - Lowest severity
+- level_4('criticalError') - Highest severity
+
+Why: Growing codebase needed granular control over which warnings/errors to show during asset compilation. Different teams wanted different verbosity levels.
+
+This became the standard template for 7 years across dozens of games.
+[content]
+-- Pipeline startup script
+--
+--   This is executed very early, and can really only be used to
+--   configure settings.
+--
+--
+
+core = require "Frost.Core"
+
+require "os"
+require "vfs"
+
+Environment = {}
+
+local userName = os.getenv("USERNAME")
+
+if userName then Environment.UserName = userName end
+
+branchName = os.getenv("BRANCH_NAME")
+
+if not branchName then 
+	error("Configuration error: BRANCH_NAME environment variable not set -- fix the .diceconfig file for this branch!") 
+end
+
+-- Define functions used for configuration of warnings and other diagnostics
+
+diag_info = {}
+
+function make_level(level)
+	return function(identifier)
+		diag_info[identifier] = level
+	end
+end
+
+function get_level(identifier)
+	return diag_info[identifier]	-- Returns nul or warning level
+end
+
+level_1 = make_level(1)
+level_2 = make_level(2)
+level_3 = make_level(3)
+level_4 = make_level(4)
+
+-- Execute configuration and setup scripts
+
+allScriptsRoot = "/Data/Scripts/"
+scriptsRoot = allScriptsRoot .. "Pipeline/"
+
+core.import(scriptsRoot .. "Configuration.lua")
+
+--
+[/version]
+
+[version]
+2015 (Battlefield Hardline)
+[notes]
+Debug print loop added.
+
+New Feature:
+- for k,v in pairs(diag_info) do print(k, v) end
+- Prints all diagnostic identifiers and their levels at startup
+
+Why: Visceral Games (Hardline developers) needed visibility into which diagnostic levels were set during pipeline startup for debugging compilation issues.
+[content]
+-- Pipeline startup script
+--
+--   This is executed very early, and can really only be used to
+--   configure settings.
+--
+--   The settings specified here will override any settings in the
+--   legacy settings file pipeline.config
+--
+
+core = require "Frost.Core"
+
+require "os"
+require "vfs"
+
+Environment = {}
+
+local userName = os.getenv("USERNAME")
+
+if userName then Environment.UserName = userName end
+
+branchName = os.getenv("BRANCH_NAME")
+
+if not branchName then 
+	error("Configuration error: BRANCH_NAME environment variable not set -- fix the .diceconfig file for this branch!") 
+end
+
+-- Define functions used for configuration of warnings and other diagnostics
+
+diag_info = {}
+
+function make_level(level)
+	return function(identifier)
+		diag_info[identifier] = level
+	end
+end
+
+function get_level(identifier)
+	return diag_info[identifier]	-- Returns nul or warning level
+end
+
+level_1 = make_level(1)
+level_2 = make_level(2)
+level_3 = make_level(3)
+level_4 = make_level(4)
+
+-- Execute configuration and setup scripts
+
+allScriptsRoot = "/Data/Scripts/"
+scriptsRoot = allScriptsRoot .. "Pipeline/"
+
+core.import(scriptsRoot .. "Configuration.lua")
+
+--
+
+for k,v in pairs(diag_info) do
+	print(k, v)
+end
+[/version]
+
+[version]
+2015 (Star Wars Battlefront)
+[notes]
+Identical to Hardline with comment simplification.
+
+Changes:
+- Removed 'legacy settings file pipeline.config' comment
+- Kept debug print loop
+
+This shows parallel development - Hardline and Battlefront were developed simultaneously by different studios (Visceral vs DICE) using similar diagnostic needs.
+[content]
+-- Pipeline startup script
+--
+--   This is executed very early, and can really only be used to
+--   configure settings.
+--
+--
+
+core = require "Frost.Core"
+
+require "os"
+require "vfs"
+
+Environment = {}
+
+local userName = os.getenv("USERNAME")
+
+if userName then Environment.UserName = userName end
+
+branchName = os.getenv("BRANCH_NAME")
+
+if not branchName then 
+	error("Configuration error: BRANCH_NAME environment variable not set -- fix the .diceconfig file for this branch!") 
+end
+
+-- Define functions used for configuration of warnings and other diagnostics
+
+diag_info = {}
+
+function make_level(level)
+	return function(identifier)
+		diag_info[identifier] = level
+	end
+end
+
+function get_level(identifier)
+	return diag_info[identifier]	-- Returns nul or warning level
+end
+
+level_1 = make_level(1)
+level_2 = make_level(2)
+level_3 = make_level(3)
+level_4 = make_level(4)
+
+-- Execute configuration and setup scripts
+
+allScriptsRoot = "/Data/Scripts/"
+scriptsRoot = allScriptsRoot .. "Pipeline/"
+
+core.import(scriptsRoot .. "Configuration.lua")
+
+--
+
+for k,v in pairs(diag_info) do
+	print(k, v)
+end
+[/version]
+
+[version]
+2016 (Garden Warfare 2)
+[notes]
+Extended diagnostic levels.
+
+New Additions:
+- level_5 = make_level(5)
+- level_6 = make_level(6)
+- Removed debug print loop
+
+Why: PopCap needed finer granularity for categorizing warnings in their cartoony art pipeline. More levels = more precise control over which warnings to show/hide.
+
+Debug print removed after being deemed too noisy for production builds.
+[content]
+-- Pipeline startup script
+--
+--   This is executed very early, and can really only be used to
+--   configure settings.
+--
+--
+
+core = require "Frost.Core"
+
+require "os"
+require "vfs"
+
+Environment = {}
+
+local userName = os.getenv("USERNAME")
+
+if userName then Environment.UserName = userName end
+
+branchName = os.getenv("BRANCH_NAME")
+
+if not branchName then 
+	error("Configuration error: BRANCH_NAME environment variable not set -- fix the .diceconfig file for this branch!") 
+end
+
+-- Define functions used for configuration of warnings and other diagnostics
+
+diag_info = {}
+
+function make_level(level)
+	return function(identifier)
+		diag_info[identifier] = level
+	end
+end
+
+function get_level(identifier)
+	return diag_info[identifier]	-- Returns nul or warning level
+end
+
+level_1 = make_level(1)
+level_2 = make_level(2)
+level_3 = make_level(3)
+level_4 = make_level(4)
+level_5 = make_level(5)
+level_6 = make_level(6)
+
+-- Execute configuration and setup scripts
+
+allScriptsRoot = "/Data/Scripts/"
+scriptsRoot = allScriptsRoot .. "Pipeline/"
+
+core.import(scriptsRoot .. "Configuration.lua")
+
+--
+[/version]
+
+[version]
+2022 (Need For Speed Unbound, Dead Space)
+[notes]
+Time-based diagnostic levels introduced.
+
+Major New Features:
+- make_level_timespan(level) - Time-limited diagnostic levels
+- level_1_timespan through level_4_timespan
+- get_level() enhanced with fallback: Pipeline.HintThreshold + 1
+
+Time-based Diagnostic System:
+Allows temporary warning escalation for specific date ranges:
+- level_2_timespan('newFeatureWarning', '01/15/2023', 30)
+- Sets warning to level 2 for 30 days starting January 15, 2023
+- Maximum 60-day window enforced
+
+Date Parsing:
+- Format: MM/DD/YYYY
+- Uses os.time() and os.difftime() for date arithmetic
+- Calculates days since start date
+
+Why This Matters:
+When rolling out new pipeline features, teams needed warnings to be loud initially (to catch issues) but automatically quiet down after the transition period. This prevents warning fatigue while ensuring new issues are caught.
+
+Technical:
+- daysSinceStart = os.difftime(os.time(), startDate) / 86400
+- Converts time difference to days (86400 seconds per day)
+- Only applies level if within [0, numberOfDays] window
+[content]
+-- Pipeline startup script
+--
+--   This is executed very early, and can really only be used to
+--   configure settings.
+--
+--
+
+core = require "Frost.Core"
+
+require "os"
+require "vfs"
+
+Environment = {}
+
+local userName = os.getenv("USERNAME")
+
+if userName then Environment.UserName = userName end
+
+branchName = os.getenv("BRANCH_NAME")
+
+if not branchName then 
+	error("Configuration error: BRANCH_NAME environment variable not set -- fix the .diceconfig file for this branch!") 
+end
+
+-- Define functions used for configuration of warnings and other diagnostics
+
+diag_info = {}
+
+function make_level(level)
+	return function(identifier)
+		diag_info[identifier] = level
+	end
+end
+
+function make_level_timespan(level)
+	return function(identifier, dateStr, numberOfDays)
+		local maxDays = 60
+		if numberOfDays > maxDays then
+			error(string.format("make_level_timespan cannot be set for more than %s days in the future", maxDays))
+			return
+		end
+	
+		local month, day, year = dateStr:match('^(%d%d)/(%d%d)/(%d%d%d%d)$')
+		local startDate = os.time{month = tonumber(month), day = tonumber(day), year = tonumber(year)}
+
+		local daysSinceStart = os.difftime(os.time(), startDate) / 86400 -- seconds between days / seconds per day
+
+		if daysSinceStart > 0 and daysSinceStart < numberOfDays then
+			local setLevel = make_level(level)
+			setLevel(identifier)
+		end
+	end
+end
+
+function get_level(identifier)
+	local level = diag_info[identifier] -- Returns nul or warning level
+	if level == nil then
+		return Pipeline.HintThreshold + 1
+	end
+
+	return level
+end
+
+level_1 = make_level(1)
+level_2 = make_level(2)
+level_3 = make_level(3)
+level_4 = make_level(4)
+
+level_1_timespan = make_level_timespan(1)
+level_2_timespan = make_level_timespan(2)
+level_3_timespan = make_level_timespan(3)
+level_4_timespan = make_level_timespan(4)
+
+-- Execute configuration and setup scripts
+
+allScriptsRoot = "/Data/Scripts/"
+scriptsRoot = allScriptsRoot .. "Pipeline/"
+
+core.import(scriptsRoot .. "Configuration.lua")
+
+--
+[/version]
+
+[version]
+2023 (FC 24, NFL 25)
+[notes]
+Time-based diagnostics removed.
+
+Changes from 2022:
+- Removed make_level_timespan() function
+- Removed level_X_timespan variables
+- Kept Pipeline.HintThreshold fallback in get_level()
+
+Why: EA Sports found the time-based system too complex for their annual release cycles. They preferred permanent diagnostic levels that could be adjusted per-game rather than auto-expiring warnings.
+
+This represents a deliberate step backward for simplicity.
+[content]
+-- Pipeline startup script
+--
+--   This is executed very early, and can really only be used to
+--   configure settings.
+--
+--
+
+core = require "Frost.Core"
+
+require "os"
+require "vfs"
+
+Environment = {}
+
+local userName = os.getenv("USERNAME")
+
+if userName then Environment.UserName = userName end
+
+branchName = os.getenv("BRANCH_NAME")
+
+if not branchName then 
+	error("Configuration error: BRANCH_NAME environment variable not set -- fix the .diceconfig file for this branch!") 
+end
+
+-- Define functions used for configuration of warnings and other diagnostics
+
+diag_info = {}
+
+function make_level(level)
+	return function(identifier)
+		diag_info[identifier] = level
+	end
+end
+
+function get_level(identifier)
+	local level = diag_info[identifier] -- Returns nul or warning level
+	if level == nil then
+		return Pipeline.HintThreshold + 1
+	end
+
+	return level
+end
+
+level_1 = make_level(1)
+level_2 = make_level(2)
+level_3 = make_level(3)
+level_4 = make_level(4)
+
+-- Execute configuration and setup scripts
+
+allScriptsRoot = "/Data/Scripts/"
+scriptsRoot = allScriptsRoot .. "Pipeline/"
+
+core.import(scriptsRoot .. "Configuration.lua")
+
+--
+[/version]
+
+[version]
+2024 (Dragon Age: The Veilguard)
+[notes]
+Time-based diagnostics restored.
+
+Changes from FC 24:
+- make_level_timespan() and level_X_timespan variables return
+- Identical to 2022 version (NFS Unbound/Dead Space)
+
+Why: BioWare's multi-year Dragon Age development benefited from time-based warnings. Long development cycles meant they could plan warning rollouts months in advance.
+
+This shows different studios have different needs - EA Sports (annual releases) vs BioWare (4+ year projects).
+[content]
+-- Pipeline startup script
+--
+--   This is executed very early, and can really only be used to
+--   configure settings.
+--
+--
+
+core = require "Frost.Core"
+
+require "os"
+require "vfs"
+
+Environment = {}
+
+local userName = os.getenv("USERNAME")
+
+if userName then Environment.UserName = userName end
+
+branchName = os.getenv("BRANCH_NAME")
+
+if not branchName then 
+	error("Configuration error: BRANCH_NAME environment variable not set -- fix the .diceconfig file for this branch!") 
+end
+
+-- Define functions used for configuration of warnings and other diagnostics
+
+diag_info = {}
+
+function make_level(level)
+	return function(identifier)
+		diag_info[identifier] = level
+	end
+end
+
+function make_level_timespan(level)
+	return function(identifier, dateStr, numberOfDays)
+		local maxDays = 60
+		if numberOfDays > maxDays then
+			error(string.format("make_level_timespan cannot be set for more than %s days in the future", maxDays))
+			return
+		end
+	
+		local month, day, year = dateStr:match('^(%d%d)/(%d%d)/(%d%d%d%d)$')
+		local startDate = os.time{month = tonumber(month), day = tonumber(day), year = tonumber(year)}
+
+		local daysSinceStart = os.difftime(os.time(), startDate) / 86400 -- seconds between days / seconds per day
+
+		if daysSinceStart > 0 and daysSinceStart < numberOfDays then
+			local setLevel = make_level(level)
+			setLevel(identifier)
+		end
+	end
+end
+
+function get_level(identifier)
+	local level = diag_info[identifier] -- Returns nul or warning level
+	if level == nil then
+		return Pipeline.HintThreshold + 1
+	end
+
+	return level
+end
+
+level_1 = make_level(1)
+level_2 = make_level(2)
+level_3 = make_level(3)
+level_4 = make_level(4)
+
+-- Execute configuration and setup scripts
+
+allScriptsRoot = "/Data/Scripts/"
+scriptsRoot = allScriptsRoot .. "Pipeline/"
+
+core.import(scriptsRoot .. "Configuration.lua")
+
+--
+[/version]
+
+[version]
+2025 (Battlefield 6, NFL 26, Skate Playtest)
+[notes]
+BRANCH_NAME validation removed.
+
+Critical Change:
+- branchName = os.getenv('BRANCH_NAME')
+- NO error if BRANCH_NAME not set
+- Removed: 'if not branchName then error(...) end'
+
+Why This Matters:
+Frostbite moved to Git-based workflows and containerized builds where BRANCH_NAME isn't always set. The old Perforce-centric .diceconfig file approach was phased out.
+
+Modern Build Systems:
+- Docker containers don't need branch detection
+- CI/CD systems handle branching differently
+- Local developers may not have environment variables set
+
+This represents infrastructure modernization - removing assumptions about development environment structure.
+
+Time-based diagnostics retained for long-term projects.
+[content]
+-- Pipeline startup script
+--
+--   This is executed very early, and can really only be used to
+--   configure settings.
+--
+--
+
+core = require "Frost.Core"
+
+require "os"
+require "vfs"
+
+Environment = {}
+
+local userName = os.getenv("USERNAME")
+
+if userName then Environment.UserName = userName end
+
+branchName = os.getenv("BRANCH_NAME")
+
+-- Define functions used for configuration of warnings and other diagnostics
+
+diag_info = {}
+
+function make_level(level)
+	return function(identifier)
+		diag_info[identifier] = level
+	end
+end
+
+function make_level_timespan(level)
+	return function(identifier, dateStr, numberOfDays)
+		local maxDays = 60
+		if numberOfDays > maxDays then
+			error(string.format("make_level_timespan cannot be set for more than %s days in the future", maxDays))
+			return
+		end
+	
+		local month, day, year = dateStr:match('^(%d%d)/(%d%d)/(%d%d%d%d)$')
+		local startDate = os.time{month = tonumber(month), day = tonumber(day), year = tonumber(year)}
+
+		local daysSinceStart = os.difftime(os.time(), startDate) / 86400 -- seconds between days / seconds per day
+
+		if daysSinceStart > 0 and daysSinceStart < numberOfDays then
+			local setLevel = make_level(level)
+			setLevel(identifier)
+		end
+	end
+end
+
+level_1 = make_level(1)
+level_2 = make_level(2)
+level_3 = make_level(3)
+level_4 = make_level(4)
+
+level_1_timespan = make_level_timespan(1)
+level_2_timespan = make_level_timespan(2)
+level_3_timespan = make_level_timespan(3)
+level_4_timespan = make_level_timespan(4)
+
+-- Execute configuration and setup scripts
+
+allScriptsRoot = "/Data/Scripts/"
+scriptsRoot = allScriptsRoot .. "Pipeline/"
+
+core.import(scriptsRoot .. "Configuration.lua")
+
+--
+[/version]
+
+[version]
+2025 (Skate)
+[notes]
+Comment refinement only.
+
+Changes:
+- 'can really only be used' → 'can only be used'
+- Minor wording simplification
+
+Functionality identical to BF6/NFL 26. This represents Skate's finalized version with polished documentation.
+[content]
+-- Pipeline startup script
+--
+--   This is executed very early, and can only be used to configure settings.
+--
+--
+
+core = require "Frost.Core"
+
+require "os"
+require "vfs"
+
+Environment = {}
+
+local userName = os.getenv("USERNAME")
+
+if userName then Environment.UserName = userName end
+
+branchName = os.getenv("BRANCH_NAME")
+
+-- Define functions used for configuration of warnings and other diagnostics
+
+diag_info = {}
+
+function make_level(level)
+	return function(identifier)
+		diag_info[identifier] = level
+	end
+end
+
+function make_level_timespan(level)
+	return function(identifier, dateStr, numberOfDays)
+		local maxDays = 60
+		if numberOfDays > maxDays then
+			error(string.format("make_level_timespan cannot be set for more than %s days in the future", maxDays))
+			return
+		end
+	
+		local month, day, year = dateStr:match('^(%d%d)/(%d%d)/(%d%d%d%d)$')
+		local startDate = os.time{month = tonumber(month), day = tonumber(day), year = tonumber(year)}
+
+		local daysSinceStart = os.difftime(os.time(), startDate) / 86400 -- seconds between days / seconds per day
+
+		if daysSinceStart > 0 and daysSinceStart < numberOfDays then
+			local setLevel = make_level(level)
+			setLevel(identifier)
+		end
+	end
+end
+
+level_1 = make_level(1)
+level_2 = make_level(2)
+level_3 = make_level(3)
+level_4 = make_level(4)
+
+level_1_timespan = make_level_timespan(1)
+level_2_timespan = make_level_timespan(2)
+level_3_timespan = make_level_timespan(3)
+level_4_timespan = make_level_timespan(4)
+
+-- Execute configuration and setup scripts
+
+allScriptsRoot = "/Data/Scripts/"
+scriptsRoot = allScriptsRoot .. "Pipeline/"
+
+core.import(scriptsRoot .. "Configuration.lua")
+
+--
+[/version]

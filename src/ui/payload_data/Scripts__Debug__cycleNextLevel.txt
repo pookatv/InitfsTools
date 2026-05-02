@@ -1,0 +1,47 @@
+[description]
+Level rotation testing - advances to next level in rotation repeatedly.
+
+[version]
+2015 (Battlefield Hardline)
+[notes]
+Simple level rotation cycle testing.
+
+Script Structure:
+1. Core.LogLevel FatalAssert - Suppress non-critical logs
+2. server.startNextLevel - Advance to next level in rotation
+3. sleep 90 - Wait 90 seconds
+4. main.playCommands Scripts/Debug/cycleNextLevel - Loop
+
+Commands Explained:
+
+server.startNextLevel:
+- Advances to next map in configured level rotation
+- Reads from server's map rotation configuration
+- Does not specify map, follows rotation order
+
+Sleep Duration:
+- 90 seconds: Allows for level load, brief gameplay, then advance
+
+Cycle Duration:
+90 seconds per iteration
+
+Testing Coverage:
+- Level rotation system
+- Map rotation configuration reading
+- Level transition logic
+- Next level determination
+- Rotation wrap-around (after last map, return to first)
+- Server map list handling
+
+Difference from cycleMpLevelsHavana:
+- cycleMpLevelsHavana: Explicitly loads specific maps in hardcoded order
+- cycleNextLevel: Relies on server's configured rotation list
+- This tests the actual rotation system used in production servers
+[content]
+Core.LogLevel FatalAssert
+
+server.startNextLevel
+sleep 90
+
+main.playCommands Scripts/Debug/cycleNextLevel
+[/version]

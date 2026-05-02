@@ -1,0 +1,335 @@
+[description]
+Bot/fake player name database - provides randomly generated player names for testing multiplayer scenarios.
+
+[version]
+2013 (Battlefield 4)
+[notes]
+List of pseudo-random player names for bot/testing purposes.
+
+Name Categories:
+
+Swedish/Nordic Names (First Section):
+- Golonka, HjorteN, RonjaRoevardotter, LillaMy
+- RauLHernandez, CherryStyle, HerrRandig, Evertzzon
+- Kardemumma911, GameGuy, RueDkatrine, candymoNster
+- jiggamah, SICKnezz, FarFaRkatt, MormorANKA
+- RalfEvertsson, Fyrtiofemm, PimPom, PomPim
+- SlemSlataN, Koettboulear, AddeRenalin, Mandariny25
+- SeanKudde, Commandersson, chorizoYTLE, kravmarktbanane
+- AwesumChoptur, raphaelloo, TraunMull, GolonkaGaMe
+- GolonkaTEAM, firradefiskeN, Binjancolada, kaffEfiltret99
+
+Duplicate/Variant Names:
+Many names appear twice with slight variations:
+- goLonka33 / goLonka30
+- MormorAnkaz (variant of MormorANKA)
+- SlemZLtN (variant of SlemSlataN)
+- Koettboul (shortened Koettboulear)
+- AddeRenalinisH (variant of AddeRenalin)
+
+Procedurally Generated Names:
+[BETA] Prefix (50 names):
+- Format: [Adjective] [Animal/Noun]
+- Examples: Beauty Cockroach, Dreaded Goldbeast, Intense Grizzly
+- Pattern: [BETA]<Descriptor> <Animal/Object>
+- Some use Spanish articles: El Baby, Der Girl, Los Pioneer
+
+[ZETA] Prefix (50 names):
+- Same format as BETA
+- Examples: Beau Scissor, Screaming Mutant, Young Elf
+- Continues descriptor + noun pattern
+- Mix of English and Spanish/German articles
+
+[RHO] Prefix (50 names):
+- Examples: King Stoned, The Darling, Bitter Antelope
+- Continues pattern with Greek letter prefix
+
+[TAU] Prefix (50 names):
+- Examples: The Dummy, Cruel Gladiator, Skilled Dugong
+- Final prefix tier
+
+Name Generation Pattern:
+- Prefix tags: [BETA], [ZETA], [RHO], [TAU]
+- Adjectives: Beauty, Dreaded, Intense, Sugar, Pointless, Swift, etc.
+- Animals: Cockroach, Grizzly, Lamb, Moose, Cheetah, Snake, etc.
+- Descriptors: Color, Moving, Solid, Heavy, Angry, etc.
+- Some duplicates: TapirTapir, OtterOtter, SnakeSnake, HammerHammer, FoxyTitan
+
+Total Count:
+Approximately 250 unique names
+
+Usage:
+- Populated bot players in multiplayer testing
+- Fill empty server slots for load testing
+- Simulate realistic player count for UI/networking tests
+- Provide variety in kill feed/scoreboard during QA
+
+Greek Letter Prefixes:
+Beta, Zeta, Rho, Tau suggest different bot difficulty tiers or testing phases.
+[content]
+Golonka
+HjorteN
+RonjaRoevardotter
+LillaMy
+RauLHernandez
+CherryStyle
+HerrRandig
+Evertzzon
+Kardemumma911
+GameGuy
+RueDkatrine
+candymoNster
+jiggamah
+SICKnezz
+goLonka33
+FarFaRkatt
+MormorANKA
+RalfEvertsson
+Fyrtiofemm
+PimPom
+PomPim
+SlemSlataN
+Koettboulear
+AddeRenalin
+Mandariny25
+SeanKudde
+Commandersson
+chorizoYTLE
+kravmarktbanane
+AwesumChoptur
+raphaelloo
+TraunMull
+GolonkaGaMe
+GolonkaTEAM
+firradefiskeN
+Binjancolada
+kaffEfiltret99
+Golonka
+HjorteN
+RonjaRoevardotter
+LillaMy
+RauLHernandez
+CherryStyle
+HerrRandig
+Evertzzon
+Kardemumma911
+GameGuy
+RueDkatrine
+candymoNster
+SICKnezz
+goLonka30
+FarFaRkatt
+MormorAnkaz
+RalfEvertsson
+Fyrtiofemm
+PomPim
+SlemZLtN
+Koettboul
+AddeRenalinisH
+Mandariny25
+SeanKudde
+BlasterMaster4
+chorizohunter5
+kravmarkt
+TeleporteradTamburin
+[BETA]Beauty Cockroach
+[BETA]Dreaded Goldbeast
+[BETA]Intense Grizzly
+[BETA]Sugar Pet
+[BETA]Pointless Lamb
+[BETA]TapirTapir
+[BETA]Screamy Moose
+[BETA]Cheetah Ivory
+[BETA]Skinny Doe
+[BETA]Disco Warm Llama
+[BETA]Tapir Stony
+[BETA]Forgotten Hammer
+[BETA]Mare Cute
+[BETA]Reborn Chipmunk
+[BETA]Swift Mandrill
+[BETA]Drunken Mandrill
+[BETA]Antelope Gold
+[BETA]Screamy Snake
+[BETA]Swift Honey
+[BETA]El Baby
+[BETA]Ox Old
+[BETA]Der Girl
+[BETA]Strong Fast Kitten
+[BETA]Sleepy Tumbler
+[BETA]Beau Hammer
+[BETA]RangerRanger
+[BETA]Color Prince
+[BETA]Pointless Mutant
+[BETA]Lefty Rabbit
+[BETA]Fairy Moving
+[BETA]Intense Fatty Iris
+[BETA]Yellow Man
+[BETA]Canary Disco
+[BETA]Rotten Crocodile
+[BETA]The Panda
+[BETA]El Eagle
+[BETA]Dog Rapid
+[BETA]Chicken Knife
+[BETA]Helpless Ranger
+[BETA]Dusty Hare
+[BETA]Small Pig
+[BETA]Mule Solid
+[BETA]Fox Left-handed
+[BETA]Mini Dangerous Baby
+[BETA]Beaver Solid
+[BETA]OtterOtter
+[BETA]Honey Rhino
+[BETA]Professor Morbid
+[BETA]Raw Toddler
+[BETA]Tasty Airmen
+[ZETA]Beau Scissor
+[ZETA]Screaming Mutant
+[ZETA]Young Elf
+[ZETA]Gutsy Hyena
+[ZETA]Meaty Buffalo
+[ZETA]Rusty Trustee
+[ZETA]The Star
+[ZETA]Hidden Wriggler
+[ZETA]Rebel Kid
+[ZETA]Los Genius
+[ZETA]Stormy Grizzly
+[ZETA]ItchyCow
+[ZETA]Sleepy King
+[ZETA]Slimy Baroness
+[ZETA]Fast Hammer
+[ZETA]Little Mole
+[ZETA]Hungry Koala
+[ZETA]Lone Waterbuck
+[ZETA]Forgotten Student
+[ZETA]Swallow Maximum
+[ZETA]El Devil
+[ZETA]Los Pioneer
+[ZETA]Polar-bear Pure
+[ZETA]Eaglet Barbaric
+[ZETA]Freaky Dreaded Iris
+[ZETA]Small Rare Panther
+[ZETA]Forsaken Prisoner
+[ZETA]Smokey Swan
+[ZETA]Bunny Reborn
+[ZETA]Sugar Alligator
+[ZETA]Beast Flower
+[ZETA]Der Ocelot
+[ZETA]Chaos Flipper
+[ZETA]Orangutan Hearty
+[ZETA]Moving Moose
+[ZETA]Color Bat
+[ZETA]Reborn Sugar
+[ZETA]Unique Hound
+[ZETA]Los Raccoon
+[ZETA]Richy Tapir
+[ZETA]Mysterious Lamb
+[ZETA]Rocking Angry Hawk
+[ZETA]Kitten Intense
+[ZETA]Ibis Lone
+[ZETA]Dog Rebel
+[ZETA]Heavy Steel
+[ZETA]Rotten Cockroach
+[ZETA]Kit Rusty
+[ZETA]Angry Birdie
+[ZETA]Heavy Hippopotamus
+[RHO]King Stoned
+[RHO]The Darling
+[RHO]Bitter Antelope
+[RHO]Toad Tainted
+[RHO]Gruesome Parrot
+[RHO]Eternal Demon
+[RHO]Mysterious Moose
+[RHO]Hungry Lemur
+[RHO]El Wolverine
+[RHO]El Sheep
+[RHO]Dromedary Beauty
+[RHO]HammerHammer
+[RHO]Gold Mustang
+[RHO]Eternal Prisoner
+[RHO]Bitter Walrus
+[RHO]Sweet Jaguar
+[RHO]Streaming Juggler
+[RHO]Cute Pony
+[RHO]Freaky Alpha Cat
+[RHO]Buffalo Minimum
+[RHO]Dingo Skilled
+[RHO]Elastic Chimpanzee
+[RHO]Swan Crunchy
+[RHO]Wooden Dancer
+[RHO]The Child
+[RHO]Misty Pig
+[RHO]Hawk Stormy
+[RHO]Spider Mellow
+[RHO]TapirTapir
+[RHO]Darling Itchy
+[RHO]Moron Richy
+[RHO]Finch Rusty
+[RHO]Alpha Beaver
+[RHO]Duck Flower
+[RHO]Nasty Tiger
+[RHO]Ivory Titan
+[RHO]Supersonic Hook
+[RHO]Worthy Trooper
+[RHO]Hilarious Hippo
+[RHO]Lamb Heavy
+[RHO]Gutsy Doggy
+[RHO]El Yodelers
+[RHO]Angry Ugly Knife
+[RHO]Cute Duckling
+[RHO]Los Dancer
+[RHO]Los Flapper
+[RHO]Stoned Fisherman
+[RHO]Hawk Blue
+[RHO]Pet Beast
+[RHO]Helpless Baboon
+[TAU]The Dummy
+[TAU]Cruel Gladiator
+[TAU]Skilled Dugong
+[TAU]SnakeSnake
+[TAU]Los Duck
+[TAU]Jockey Dreaded
+[TAU]Worthy Seal
+[TAU]Needless Willy
+[TAU]Doggy Sad Kiddie
+[TAU]Skinny Sleepy Lion
+[TAU]Brave Larva
+[TAU]Dancing Dingo
+[TAU]Richy Alligator
+[TAU]Lovebird Scarlet
+[TAU]Fox Pointless
+[TAU]The Coyote
+[TAU]Bat Dusty
+[TAU]Solid Harmony
+[TAU]Drunken Koala
+[TAU]Willy Hurricane
+[TAU]The Moose
+[TAU]Maxi Steamy Hook
+[TAU]Beauty Chick
+[TAU]Sunny Lion
+[TAU]Cult Laser
+[TAU]Ivory Baby
+[TAU]Moose Strong
+[TAU]Lefty Moving Kitten
+[TAU]Lucky Chipmunk
+[TAU]Polar-bear Willy
+[TAU]Strange Kit
+[TAU]Der Cougar
+[TAU]Giraffe Angry
+[TAU]Rusty Froglet
+[TAU]Professor Gruesome
+[TAU]Brutal Duckling
+[TAU]Star Itchy
+[TAU]Maximum Chimpanzee
+[TAU]Elastic Bear
+[TAU]Jockey Eager
+[TAU]Der Flapper
+[TAU]Kit Small
+[TAU]Slimy Fever
+[TAU]El Wombat
+[TAU]Brave Demon
+[TAU]Old Opossum
+[TAU]Mellow Orange Viper
+[TAU]Der Wildcat
+[TAU]FoxyTitan
+[TAU]Cult Hidden Puma
+[/version]

@@ -1,0 +1,32 @@
+[description]
+Brief one-line description of what this payload does.
+
+[version]
+What version/game this payload is present for.
+[notes]
+Optional multi-line notes about this version.
+Explain what the script does, key commands, timing etc.
+
+You can write as many lines here as you like.
+[content]
+-- Your script content goes here.
+-- This is exactly what will be shown in the editor
+-- and applied to the payload when "Apply to Payload" is pressed.
+
+Core.LogLevel FatalAssert
+server.startNextLevel
+sleep 90
+main.playCommands Scripts/Debug/cycleNextLevel
+[/version]
+
+[version]
+A newer version/game this payload is present for (optional)
+[notes]
+A second version block for a different game/year.
+Each [version]...[/version] block appears as a separate
+entry in the Version dropdown.
+[content]
+-- Different content for a different game version.
+Core.LogLevel Warning
+server.startNextLevel
+[/version]

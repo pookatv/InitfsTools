@@ -1,0 +1,55 @@
+[description]
+Player session management - handles player join/leave events and enforces ban list.
+
+[version]
+2011+ (Universal)
+[notes]
+Player connection lifecycle management.
+
+Session Callbacks:
+- Session_PlayerJoined(id) - Called when player connects to server
+- Session_PlayerLeft(id) - Called when player disconnects
+- Session_PlayerAuthenticated(id) - Called after player authentication succeeds
+
+Ban Enforcement:
+In Session_PlayerAuthenticated():
+- Checks if player ID exists in banList table
+- If banned, prints player name and calls kickPlayer(id)
+- This happens after authentication but before spawning
+
+Why Authentication vs Join:
+Session_PlayerJoined fires on initial connection, but Session_PlayerAuthenticated fires after the player's online ID is verified. Ban checking happens at authentication to ensure we have the correct player ID before kicking.
+
+Integration:
+- Relies on banList global from Server.lua
+- Calls kickPlayer() C++ function to disconnect player
+- Print statements provide server log entries for administrators
+
+This simple system effectively prevents banned players from joining while keeping the code minimal and performant.
+[content]
+require "vfs"
+require "os"
+
+function Session_PlayerJoined(id)
+
+  print("Session_PlayerJoined called: Player " .. id .. " joined")
+  
+end
+
+function Session_PlayerLeft(id)
+
+  print("Session_PlayerLeft called: Player " .. id .. " left")
+
+end
+
+function Session_PlayerAuthenticated(id)
+
+  print("Session_PlayerJoined called: Player " .. id .. " joined")
+  
+  if (banList[id] ~= nil) then
+	print("Player " .. banList[id].name .. " is banned")
+	kickPlayer(id)
+  end
+  
+end
+[/version]

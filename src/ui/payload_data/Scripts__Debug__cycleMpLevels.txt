@@ -1,0 +1,171 @@
+[description]
+Automated multiplayer map testing script - cycles through all BF4 multiplayer maps with restart and round end tests.
+
+[version]
+2011-2015 (Battlefield 4)
+[notes]
+Automated testing script for Battlefield 4's 10 base multiplayer maps.
+
+Script Structure:
+Each map follows identical test sequence:
+1. server.loadLevel [MapPath] - Loads the map
+2. sleep 60 - Wait 60 seconds
+3. server.restartLevel - Restart current map
+4. sleep 60 - Wait 60 seconds
+5. server.endRound 0 - End round with team 0 winning
+6. sleep 60 - Wait 60 seconds
+7. server.endRound 1 - End round with team 1 winning
+8. sleep 60 - Wait 60 seconds
+9. Proceed to next map
+
+Initial Command:
+- Core.LogLevel FatalAssert - Sets logging to only show fatal errors
+
+Final Command:
+- main.playCommands Scripts/Debug/cycleMpLevels - Recursive loop, script restarts itself
+
+Maps Tested (in order):
+1. MP_Abandoned (Zavod 311)
+2. MP_Damage (Lancang Dam)
+3. MP_Flooded (Flood Zone)
+4. MP_Journey (Golmud Railway)
+5. MP_Naval (Paracel Storm)
+6. MP_Prison (Operation Locker)
+7. MP_Resort (Hainan Resort)
+8. MP_Siege (Siege of Shanghai)
+9. MP_TheDish (Rogue Transmission)
+10. MP_Tremors (Dawnbreaker)
+
+Commands Explained:
+
+server.loadLevel [path]:
+- Loads specified level/map
+- Path format: Levels/MP/[MapName]/[MapName]
+
+sleep [seconds]:
+- Pauses script execution for specified duration
+- Allows time for map loading, gameplay, or round transitions
+
+server.restartLevel:
+- Restarts current map without changing settings
+- Tests map reload functionality
+
+server.endRound [team]:
+- Forces current round to end
+- Parameter 0 or 1 specifies winning team
+- Tests win condition handling for both factions
+
+Core.LogLevel FatalAssert:
+- Suppresses non-critical log messages
+- Only fatal errors will be displayed
+- Reduces log spam during automated testing
+
+main.playCommands [script]:
+- Executes specified script file
+- When targeting itself, creates infinite loop
+- Continuous testing until manually stopped
+
+Total Cycle Duration Per Map:
+240 seconds (4 minutes) per map × 10 maps = 40 minutes per full cycle
+
+Testing Coverage:
+- Map loading stability
+- Map restart functionality
+- Round end logic for both teams
+- Level transition system
+- Memory leak detection (through continuous looping)
+[content]
+Core.LogLevel FatalAssert
+
+server.loadLevel Levels/MP/MP_Abandoned/MP_Abandoned
+sleep 60
+server.restartLevel
+sleep 60
+server.endRound 0
+sleep 60
+server.endRound 1
+sleep 60
+
+server.loadLevel Levels/MP/MP_Damage/MP_Damage
+sleep 60
+server.restartLevel
+sleep 60
+server.endRound 0
+sleep 60
+server.endRound 1
+sleep 60
+
+server.loadLevel Levels/MP/MP_Flooded/MP_Flooded
+sleep 60
+server.restartLevel
+sleep 60
+server.endRound 0
+sleep 60
+server.endRound 1
+sleep 60
+
+server.loadLevel Levels/MP/MP_Journey/MP_Journey
+sleep 60
+server.restartLevel
+sleep 60
+server.endRound 0
+sleep 60
+server.endRound 1
+sleep 60
+
+server.loadLevel Levels/MP/MP_Naval/MP_Naval
+sleep 60
+server.restartLevel
+sleep 60
+server.endRound 0
+sleep 60
+server.endRound 1
+sleep 60
+
+server.loadLevel Levels/MP/MP_Prison/MP_Prison
+sleep 60
+server.restartLevel
+sleep 60
+server.endRound 0
+sleep 60
+server.endRound 1
+sleep 60
+
+server.loadLevel Levels/MP/MP_Resort/MP_Resort
+sleep 60
+server.restartLevel
+sleep 60
+server.endRound 0
+sleep 60
+server.endRound 1
+sleep 60
+
+server.loadLevel Levels/MP/MP_Siege/MP_Siege
+sleep 60
+server.restartLevel
+sleep 60
+server.endRound 0
+sleep 60
+server.endRound 1
+sleep 60
+
+server.loadLevel Levels/MP/MP_TheDish/MP_TheDish
+sleep 60
+server.restartLevel
+sleep 60
+server.endRound 0
+sleep 60
+server.endRound 1
+sleep 60
+
+server.loadLevel Levels/MP/MP_Tremors/MP_Tremors
+sleep 60
+server.restartLevel
+sleep 60
+server.endRound 0
+sleep 60
+server.endRound 1
+sleep 60
+
+main.playCommands Scripts/Debug/cycleMpLevels
+[/version]

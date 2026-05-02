@@ -1,0 +1,52 @@
+[description]
+Blaze service module - handles EA multiplayer backend requests.
+
+[version]
+2013 (Command & Conquer: Generals 2)
+[notes]
+Module for routing Blaze (EA multiplayer backend) requests.
+
+Module Declaration:
+- module('shellmodules.blaze', package.seeall)
+- Creates global namespace for blaze functions
+
+Function: executeBlazeRequest(requestArgs)
+- Sets requestArgs._module = 'blaze'
+- Passes request to executeNativeShellModuleRequest()
+- Native engine code handles actual Blaze communication
+
+Route Registration:
+- Pattern: /blaze/(.*)
+- Captures everything after /blaze/ as '_resource'
+- Example: /blaze/matchmaking/findGame → _resource = 'matchmaking/findGame'
+
+executeNativeShellModuleRequest():
+- Native engine function (implemented in C++)
+- Handles Blaze protocol communication
+- Makes HTTP/HTTPS requests to EA servers
+- Processes authentication, matchmaking, stats
+
+Blaze Services Accessible:
+- Player authentication
+- Matchmaking
+- Leaderboards
+- Player stats/profiles
+- Game session management
+- Friends lists
+- Achievements
+[content]
+-- ShellModules.Blaze
+module( "shellmodules.blaze", package.seeall)
+
+function executeBlazeRequest( requestArgs )
+  requestArgs._module = "blaze"
+  
+  -- You could do some extra argument processing/filtering here before passing to the native engine to handle the actual blaze request
+  -- Transfer to native code
+  executeNativeShellModuleRequest( requestArgs )
+end
+
+AddServiceRoutes( executeBlazeRequest, {
+  { "/blaze/(.*)", {"_resource"} }
+})
+[/version]

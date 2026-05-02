@@ -1,0 +1,45 @@
+[description]
+Origin service module - handles EA Origin client integration.
+
+[version]
+2013 (Command & Conquer: Generals 2)
+[notes]
+Module for routing Origin platform requests.
+
+Module Declaration:
+- module('shellmodules.origin', package.seeall)
+
+Function: executeOriginRequest(requestArgs)
+- Sets requestArgs._module = 'origin'
+- Passes request to executeNativeShellModuleRequest()
+- Native engine communicates with Origin client
+
+Route Registration:
+- Pattern: /origin/(.*)
+- Captures everything after /origin/ as '_resource'
+- Example: /origin/overlay/show → _resource = 'overlay/show'
+
+Origin Integration:
+EA's Origin platform provides:
+- DRM authentication
+- Friends list
+- In-game overlay
+- Store integration
+- Achievement system
+- Social features
+[content]
+-- ShellModules.Origin
+module( "shellmodules.origin", package.seeall)
+
+function executeOriginRequest( requestArgs )
+  requestArgs._module = "origin"
+
+  -- You could do some extra argument processing/filtering here before passing to the native engine to handle the actual origin request
+  -- Transfer to native code
+  executeNativeShellModuleRequest( requestArgs )
+end
+
+AddServiceRoutes( executeOriginRequest, {
+  { "/origin/(.*)", {"_resource"} }
+})
+[/version]

@@ -1,0 +1,35 @@
+[description]
+Test module - minimal testing module for shell request system.
+
+[version]
+2013 (Command & Conquer: Generals 2)
+[notes]
+Basic test module for shell API development.
+
+Module Declaration:
+- module('shellmodules.test', package.seeall)
+
+Function: executeShellRequest(apiArgs)
+- Prints 'Test Module : ' + method name
+- Passes request to executeNativeShellModuleRequest()
+- Used for testing shell communication pipeline
+
+Purpose:
+Development/debugging tool for verifying:
+- JavaScript to Lua communication
+- Request routing system
+- Parameter passing
+- Response callbacks
+
+No Route Registration:
+This module does not register specific routes. Used for manual testing or called directly during development.
+[content]
+-- shellmodules.test
+module( "shellmodules.test", package.seeall)
+
+function executeShellRequest( apiArgs )
+  print("Test Module : " .. apiArgs.method )
+  
+  executeNativeShellModuleRequest( apiArgs )
+end
+[/version]

@@ -1,0 +1,49 @@
+[description]
+Salamander service module - handles game-specific C&C functionality.
+
+[version]
+2013 (Command & Conquer: Generals 2)
+[notes]
+Module for routing C&C-specific game requests.
+
+Module Declaration:
+- module('shellmodules.salamander', package.seeall)
+
+Function: executeSalamanderRequest(requestArgs)
+- Sets requestArgs._module = 'salamander'
+- Passes request to executeNativeShellModuleRequest()
+- Native engine handles C&C game logic
+
+Route Registration:
+- Pattern: /salamander/(.*)
+- Captures everything after /salamander/ as '_resource'
+- Example: /salamander/game/start → _resource = 'game/start'
+
+Salamander:
+Internal codename for Command & Conquer Generals 2 project.
+
+Game-Specific Services:
+C&C-specific functionality such as:
+- Match setup
+- Army/faction selection
+- Game mode configuration
+- Map selection
+- Unit/building information
+- Economy/resource data
+- Campaign progress
+[content]
+-- ShellModules.Salamander
+module( "shellmodules.salamander", package.seeall)
+
+function executeSalamanderRequest( requestArgs )
+  requestArgs._module = "salamander"
+  
+  -- You could do some extra argument processing/filtering here before passing to the native engine to handle the actual blaze request
+  -- Transfer to native code
+  executeNativeShellModuleRequest( requestArgs )
+end
+
+AddServiceRoutes( executeSalamanderRequest, {
+  { "/salamander/(.*)", {"_resource"} }
+})
+[/version]

@@ -1,0 +1,237 @@
+[description]
+User settings management - handles profile settings persistence and application.
+
+[version]
+2013 (Command & Conquer: Generals 2)
+[notes]
+Comprehensive user settings management system.
+
+Module Declaration:
+- module('shellmodules.usersettings', package.seeall)
+
+Helper Functions:
+
+getUserSettingOption(optionName):
+- Calls getUserOptions() with single option name
+- Returns option value from result table
+
+setUserSettingOption(optionName, value):
+- Calls setUserOptions() with key-value pair
+- Updates option value
+
+bindGetter(paramName):
+- Returns function that retrieves specified parameter
+- Creates closure around parameter name
+
+bindSetter(paramName):
+- Returns function that sets specified parameter
+- Creates closure around parameter name
+
+bindProfileVar(newVal):
+- Prefixes value with 'RtsProfileSettings.'
+- Returns array: [getter function, setter function]
+- Creates bound getter/setter pair for profile variable
+
+User Settings Table:
+Maps JavaScript setting names to profile variables:
+- shellfullscreen → RtsProfileSettings.FrontEndFullscreen
+- gamefullscreen → RtsProfileSettings.GameFullscreen
+- fullscreenwidth → RtsProfileSettings.FullscreenWidth
+- fullscreenheight → RtsProfileSettings.FullscreenHeight
+- windowedwidth → RtsProfileSettings.WindowedWidth
+- windowedheight → RtsProfileSettings.WindowedHeight
+- mastervolume → RtsProfileSettings.MasterVolume
+- edgepan → RtsProfileSettings.EdgePan
+- edgescrollspeed → RtsProfileSettings.EdgeScrollSpeed
+- middlemousecameradrag → RtsProfileSettings.MiddleMouseCameraDrag
+- movemodeattack → RtsProfileSettings.MoveModeAttack
+- allowdeselect → RtsProfileSettings.AllowDeselect
+
+User Audio Settings Table:
+Subset for audio-only updates:
+- mastervolume → RtsProfileSettings.MasterVolume
+
+Request Handlers:
+
+executeUserSettingsApplyRequest(requestArgs):
+- Iterates through userSettings table
+- For each setting present in requestArgs, calls setter function
+- Calls applyProfileSettings() to apply changes to engine
+- Returns {status: 0}
+
+executeUserSettingsApplyAudioRequest(requestArgs):
+- Iterates through userAudioSettings table only
+- Applies audio settings
+- Calls applyAudioProfileSettings() (separate audio apply function)
+- Returns {status: 0}
+
+executeUserSettingsRequest(requestArgs):
+- Iterates through userSettings table
+- Calls getter function for each setting
+- Returns JSON with all current setting values
+- Returns {status: 0, [settingName]: value, ...}
+
+executeUserSettingsSaveRequest(requestArgs):
+- Calls saveProfileSettings() to persist to disk
+- Returns {status: 0}
+
+executeUserSettingsDiscardRequest(requestArgs):
+- Calls discardProfileSettings() to revert unsaved changes
+- Returns {status: 0}
+
+Route Registration:
+- /usersettings/applyAudio → executeUserSettingsApplyAudioRequest
+- /usersettings/apply → executeUserSettingsApplyRequest
+- /usersettings/save → executeUserSettingsSaveRequest
+- /usersettings/discard → executeUserSettingsDiscardRequest
+- /usersettings → executeUserSettingsRequest (GET all settings)
+
+Native Functions Used:
+- getUserOptions(array) - Retrieves multiple options
+- setUserOptions(table) - Sets multiple options
+- applyProfileSettings() - Applies all settings to engine
+- applyAudioProfileSettings() - Applies audio settings specifically
+- saveProfileSettings() - Writes settings to disk
+- discardProfileSettings() - Reverts to last saved state
+
+Settings Workflow:
+1. GET /usersettings - Retrieve current values
+2. User modifies settings in UI
+3. POST /usersettings/apply - Apply changes (not saved yet)
+4. Test settings in game
+5. POST /usersettings/save - Persist to disk
+   OR POST /usersettings/discard - Revert changes
+
+Audio-Specific Apply:
+Separate audio apply allows updating volume without full settings refresh, preventing visual glitches during audio adjustment.
+
+RTS-Specific Settings:
+- EdgePan: Camera moves when mouse touches screen edge (RTS standard)
+- EdgeScrollSpeed: How fast edge panning moves camera
+- MiddleMouseCameraDrag: Middle mouse button camera control
+- MoveModeAttack: Units auto-attack when moving (attack-move)
+- AllowDeselect: Clicking empty space deselects units
+[content]
+-- ShellModules.UserSettings
+module( "shellmodules.usersettings", package.seeall)
+
+function getUserSettingOption( optionName )
+  -- print("Get : " .. optionName )
+  local result = getUserOptions( {optionName} )
+  -- print(dump(result))
+  return result[optionName]
+end
+
+function setUserSettingOption( optionName, value )
+  -- print("Set: " .. optionName .. " = " .. value )
+  setUserOptions( { [optionName] = value } )
+end
+
+function bindGetter( paramName )
+  return function() return getUserSettingOption(paramName) end
+end
+
+function bindSetter( paramName ) 
+  return function( value ) setUserSettingOption(paramName,value) end
+end
+
+function bindProfileVar( newVal )
+  local varName = "RtsProfileSettings." .. newVal
+  return { bindGetter(varName), bindSetter(varName) }
+end
+
+userSettings = {  
+      ["shellfullscreen"] = bindProfileVar("FrontEndFullscreen"),
+      ["gamefullscreen"] = bindProfileVar("GameFullscreen"),
+      ["fullscreenwidth"] = bindProfileVar("FullscreenWidth"),
+      ["fullscreenheight"] = bindProfileVar("FullscreenHeight"),
+      ["windowedwidth"] = bindProfileVar("WindowedWidth"),
+      ["windowedheight"] = bindProfileVar("WindowedHeight"),
+      ["mastervolume"] = bindProfileVar("MasterVolume"),
+      ["edgepan"] = bindProfileVar("EdgePan"),
+      ["edgescrollspeed"] = bindProfileVar("EdgeScrollSpeed"),
+      ["middlemousecameradrag"] = bindProfileVar("MiddleMouseCameraDrag"),
+      ["movemodeattack"] = bindProfileVar("MoveModeAttack"),
+      ["allowdeselect"] = bindProfileVar("AllowDeselect")
+    } 
+
+userAudioSettings = {  
+      ["mastervolume"] = bindProfileVar("MasterVolume")
+    } 
+
+function executeUserSettingsApplyRequest( requestArgs )
+  local result = {}
+  for i,v in pairs( userSettings ) do
+    if( requestArgs[i] ~= nil ) then
+      v[2](requestArgs[i])
+    end
+  end
+  
+  -- This actually causes the engine to apply the settings now.
+  applyProfileSettings();
+
+  result.status = 0
+  postJsonResult(requestArgs._response, result)
+end
+
+function executeUserSettingsApplyAudioRequest( requestArgs )
+  local result = {}
+  for i,v in pairs( userAudioSettings ) do
+    if( requestArgs[i] ~= nil ) then
+      v[2](requestArgs[i])
+    end
+  end
+  
+  -- This actually causes the engine to apply the settings now.
+  applyAudioProfileSettings();
+
+  result.status = 0
+  postJsonResult(requestArgs._response, result)
+end
+
+function executeUserSettingsRequest( requestArgs )
+  local result = {}
+  for i,v in pairs( userSettings ) do
+    result[i] = v[1]()
+  end
+    
+  result.status = 0
+  postJsonResult(requestArgs._response, result)
+end
+
+function executeUserSettingsSaveRequest( requestArgs )
+  saveProfileSettings();
+  
+  local result = {}
+  result.status = 0
+  postJsonResult(requestArgs._response, result)
+end
+
+function executeUserSettingsDiscardRequest( requestArgs )
+  discardProfileSettings();
+  
+  local result = {}
+  result.status = 0
+  postJsonResult(requestArgs._response, result)
+end
+
+AddServiceRoutes( executeUserSettingsApplyAudioRequest, {
+  {"/usersettings/applyAudio", {}}
+})
+
+AddServiceRoutes( executeUserSettingsApplyRequest, {
+  {"/usersettings/apply", {}}
+})
+
+AddServiceRoutes( executeUserSettingsSaveRequest, {
+  {"/usersettings/save", {}}
+})
+
+AddServiceRoutes( executeUserSettingsDiscardRequest, {
+  {"/usersettings/discard", {}}
+})
+
+AddServiceRoutes( executeUserSettingsRequest, {
+  {"/usersettings", {}}
+})
+[/version]
