@@ -2,6 +2,8 @@
 The ultimate toolsuite for all things InitFS related, 
 featuring multi-format decryption support, a command dictionary, type extractor, diff checker, and more.
 
+Note: If an InitFS file asks for an AES key, I will not provide it. A quick google search may help.
+
 Massive thank you to the original FrostyToolsuite team, you can check them here: https://github.com/CadeEvs/FrostyToolsuite
 
 ## Features
