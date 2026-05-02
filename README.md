@@ -21,6 +21,7 @@ Massive thank you to the original FrostyToolsuite team, you can check them here:
 - Fully implement Dead Space and Need For Speed Heat support for live value reading
 - Fix a bug where the bcrypt.dll gets copied after the user hits ok, should be before
 - Fix an issue where the green highlight may disappear when deleting spaces
+- Fix an issue where highlights are invisible (Diff Check)
 - Finish DictionaryWindow logic to support more dev commands
 - Finish InitfsTools Wiki (help wanted!)
 - Implement localization support for the UI
