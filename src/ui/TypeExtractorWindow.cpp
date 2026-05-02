@@ -1053,7 +1053,7 @@ void TypeExtractorWindow::beginMemoryDump(const QString& exePath, DWORD override
             m_lblStatus->setText(
                 QString("Waiting for %1 to start... (%2/30)").arg(exeNameOnly).arg(attempt));
             QCoreApplication::processEvents();
-            Sleep(2000); // Windows Sleep — 2s, GUI remains responsive via processEvents above
+            Sleep(1000); // Windows Sleep — 1s, GUI remains responsive via processEvents above
             targetPid = findPid();
             processWasWaited = true;
         }
@@ -1070,7 +1070,7 @@ void TypeExtractorWindow::beginMemoryDump(const QString& exePath, DWORD override
     if (processWasWaited) {
         m_lblStatus->setText(QString("Process found, waiting before scan..."));
         QCoreApplication::processEvents();
-        Sleep(1000);
+        Sleep(2000);
     }
 
     HANDLE hProc = OpenProcess(
