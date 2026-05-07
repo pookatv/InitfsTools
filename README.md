@@ -27,6 +27,9 @@ Massive thank you to the original FrostyToolsuite team, you can check them here:
 - Implement localization support for the UI
 - Implement "GoTo" default commands
 
+## COMING SOON:
+- Console Injector — Hooks into a game's console and executes commands remotely (currently confirmed working in DelMar and SWBF2)
+
 ## License
 The Content, Name, Code, and all assets are licensed under a Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
 
