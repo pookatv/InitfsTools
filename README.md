@@ -7,12 +7,12 @@ Note: If an InitFS file asks you for an AES key, I will not provide it. A quick 
 Massive thank you to the original FrostyToolsuite team, you can check them here: https://github.com/CadeEvs/FrostyToolsuite
 
 ## Features
-- **InitFS Modding** — Load, modify, and save InitFS files across a wide range of Frostbite Engine games
+- **InitFS Modding** — Load, modify, and save InitFS files across all Frostbite Engine games
 - **Diff Check** — Compare differences between two InitFS files, with export support
 - **Type Extractor** — Extract all types and commands from a game executable or FrostyEditor SDK DLL
 - **Command Dictionary** — Generate and browse a full list of console commands extracted from raw InitFS files
 - **Reference Library** — Browse and view base and custom payloads from various Frostbite titles
-- **Preset Manager** — Browse and insert user-saved presets containing sets of various commands
+- **Preset Manager** — Browse and insert user-saved presets containing sets of useful commands
 
 <img width="2100" height="1240" alt="image222" src="https://github.com/user-attachments/assets/b651aab0-42a0-40e6-8b9b-44f916c9d088" />
 
