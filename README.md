@@ -32,7 +32,7 @@ Massive thank you to the original FrostyToolsuite team, you can check them here:
 - Implement "GoTo" default commands
 
 ## COMING SOON:
-- Console Injector — Hooks into a game's console and executes commands remotely (confirmed working in: DelMar, SWBF2, SWBF2015, BFN, GW2, GW1, NFS Payback, Need For Speed, NFS Rivals, Mirror's Edge)
+- Console Injector — Hooks into a game's console and executes commands remotely (confirmed working in: DelMar, MEA, SWBF2, SWBF2015, BFN, GW2, GW1, NFS Payback, Need For Speed, NFS Rivals, Mirror's Edge)
 
 ## License
 The Content, Name, Code, and all assets are licensed under a Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
