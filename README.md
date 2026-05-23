@@ -43,7 +43,7 @@ ISSUE: Some games may not load with a custom initfs file on Windows 10. This wil
 ## License
 The Content, Name, Code, and all assets are licensed under a Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
 
-## Important disclaimer
+## Disclaimer
 InitfsTools is an independent, community-developed project with no affiliation, endorsement, or sponsorship from Electronic Arts Inc. or any other rights holder.
 This software exists solely for educational, research, and preservation purposes. It is neither official software nor a product of EA or any publisher. The maintainers assert no ownership over any publisher code/assets - only what is minimally necessary to achieve basic functionality for the purposes described above.
 By using InitfsTools, you accept full responsibility for ensuring your use complies with all applicable laws and with any terms of service or end-user license agreements governing the software you use it with.
