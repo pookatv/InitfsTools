@@ -46,7 +46,7 @@ The Content, Name, Code, and all assets are licensed under a Creative Commons At
 ## Important disclaimer
 InitfsTools is an independent, community-developed project with no affiliation, endorsement, or sponsorship from Electronic Arts Inc. or any other rights holder.
 This software exists solely for educational, research, and preservation purposes. It is neither official software nor a product of EA or any publisher. The authors assert no ownership over any publisher code/assets — only what is minimally necessary to achieve basic functionality for the purposes described above.
-By using InitfsTools, you accept full responsibility for ensuring your use complies with all applicable laws and with any terms of service or end-user license agreements governing the software you use it with. We take a firm stance against piracy, cheating, and the circumvention of technical protections in any form.
+By using InitfsTools, you accept full responsibility for ensuring your use complies with all applicable laws and with any terms of service or end-user license agreements governing the software you use it with.
 
 # Building from Source
 
