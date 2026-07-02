@@ -19,8 +19,9 @@ if(NOT DEFINED QT_PATH OR QT_PATH STREQUAL "")
     endif()
 endif()
 
+set(OPENSSL_PATH "" CACHE PATH "Path to OpenSSL for Windows (e.g., /opt/openssl-windows)")
+
 message(STATUS "QT_PATH = ${QT_PATH}")
-message(STATUS "QT_STATIC = ${QT_STATIC}")
 
 set(CMAKE_PREFIX_PATH "${QT_PATH}")
 
@@ -41,6 +42,12 @@ qt_add_executable(InitfsTools
     resources/resources.qrc
     resources/app.rc
 )
+
+set_target_properties(InitfsTools PROPERTIES qt_no_entrypoint TRUE)
+
+if(MSVC)
+    target_link_options(InitfsTools PRIVATE /entry:mainCRTStartup)
+endif()
 
 file(GLOB PAYLOAD_DATA_FILES
     CONFIGURE_DEPENDS
@@ -66,9 +73,6 @@ qt_add_resources(InitfsTools "preset_data_resources"
 
 if(MSVC)
     target_compile_options(InitfsTools PRIVATE /EHsc /utf-8 /MP)
-    # Delay-load our bcrypt.dll so it doesn't shadow System32\bcrypt.dll at startup
-    target_link_options(InitfsTools PRIVATE /DELAYLOAD:bcrypt.dll)
-    target_link_libraries(InitfsTools PRIVATE delayimp)
 endif()
 
 target_include_directories(InitfsTools PRIVATE
@@ -80,27 +84,16 @@ target_include_directories(InitfsTools PRIVATE
     "${QT_PATH}/include/QtCore"
     "${QT_PATH}/include/QtWidgets"
     "${QT_PATH}/include/Qsci"
-    "C:/Program Files/OpenSSL-Win64/include"
 )
 
-# Static build does not use the DLL import definition
-if(QT_STATIC)
-    target_compile_definitions(InitfsTools PRIVATE QSCINTILLA_STATIC)
-else()
-    target_compile_definitions(InitfsTools PRIVATE QSCINTILLA_DLL)
+if(NOT OPENSSL_PATH STREQUAL "")
+    target_include_directories(InitfsTools PRIVATE "${OPENSSL_PATH}/include")
 endif()
 
-# QScintilla
+# QScintilla is always built as a static library in CI
+target_compile_definitions(InitfsTools PRIVATE QSCINTILLA_STATIC)
+
 set(QSCINTILLA_LIB "${QT_PATH}/lib/qscintilla2_qt6.lib")
-
-if(NOT QT_STATIC)
-    # Always use release QScintilla DLL — no debug variant exists
-    if(EXISTS "${QT_PATH}/bin/qscintilla2_qt6.dll")
-        set(QSCINTILLA_DLL "${QT_PATH}/bin/qscintilla2_qt6.dll")
-    else()
-        set(QSCINTILLA_DLL "C:/Users/Luca/Documents/_InitfsConverterEXE/C++/Qt_6.10_Backport/bin/qscintilla2_qt6.dll")
-    endif()
-endif()
 
 if(NOT EXISTS "${QSCINTILLA_LIB}")
     message(FATAL_ERROR
@@ -118,6 +111,8 @@ set(OPENSSL_SSL_LIB "")
 foreach(candidate
     "${QT_PATH}/lib/libcrypto_static.lib"
     "${QT_PATH}/lib/libcrypto.lib"
+    "${OPENSSL_PATH}/lib/libcrypto_static.lib"
+    "${OPENSSL_PATH}/lib/libcrypto.lib"
     "C:/Program Files/OpenSSL-Win64/lib/VC/x64/MT/libcrypto_static.lib"
     "C:/Program Files/OpenSSL-Win64/lib/VC/x64/MT/libcrypto.lib"
 )
@@ -129,6 +124,8 @@ endforeach()
 foreach(candidate
     "${QT_PATH}/lib/libssl_static.lib"
     "${QT_PATH}/lib/libssl.lib"
+    "${OPENSSL_PATH}/lib/libssl_static.lib"
+    "${OPENSSL_PATH}/lib/libssl.lib"
     "C:/Program Files/OpenSSL-Win64/lib/VC/x64/MT/libssl_static.lib"
     "C:/Program Files/OpenSSL-Win64/lib/VC/x64/MT/libssl.lib"
 )
@@ -190,107 +187,127 @@ if(WIN32 AND (NOT OPENSSL_CRYPTO_LIB STREQUAL "" OR NOT OPENSSL_SSL_LIB STREQUAL
     target_link_libraries(InitfsTools PRIVATE crypt32 ws2_32)
 endif()
 
-# Static build — import Qt plugins and link required Windows system libs
-if(QT_STATIC)
-    # Force static CRT to match static Qt which was built with /MT
-    set_property(TARGET InitfsTools PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
+# Force static CRT — no VC redistributable needed on target
+set_property(TARGET InitfsTools PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
 
-    # Release VS debugger working directory points to dist/
-    set_target_properties(InitfsTools PROPERTIES
-        VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:InitfsTools>/dist"
-    )
+set_target_properties(InitfsTools PROPERTIES
+    VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:InitfsTools>"
+)
 
-    qt_import_plugins(InitfsTools
-        INCLUDE
-            Qt::QWindowsIntegrationPlugin
-            Qt::QWindowsVistaStylePlugin
-            Qt::QICOPlugin
-            Qt::QJpegPlugin
-            Qt::QGifPlugin
-    )
+target_link_libraries(InitfsTools PRIVATE
+    dwmapi uxtheme opengl32 gdi32 comdlg32 oleaut32 imm32
+    winmm ws2_32 ole32 user32 advapi32 shell32 shlwapi
+    version setupapi wtsapi32 userenv netapi32 winspool
+)
 
-    target_link_libraries(InitfsTools PRIVATE
-        dwmapi uxtheme opengl32 gdi32 comdlg32 oleaut32 imm32
-        winmm ws2_32 ole32 user32 advapi32 shell32 shlwapi
-        version setupapi wtsapi32 userenv netapi32 winspool
-    )
-endif()
+# qt.conf so Qt finds plugins inside Dependencies/
+set(QT_CONF_PATH "${CMAKE_CURRENT_BINARY_DIR}/qt.conf")
+file(WRITE "${QT_CONF_PATH}" "[Paths]\nPlugins=Dependencies\n")
 
 if(WIN32)
     set_target_properties(InitfsTools PROPERTIES WIN32_EXECUTABLE TRUE)
 
-    if(NOT QT_STATIC)
-        target_link_libraries(InitfsTools PRIVATE dwmapi uxtheme)
-
-        # Copy Qt DLLs next to the exe
-        foreach(QT_DLL Qt6Core Qt6Gui Qt6Widgets Qt6Concurrent Qt6Network Qt6PrintSupport)
-            add_custom_command(TARGET InitfsTools POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                        "${QT_PATH}/bin/${QT_DLL}.dll"
-                        "$<TARGET_FILE_DIR:InitfsTools>/${QT_DLL}.dll"
-                COMMENT "Copying ${QT_DLL}.dll..."
-            )
-        endforeach()
-
-        if(EXISTS "${QSCINTILLA_DLL}")
-            add_custom_command(TARGET InitfsTools POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                        "${QSCINTILLA_DLL}"
-                        "$<TARGET_FILE_DIR:InitfsTools>/qscintilla2_qt6.dll"
-                COMMENT "Copying qscintilla2_qt6.dll..."
-            )
-        endif()
-
-        # Copy Qt plugins into Dependencies/
-        foreach(PLUGIN_DIR platforms styles imageformats iconengines tls networkinformation generic)
-            add_custom_command(TARGET InitfsTools POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E make_directory
-                        "$<TARGET_FILE_DIR:InitfsTools>/Dependencies/${PLUGIN_DIR}"
-                COMMAND ${CMAKE_COMMAND} -E copy_directory
-                        "${QT_PATH}/plugins/${PLUGIN_DIR}"
-                        "$<TARGET_FILE_DIR:InitfsTools>/Dependencies/${PLUGIN_DIR}"
-                COMMENT "Copying plugin dir: ${PLUGIN_DIR}..."
-            )
-        endforeach()
-
-        # qt.conf so Qt finds plugins inside Dependencies/
-        set(QT_CONF_PATH "${CMAKE_CURRENT_BINARY_DIR}/qt.conf")
-        file(WRITE "${QT_CONF_PATH}" "[Paths]\nPlugins=Dependencies\n")
-        add_custom_command(TARGET InitfsTools POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${QT_CONF_PATH}"
-                    "$<TARGET_FILE_DIR:InitfsTools>/qt.conf"
-            COMMENT "Copying qt.conf..."
-        )
-    endif()
-
-    # Always copy bcrypt.dll next to the exe (both debug and release)
+    # Copy Qt DLLs, OpenSSL DLLs, bcrypt.dll, qt.conf into build dir
     add_custom_command(TARGET InitfsTools POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "$<TARGET_FILE:initfs_bcrypt>"
-                "$<TARGET_FILE_DIR:InitfsTools>/bcrypt.dll"
-        COMMENT "Copying bcrypt.dll next to exe..."
+                "${QT_PATH}/bin/Qt6Core.dll"         "$<TARGET_FILE_DIR:InitfsTools>/Qt6Core.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${QT_PATH}/bin/Qt6Gui.dll"          "$<TARGET_FILE_DIR:InitfsTools>/Qt6Gui.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${QT_PATH}/bin/Qt6Widgets.dll"      "$<TARGET_FILE_DIR:InitfsTools>/Qt6Widgets.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${QT_PATH}/bin/Qt6Concurrent.dll"   "$<TARGET_FILE_DIR:InitfsTools>/Qt6Concurrent.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${QT_PATH}/bin/Qt6Network.dll"      "$<TARGET_FILE_DIR:InitfsTools>/Qt6Network.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${QT_PATH}/bin/Qt6PrintSupport.dll" "$<TARGET_FILE_DIR:InitfsTools>/Qt6PrintSupport.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${QT_PATH}/bin/libcrypto-3-x64.dll" "$<TARGET_FILE_DIR:InitfsTools>/libcrypto-3-x64.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${QT_PATH}/bin/libssl-3-x64.dll"    "$<TARGET_FILE_DIR:InitfsTools>/libssl-3-x64.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:initfs_bcrypt>"       "$<TARGET_FILE_DIR:InitfsTools>/bcrypt.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${QT_CONF_PATH}"                    "$<TARGET_FILE_DIR:InitfsTools>/qt.conf"
+        COMMENT "Copying runtime DLLs to build dir..."
     )
 
-endif()
-
-# Install rules — release only gets a clean dist/
-if(QT_STATIC)
-    install(TARGETS InitfsTools
-        RUNTIME DESTINATION .
-    )
-
-    install(FILES "$<TARGET_FILE:initfs_bcrypt>"
-        DESTINATION "."
-        RENAME "bcrypt.dll"
-    )
-
-    # Post-build: auto-install into dist/ for release only
+    # Copy Qt plugins into Dependencies/
     add_custom_command(TARGET InitfsTools POST_BUILD
-        COMMAND ${CMAKE_COMMAND}
-            --install "${CMAKE_BINARY_DIR}"
-            --prefix "$<TARGET_FILE_DIR:InitfsTools>/dist"
-            --config $<CONFIG>
-        COMMENT "Installing clean dist to dist/..."
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:InitfsTools>/Dependencies/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${QT_PATH}/plugins/platforms" "$<TARGET_FILE_DIR:InitfsTools>/Dependencies/platforms"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:InitfsTools>/Dependencies/styles"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${QT_PATH}/plugins/styles" "$<TARGET_FILE_DIR:InitfsTools>/Dependencies/styles"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:InitfsTools>/Dependencies/imageformats"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${QT_PATH}/plugins/imageformats" "$<TARGET_FILE_DIR:InitfsTools>/Dependencies/imageformats"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:InitfsTools>/Dependencies/iconengines"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${QT_PATH}/plugins/iconengines" "$<TARGET_FILE_DIR:InitfsTools>/Dependencies/iconengines"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:InitfsTools>/Dependencies/tls"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${QT_PATH}/plugins/tls" "$<TARGET_FILE_DIR:InitfsTools>/Dependencies/tls"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:InitfsTools>/Dependencies/networkinformation"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${QT_PATH}/plugins/networkinformation" "$<TARGET_FILE_DIR:InitfsTools>/Dependencies/networkinformation"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:InitfsTools>/Dependencies/generic"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${QT_PATH}/plugins/generic" "$<TARGET_FILE_DIR:InitfsTools>/Dependencies/generic"
+        COMMENT "Copying Qt plugins..."
     )
 endif()
+
+# Collect everything into dist/
+install(TARGETS InitfsTools RUNTIME DESTINATION .)
+
+install(FILES "$<TARGET_FILE:initfs_bcrypt>"
+    DESTINATION "."
+    RENAME "bcrypt.dll"
+)
+
+add_custom_command(TARGET InitfsTools POST_BUILD
+    COMMAND ${CMAKE_COMMAND}
+        --install "${CMAKE_BINARY_DIR}"
+        --prefix "$<TARGET_FILE_DIR:InitfsTools>/dist"
+        --config $<CONFIG>
+    COMMENT "Installing clean dist to dist/..."
+)
+
+# Copy runtime DLLs into dist/
+add_custom_command(TARGET InitfsTools POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${QT_PATH}/bin/Qt6Core.dll"         "$<TARGET_FILE_DIR:InitfsTools>/dist/Qt6Core.dll"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${QT_PATH}/bin/Qt6Gui.dll"          "$<TARGET_FILE_DIR:InitfsTools>/dist/Qt6Gui.dll"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${QT_PATH}/bin/Qt6Widgets.dll"      "$<TARGET_FILE_DIR:InitfsTools>/dist/Qt6Widgets.dll"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${QT_PATH}/bin/Qt6Concurrent.dll"   "$<TARGET_FILE_DIR:InitfsTools>/dist/Qt6Concurrent.dll"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${QT_PATH}/bin/Qt6Network.dll"      "$<TARGET_FILE_DIR:InitfsTools>/dist/Qt6Network.dll"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${QT_PATH}/bin/Qt6PrintSupport.dll" "$<TARGET_FILE_DIR:InitfsTools>/dist/Qt6PrintSupport.dll"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${QT_PATH}/bin/libcrypto-3-x64.dll" "$<TARGET_FILE_DIR:InitfsTools>/dist/libcrypto-3-x64.dll"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${QT_PATH}/bin/libssl-3-x64.dll"    "$<TARGET_FILE_DIR:InitfsTools>/dist/libssl-3-x64.dll"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:initfs_bcrypt>"       "$<TARGET_FILE_DIR:InitfsTools>/dist/bcrypt.dll"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${QT_CONF_PATH}"                    "$<TARGET_FILE_DIR:InitfsTools>/dist/qt.conf"
+    COMMENT "Copying runtime DLLs to dist/..."
+)
+
+# Copy plugins into dist/Dependencies/
+add_custom_command(TARGET InitfsTools POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:InitfsTools>/dist/Dependencies/platforms"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${QT_PATH}/plugins/platforms" "$<TARGET_FILE_DIR:InitfsTools>/dist/Dependencies/platforms"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:InitfsTools>/dist/Dependencies/styles"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${QT_PATH}/plugins/styles" "$<TARGET_FILE_DIR:InitfsTools>/dist/Dependencies/styles"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:InitfsTools>/dist/Dependencies/imageformats"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${QT_PATH}/plugins/imageformats" "$<TARGET_FILE_DIR:InitfsTools>/dist/Dependencies/imageformats"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:InitfsTools>/dist/Dependencies/iconengines"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${QT_PATH}/plugins/iconengines" "$<TARGET_FILE_DIR:InitfsTools>/dist/Dependencies/iconengines"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:InitfsTools>/dist/Dependencies/tls"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${QT_PATH}/plugins/tls" "$<TARGET_FILE_DIR:InitfsTools>/dist/Dependencies/tls"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:InitfsTools>/dist/Dependencies/networkinformation"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${QT_PATH}/plugins/networkinformation" "$<TARGET_FILE_DIR:InitfsTools>/dist/Dependencies/networkinformation"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:InitfsTools>/dist/Dependencies/generic"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${QT_PATH}/plugins/generic" "$<TARGET_FILE_DIR:InitfsTools>/dist/Dependencies/generic"
+    COMMENT "Copying Qt plugins to dist/..."
+)

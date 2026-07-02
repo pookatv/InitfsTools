@@ -68,6 +68,42 @@
       "hidden": true,
       "name": "Qt-Default",
       "inherits": "Qt"
+    },
+    {
+      "hidden": true,
+      "name": "Cross-Default",
+      "inherits": "Qt",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/toolchain-linux-winsdk.cmake",
+        "WINDOWS_SDK_PATH": "$env{WINDOWS_SDK_PATH}"
+      },
+      "generator": "Ninja"
+    },
+    {
+      "hidden": false,
+      "name": "Cross-Debug",
+      "inherits": [
+        "Cross-Default",
+        "Qt-Default-Dynamic"
+      ],
+      "binaryDir": "${sourceDir}/out/build/cross-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "QT_STATIC": "OFF"
+      }
+    },
+    {
+      "hidden": false,
+      "name": "Cross-Release",
+      "inherits": [
+        "Cross-Default",
+        "Qt-Default-Static"
+      ],
+      "binaryDir": "${sourceDir}/out/build/cross-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "QT_STATIC": "ON"
+      }
     }
   ],
   "vendor": {

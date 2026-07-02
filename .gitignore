@@ -3,7 +3,6 @@ out/
 build/
 CMakeUserPresets.json
 README.md
-BUILD_STATIC.md
 
 # Qt generated
 *.user
@@ -30,3 +29,5 @@ qrc_*
 .ninja_log
 CMakeCache.txt
 CMakeFiles/
+
+aqtinstall.log
