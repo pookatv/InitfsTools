@@ -1,0 +1,114 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "hidden": false,
+      "name": "Qt-Debug",
+      "inherits": [
+        "Qt-Default-Dynamic",
+        "Qt-Default"
+      ],
+      "binaryDir": "${sourceDir}/out/build/debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-DQT_QML_DEBUG",
+        "QT_STATIC": "OFF"
+      },
+      "environment": {
+        "QML_DEBUG_ARGS": "-qmljsdebugger=file:{6763d892-e28f-4d39-b358-16e0ffabd24a},block",
+        "PATH": "<YOUR_QT_BACKPORT_PATH>/bin;$penv{PATH}"
+      }
+    },
+    {
+      "hidden": false,
+      "name": "Qt-Release",
+      "inherits": [
+        "Qt-Default-Static",
+        "Qt-Default"
+      ],
+      "binaryDir": "${sourceDir}/out/build/release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "QT_STATIC": "ON"
+      }
+    },
+    {
+      "hidden": true,
+      "name": "Qt-Default-Dynamic",
+      "inherits": "Qt",
+      "environment": {
+        "QTDIR": "<YOUR_QT_BACKPORT_PATH>"
+      },
+      "cacheVariables": {
+        "QT_PATH": "<YOUR_QT_BACKPORT_PATH>"
+      },
+      "architecture": {
+        "strategy": "external",
+        "value": "x64"
+      },
+      "generator": "Ninja"
+    },
+    {
+      "hidden": true,
+      "name": "Qt-Default-Static",
+      "inherits": "Qt",
+      "environment": {
+        "QTDIR": "C:/Qt/6.10.0/msvc2022_64_static"
+      },
+      "cacheVariables": {
+        "QT_PATH": "C:/Qt/6.10.0/msvc2022_64_static"
+      },
+      "architecture": {
+        "strategy": "external",
+        "value": "x64"
+      },
+      "generator": "Ninja"
+    },
+    {
+      "hidden": true,
+      "name": "Qt-Default",
+      "inherits": "Qt"
+    },
+    {
+      "hidden": true,
+      "name": "Cross-Default",
+      "inherits": "Qt",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/toolchain-linux-winsdk.cmake",
+        "WINDOWS_SDK_PATH": "$env{WINDOWS_SDK_PATH}"
+      },
+      "generator": "Ninja"
+    },
+    {
+      "hidden": false,
+      "name": "Cross-Debug",
+      "inherits": [
+        "Cross-Default",
+        "Qt-Default-Dynamic"
+      ],
+      "binaryDir": "${sourceDir}/out/build/cross-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "QT_STATIC": "OFF"
+      }
+    },
+    {
+      "hidden": false,
+      "name": "Cross-Release",
+      "inherits": [
+        "Cross-Default",
+        "Qt-Default-Static"
+      ],
+      "binaryDir": "${sourceDir}/out/build/cross-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "QT_STATIC": "ON"
+      }
+    }
+  ],
+  "vendor": {
+    "qt-project.org/Presets": {
+      "checksum": "VUT0iFeK4dkbp4+iU8n8Y+fZrF4="
+    }
+  }
+}

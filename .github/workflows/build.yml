@@ -1,0 +1,79 @@
+name: Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Install Visual Studio Build Tools & Dependencies
+        shell: pwsh
+        run: |
+          choco install visualstudio2026buildtools `
+            --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" `
+            -y
+          choco install cmake ninja -y
+
+      - name: Install Qt for Windows with aqtinstall
+        shell: pwsh
+        run: |
+          pip install aqtinstall
+          aqt install-qt windows desktop 6.10.0 win64_msvc2022_64 `
+            -O "$env:USERPROFILE\Qt"
+
+      - name: Set up environment
+        shell: cmd
+        run: |
+          call "%ProgramFiles(x86)%\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+          echo QTDIR=%USERPROFILE%\Qt\6.10.0\msvc2022_64>> %GITHUB_ENV%
+
+      - name: Download OpenSSL
+        shell: pwsh
+        run: |
+          $QTDIR = "$env:USERPROFILE\Qt\6.10.0\msvc2022_64"
+          curl -L -o "$env:TEMP\openssl.zip" `
+            "https://download.firedaemon.com/FireDaemon-OpenSSL/openssl-3.5.7.zip"
+          Expand-Archive "$env:TEMP\openssl.zip" "$env:TEMP\openssl-extract"
+          Copy-Item "$env:TEMP\openssl-extract\x64\bin\libcrypto-3-x64.dll" "$QTDIR\bin\"
+          Copy-Item "$env:TEMP\openssl-extract\x64\bin\libssl-3-x64.dll" "$QTDIR\bin\"
+          Copy-Item "$env:TEMP\openssl-extract\x64\lib\libcrypto.lib" "$QTDIR\lib\"
+          Copy-Item "$env:TEMP\openssl-extract\x64\lib\libssl.lib" "$QTDIR\lib\"
+          Copy-Item "$env:TEMP\openssl-extract\x64\include\openssl" "$QTDIR\include\openssl\" -Recurse
+
+      - name: Build QScintilla
+        shell: cmd
+        run: |
+          call "%ProgramFiles(x86)%\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+          set QTDIR=%USERPROFILE%\Qt\6.10.0\msvc2022_64
+          curl -L -o "%TEMP%\qscintilla.tar.gz" ^
+            "https://www.riverbankcomputing.com/static/Downloads/QScintilla/2.14.1/QScintilla_src-2.14.1.tar.gz"
+          tar xzf "%TEMP%\qscintilla.tar.gz" -C "%TEMP%"
+          cd /d "%TEMP%\QScintilla_src-2.14.1"
+          copy "%GITHUB_WORKSPACE%\ci\qscintilla\CMakeLists.txt" .
+          cmake -B build -G Ninja ^
+            -DCMAKE_PREFIX_PATH="%QTDIR%" ^
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -- -j%NUMBER_OF_PROCESSORS%
+          copy build\qscintilla2_qt6.lib "%QTDIR%\lib\"
+          xcopy /E /I src\Qsci "%QTDIR%\include\Qsci\"
+
+      - name: Build InitfsTools
+        shell: cmd
+        run: |
+          call "%ProgramFiles(x86)%\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+          set QTDIR=%USERPROFILE%\Qt\6.10.0\msvc2022_64
+          cmake -B out\build -G Ninja ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DQT_PATH="%QTDIR%"
+          cmake --build out\build -- -j%NUMBER_OF_PROCESSORS%
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: InitfsTools
+          path: out\build\dist\

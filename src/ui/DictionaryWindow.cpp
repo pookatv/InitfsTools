@@ -2408,7 +2408,7 @@ void DictionaryWindow::highlightRange(int startPos, int endPos)
     m_sci->SendScintilla(QsciScintilla::SCI_STARTSTYLING,
         (unsigned long)startPos, 0xffUL);
     m_sci->SendScintilla(QsciScintilla::SCI_SETSTYLING,
-        (unsigned long)rangeLen, (unsigned long)STYLE_DEFAULT);
+        (unsigned long)rangeLen, static_cast<long>(STYLE_DEFAULT));
 
     static QRegularExpression rxUrl(R"(https?://[^\s]+)");
 
@@ -2662,7 +2662,7 @@ void DictionaryWindow::highlightText()
     if (docLen <= 0) return;
     m_sci->SendScintilla(QsciScintilla::SCI_STARTSTYLING, 0UL, 0xffUL);
     m_sci->SendScintilla(QsciScintilla::SCI_SETSTYLING,
-        (unsigned long)docLen, (unsigned long)STYLE_DEFAULT);
+        (unsigned long)docLen, static_cast<long>(STYLE_DEFAULT));
 
     // Now style only what is currently visible
     highlightViewport();

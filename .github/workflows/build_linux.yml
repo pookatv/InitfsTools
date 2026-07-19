@@ -1,0 +1,33 @@
+name: Build (Linux)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Build container image
+        run: podman build -t initfstools-ci -f ci/Containerfile ci/
+
+      - name: Cross-compile inside container
+        run: >
+          podman run --rm
+          --volume "$PWD":/src:Z
+          initfstools-ci
+          bash /src/ci/run.sh
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: InitfsTools
+          path: out/build/dist/

@@ -1,0 +1,10 @@
+FROM archlinux:latest
+
+RUN pacman -Syu --noconfirm \
+    && pacman -S --noconfirm \
+        base-devel clang lld llvm cmake ninja python python-pip wine msitools \
+        git unzip curl
+
+RUN pip install aqtinstall --break-system-packages
+
+WORKDIR /build
