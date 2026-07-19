@@ -9,6 +9,7 @@ Note: If an InitFS file asks you for an AES key, I will not provide it. A quick 
 Massive thank you to the original FrostyToolsuite team, you can check them here: https://github.com/CadeEvs/FrostyToolsuite
 
 ISSUE: Some games may not load with a custom initfs file on Windows 10. This will be fixed in version 2.10 coming soon!
+
 ISSUE 2: The program will not run when the language is set to anything other than English. Use the beta builds for now, will be fixed soon.
 
 ## Features
@@ -26,6 +27,7 @@ ISSUE 2: The program will not run when the language is set to anything other tha
 - ~~Fix Squadrons using the wrong mode - should use Walrus (Type Extractor)~~
 - ~~Fix NFS Payback using the wrong mode - should use Walrus (Type Extractor)~~
 - ~~Fix Mirror's Edge using the wrong mode - should use Havana (Type Extractor)~~
+- Fix FIFA 17 using the wrong mode - should use Contact (Type Extractor)
 - ~~Fix Dragon Age Inquisition support - only works in 2.0.0-beta2 (Type Extractor)~~
 - ~~Implement Mass Effect Andromeda support (Type Extractor)~~
 - Implement PGA Tour support (Type Extractor)
