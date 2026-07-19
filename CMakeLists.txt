@@ -36,10 +36,20 @@ file(GLOB_RECURSE SOURCES
     src/core/deobfuscators/*.h
 )
 
+# Exclude DLL-only files from the main exe
+list(FILTER SOURCES EXCLUDE REGEX ".*/FBConsoleBridge/.*")
+list(FILTER SOURCES EXCLUDE REGEX ".*/ConsoleOverlay\\.cpp$")
+list(FILTER SOURCES EXCLUDE REGEX ".*/bcrypt/.*")
+list(FILTER SOURCES EXCLUDE REGEX ".*/ac_patcher/.*")
+
 qt_add_executable(InitfsTools
     ${SOURCES}
     resources/resources.qrc
     resources/app.rc
+)
+
+target_sources(InitfsTools PRIVATE
+    src/ac_patcher/PatcherBridge.cpp
 )
 
 file(GLOB PAYLOAD_DATA_FILES
@@ -66,9 +76,6 @@ qt_add_resources(InitfsTools "preset_data_resources"
 
 if(MSVC)
     target_compile_options(InitfsTools PRIVATE /EHsc /utf-8 /MP)
-    # Delay-load our bcrypt.dll so it doesn't shadow System32\bcrypt.dll at startup
-    target_link_options(InitfsTools PRIVATE /DELAYLOAD:bcrypt.dll)
-    target_link_libraries(InitfsTools PRIVATE delayimp)
 endif()
 
 target_include_directories(InitfsTools PRIVATE
@@ -76,6 +83,7 @@ target_include_directories(InitfsTools PRIVATE
     src/core/
     src/core/deobfuscators/
     src/ui/
+    src/ac_patcher/
     "${QT_PATH}/include"
     "${QT_PATH}/include/QtCore"
     "${QT_PATH}/include/QtWidgets"
@@ -140,20 +148,20 @@ endforeach()
 message(STATUS "OpenSSL crypto: ${OPENSSL_CRYPTO_LIB}")
 message(STATUS "OpenSSL ssl:    ${OPENSSL_SSL_LIB}")
 
-# bcrypt DLL
-add_library(initfs_bcrypt SHARED
-    src/core/bcrypt/bcrypt.cpp
+# dinput8 proxy DLL (patches BCryptVerifySignature in-process for Win10)
+add_library(initfs_dinput8 SHARED
+    src/core/bcrypt/dinput8.cpp
 )
 
-set_target_properties(initfs_bcrypt PROPERTIES
-    OUTPUT_NAME "bcrypt"
-    ARCHIVE_OUTPUT_NAME "initfs_bcrypt"
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/initfs_bcrypt_build"
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/initfs_bcrypt_build"
-    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/initfs_bcrypt_build"
+set_target_properties(initfs_dinput8 PROPERTIES
+    OUTPUT_NAME "dinput8"
+    ARCHIVE_OUTPUT_NAME "initfs_dinput8"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/initfs_dinput8_build"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/initfs_dinput8_build"
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/initfs_dinput8_build"
 )
 
-target_include_directories(initfs_bcrypt PRIVATE
+target_include_directories(initfs_dinput8 PRIVATE
     src/
     src/core/
     "${QT_PATH}/include"
@@ -161,12 +169,70 @@ target_include_directories(initfs_bcrypt PRIVATE
 )
 
 if(MSVC)
-    target_compile_options(initfs_bcrypt PRIVATE /EHsc /utf-8)
-    set_target_properties(initfs_bcrypt PROPERTIES
-        LINK_FLAGS "/DEF:\"${CMAKE_CURRENT_SOURCE_DIR}/src/core/bcrypt/bcrypt.def\""
+    target_compile_options(initfs_dinput8 PRIVATE /EHsc /utf-8)
+    set_target_properties(initfs_dinput8 PROPERTIES
+        LINK_FLAGS "/DEF:\"${CMAKE_CURRENT_SOURCE_DIR}/src/core/bcrypt/dinput8.def\""
     )
 endif()
-# end bcrypt DLL
+# end dinput8 proxy DLL
+
+# winhttp proxy DLL (hooks BCryptVerifySignature + CryptQueryObject, loads FCLiveEditor)
+add_library(initfs_winhttp SHARED
+    src/ac_patcher/winhttp/winhttp.cpp
+)
+
+set_target_properties(initfs_winhttp PROPERTIES
+    OUTPUT_NAME "winhttp"
+    ARCHIVE_OUTPUT_NAME "initfs_winhttp"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/initfs_winhttp_build"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/initfs_winhttp_build"
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/initfs_winhttp_build"
+)
+
+target_include_directories(initfs_winhttp PRIVATE
+    src/
+    src/core/
+)
+
+if(MSVC)
+    target_compile_options(initfs_winhttp PRIVATE /EHsc /utf-8)
+    set_target_properties(initfs_winhttp PROPERTIES
+        LINK_FLAGS "/DEF:\"${CMAKE_CURRENT_SOURCE_DIR}/src/ac_patcher/winhttp/winhttp.def\""
+    )
+    target_link_libraries(initfs_winhttp PRIVATE winhttp.lib)
+endif()
+# end winhttp proxy DLL
+
+# patcher.exe — (output as .bin, renamed to .exe by build tool)
+add_executable(patcher
+    src/ac_patcher/patcher.cpp
+)
+
+set_target_properties(patcher PROPERTIES
+    OUTPUT_NAME "patcher"
+    SUFFIX ".bin"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/patcher_build"
+)
+
+if(MSVC)
+    target_compile_options(patcher PRIVATE /EHsc /utf-8)
+    # Console subsystem, statically link CRT so it runs standalone
+    set_target_properties(patcher PROPERTIES
+        MSVC_RUNTIME_LIBRARY "MultiThreaded"
+        LINK_FLAGS "/SUBSYSTEM:CONSOLE /ENTRY:mainCRTStartup"
+    )
+endif()
+
+# Copy patcher.bin next to the exe (build tool will rename to .exe)
+add_custom_command(TARGET patcher POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:patcher>"
+            "$<TARGET_FILE_DIR:InitfsTools>/patcher.bin"
+    COMMENT "Copying patcher.bin next to exe..."
+)
+
+add_dependencies(InitfsTools patcher)
+# end patcher
 
 target_link_libraries(InitfsTools PRIVATE
     Qt6::Core
@@ -174,7 +240,6 @@ target_link_libraries(InitfsTools PRIVATE
     Qt6::Concurrent
     Qt6::Network
     "${QSCINTILLA_LIB}"
-    initfs_bcrypt
 )
 
 if(NOT OPENSSL_CRYPTO_LIB STREQUAL "")
@@ -211,7 +276,7 @@ if(QT_STATIC)
 
     target_link_libraries(InitfsTools PRIVATE
         dwmapi uxtheme opengl32 gdi32 comdlg32 oleaut32 imm32
-        winmm ws2_32 ole32 user32 advapi32 shell32 shlwapi
+        sechost ws2_32 ole32 user32 advapi32 shell32 shlwapi
         version setupapi wtsapi32 userenv netapi32 winspool
     )
 endif()
@@ -264,12 +329,35 @@ if(WIN32)
         )
     endif()
 
-    # Always copy bcrypt.dll next to the exe (both debug and release)
+# Ensure proxy DLLs are built before the exe copies them
+    add_dependencies(InitfsTools initfs_dinput8)
+
+    # Copy dinput8.dll next to the exe (both debug and release)
     add_custom_command(TARGET InitfsTools POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "$<TARGET_FILE:initfs_bcrypt>"
-                "$<TARGET_FILE_DIR:InitfsTools>/bcrypt.dll"
-        COMMENT "Copying bcrypt.dll next to exe..."
+                "$<TARGET_FILE:initfs_dinput8>"
+                "$<TARGET_FILE_DIR:InitfsTools>/dinput8.dll"
+        COMMENT "Copying dinput8.dll next to exe..."
+    )
+
+add_dependencies(InitfsTools initfs_winhttp)
+
+    # Copy winhttp.dll next to the exe
+    add_custom_command(TARGET InitfsTools POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:initfs_winhttp>"
+                "$<TARGET_FILE_DIR:InitfsTools>/winhttp.dll"
+        COMMENT "Copying winhttp.dll next to exe..."
+    )
+
+    # Copy FC DLLs into FC/ folder next to the exe
+    add_custom_command(TARGET InitfsTools POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+                "$<TARGET_FILE_DIR:InitfsTools>/FC"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/ac_patcher/FC"
+                "$<TARGET_FILE_DIR:InitfsTools>/FC"
+        COMMENT "Copying FC DLLs into FC/ folder..."
     )
 
 endif()
@@ -280,9 +368,9 @@ if(QT_STATIC)
         RUNTIME DESTINATION .
     )
 
-    install(FILES "$<TARGET_FILE:initfs_bcrypt>"
+    install(FILES "$<TARGET_FILE:initfs_dinput8>"
         DESTINATION "."
-        RENAME "bcrypt.dll"
+        RENAME "dinput8.dll"
     )
 
     # Post-build: auto-install into dist/ for release only
@@ -294,3 +382,45 @@ if(QT_STATIC)
         COMMENT "Installing clean dist to dist/..."
     )
 endif()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FBConsoleBridge.dll — injected into the game process
+# ─────────────────────────────────────────────────────────────────────────────
+add_library(FBConsoleBridge SHARED
+    src/console_core/FBConsoleBridge/DLLmain.cpp
+    src/console_core/ConsoleOverlay.cpp
+    src/console_core/FrostbiteConsole.cpp
+)
+
+set_target_properties(FBConsoleBridge PROPERTIES
+        OUTPUT_NAME "dxgi"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/FBConsoleBridge_build"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/FBConsoleBridge_build"
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/FBConsoleBridge_build"
+)
+
+target_include_directories(FBConsoleBridge PRIVATE
+    src/
+    src/console_core/
+)
+
+if(MSVC)
+    target_compile_options(FBConsoleBridge PRIVATE
+        /utf-8
+        /EHa
+    )
+    set_target_properties(FBConsoleBridge PROPERTIES
+        MSVC_RUNTIME_LIBRARY "MultiThreaded"
+        LINK_FLAGS "/DEF:\"${CMAKE_CURRENT_SOURCE_DIR}/src/console_core/FBConsoleBridge/FBConsoleBridge.def\""
+    )
+    target_link_libraries(FBConsoleBridge PRIVATE d3d11 dxgi psapi)
+endif()
+
+add_dependencies(InitfsTools FBConsoleBridge)
+
+add_custom_command(TARGET InitfsTools POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:FBConsoleBridge>"
+            "$<TARGET_FILE_DIR:InitfsTools>/dxgi.dll"
+    COMMENT "Copying dxgi.dll next to exe..."
+)

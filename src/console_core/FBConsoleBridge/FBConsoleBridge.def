@@ -1,0 +1,13 @@
+LIBRARY FBConsoleBridge
+EXPORTS
+    CreateDXGIFactory                  = proxyCreateDXGIFactory
+    CreateDXGIFactory1                 = proxyCreateDXGIFactory1
+    CreateDXGIFactory2                 = proxyCreateDXGIFactory2
+    DXGIGetDebugInterface1             = proxyDXGIGetDebugInterface1
+    DXGIReportAdapterConfiguration     = proxyDXGIReportAdapterConfiguration
+    DXGIDumpJournal                    = proxyDXGIDumpJournal
+    ApplyCompatResolutionQuirking      = proxyApplyCompatResolutionQuirking
+    CompatString                       = proxyCompatString
+    CompatValue                        = proxyCompatValue
+    DXGIDisableVBlankVirtualization    = proxyDXGIDisableVBlankVirtualization
+    SetAppCompatStringPointer          = proxySetAppCompatStringPointer

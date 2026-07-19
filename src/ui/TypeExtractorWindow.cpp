@@ -1251,13 +1251,17 @@ void TypeExtractorWindow::beginMemoryDump(const QString& exePath, DWORD override
                     }
 
                     // Determine mode index from the parsed mode name
-                    // Live values only supported for Roboto (3) and Skate/Dingo (4)
+                    // Live values only supported for Roboto (4) and Skate/Dingo (5)
                     self->m_lastDumpedMode = -1;
                     if (!modeStr.isEmpty()) {
                         QString modeUpper = modeStr.toUpper();
-                        if (modeUpper == "ROBOTO")      self->m_lastDumpedMode = 3;
-                        else if (modeUpper == "SKATE" ||
-                            modeUpper == "DINGO")  self->m_lastDumpedMode = 4;
+                        if (modeUpper == "JUPITER")                   self->m_lastDumpedMode = 0;
+                        else if (modeUpper == "HAVANA")               self->m_lastDumpedMode = 1;
+                        else if (modeUpper == "WALRUS")               self->m_lastDumpedMode = 2;
+                        else if (modeUpper == "ROBOTO")               self->m_lastDumpedMode = 3;
+                        else if (modeUpper == "DINGO" ||
+                            modeUpper == "SKATE")               self->m_lastDumpedMode = 4;
+                        else if (modeUpper == "CONTACT")              self->m_lastDumpedMode = 5;
                     }
 
                     bool liveValuesSupported = (self->m_lastDumpedMode == 3 ||
@@ -3131,16 +3135,16 @@ void TypeExtractorWindow::onOpen()
 {
     QDialog dlg(this);
     dlg.setWindowTitle("Select Source Type");
-    dlg.setFixedSize(340, 130);
+    dlg.setFixedSize(300, 140);
     dlg.setWindowFlags(dlg.windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
     QVBoxLayout* vb = new QVBoxLayout(&dlg);
-    QLabel* lbl = new QLabel("Choose the type of file to dump types from:", &dlg);
+    QLabel* lbl = new QLabel("Choose the type of file to extract types from:", &dlg);
     lbl->setWordWrap(true);
     vb->addWidget(lbl);
 
     QHBoxLayout* btnRow = new QHBoxLayout;
-    QPushButton* btnPC = new QPushButton("PC Executable", &dlg);
+    QPushButton* btnPC = new QPushButton("PC EXE", &dlg);
     QPushButton* btnSDK = new QPushButton("SDK DLL", &dlg);
     QPushButton* btnCnl = new QPushButton("Cancel", &dlg);
     for (auto* b : { btnPC, btnSDK, btnCnl })
@@ -3231,6 +3235,7 @@ void TypeExtractorWindow::onDumpFromMemory()
         modeCmb->addItem("2 — Walrus", 2);
         modeCmb->addItem("3 — Roboto", 3);
         modeCmb->addItem("4 — Skate/Dingo", 4);
+        modeCmb->addItem("5 — Contact", 5);
         modeRow->addWidget(modeLbl);
         modeRow->addWidget(modeCmb, 1);
         vb->addLayout(modeRow);
@@ -3677,7 +3682,7 @@ QString TypeExtractorWindow::buildCommandsText() const
     QString out;
     QTextStream ts(&out);
     ts << "==========\n";
-    ts << "Initfs Tools v2.0 | Command Dumper\n";
+    ts << "Initfs Tools v2.10 | Command Dumper\n";
     ts << fileName << "\n";
     ts << "Generated: " << QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss") << "\n";
     ts << QString("Total Categories: %1\n").arg(catTypeLines.size());

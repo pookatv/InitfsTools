@@ -408,6 +408,7 @@ class DiffWindow;
 class ReferenceLibWindow;
 class PresetWindow;
 class TypeExtractorWindow;
+class ConsoleWindow;
 class Initializer;
 class LinkPopup;
 
@@ -513,6 +514,7 @@ private slots:
     void onDictionary();
     void onReferenceLibrary();
     void onPresets();
+    void onConsoleInjector();
 
     // Theme
     void onThemeSystem();
@@ -600,6 +602,7 @@ private:
     bool performSave(const QString& targetPath);
     void savePayloadIndex(int index);
     void attemptCryptBaseCopy(const QString& savedFilePath);
+    void attemptAnticheatPatch(const QString& savedFilePath);
     QString normalizeLineEndings(const QString& text, const QByteArray& originalBytes);
     bool isProbablyText(const QByteArray& data) const;
     QString extractAsciiStrings(const QByteArray& data, int minLen = 4) const;
@@ -749,6 +752,7 @@ private:
     QAction* m_actDict = nullptr;
     QAction* m_actRefLib = nullptr;
     QAction* m_actPresets = nullptr;
+    QAction* m_actConsole = nullptr;
     QAction* m_actThemeSys = nullptr;
     QAction* m_actThemeLight = nullptr;
     QAction* m_actThemeDark = nullptr;
@@ -899,6 +903,7 @@ private:
     DiffWindow* m_diffWindow = nullptr;
     DictionaryWindow* m_dictWindow = nullptr;
     TypeExtractorWindow* m_typeExtractorWindow = nullptr;
+    ConsoleWindow* m_consoleWindow = nullptr;
     bool                 m_recentFilesLoaded = false;
 
     // Scintilla style indices

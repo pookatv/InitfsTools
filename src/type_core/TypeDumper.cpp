@@ -302,6 +302,7 @@ public:
         _robotoMode = false;
         _dingoMode = false;
         _walrusMode = false;
+        _contactMode = false;
 
         // Get module size for Roboto Pass 2
         {
@@ -333,6 +334,7 @@ private:
     bool        _robotoMode = false;
     bool        _dingoMode = false;
     bool        _walrusMode = false;
+    bool        _contactMode = false;
     int         _fieldMode = 0;
     std::string _exePath;
     uint32_t    _moduleSize = 0;
@@ -350,6 +352,12 @@ private:
     bool isValidForMode(int64_t addr) const
     {
         return (_robotoMode || _dingoMode) ? isValidR(addr) : isValid(addr);
+    }
+
+    // Contact field arrays sit directly in the module (no heap), so standard isValid suffices
+    bool isContactFieldPtr(int64_t addr) const
+    {
+        return isValid(addr);
     }
 
     bool isValid32(uint32_t ptr) const
@@ -1154,7 +1162,7 @@ private:
         const int MAX_STRING_LENGTH = 256;
         const int FORCE_MODE = _forceMode; // -1 = auto, set externally for forced dumps
 
-        if (FORCE_MODE >= 0 && FORCE_MODE <= 5)
+        if (FORCE_MODE >= 0 && FORCE_MODE <= 6)
         {
             TD_Log("\n*** FORCE MODE ENABLED: %d ***", FORCE_MODE);
             if (FORCE_MODE == 0) _config = { 0x19, 0x28, 2, 1, 0 }; // Jupiter
@@ -1162,13 +1170,15 @@ private:
             else if (FORCE_MODE == 2) _config = { 0x19, 0x20, 2, 6, 1 }; // Walrus
             else if (FORCE_MODE == 3) _config = { 0x30, 0x38, 1, 0, 0 }; // Roboto
             else if (FORCE_MODE == 4) _config = { 0x19, 0x40, 0, 0, 0 }; // Skate/Dingo
+            else if (FORCE_MODE == 5) _config = { 0x22, 0x30, 0, 0, 1 }; // Contact
 
-            if (FORCE_MODE != 5)
+            if (FORCE_MODE != 6)
             {
                 TD_Log("*** FORCED MODE %d CONFIGURED ***\n", FORCE_MODE);
                 _dingoMode = (FORCE_MODE == 4);
                 _walrusMode = (FORCE_MODE == 2);
                 _robotoMode = (FORCE_MODE == 3);
+                _contactMode = (FORCE_MODE == 5);
                 return FORCE_MODE;
             }
         }
@@ -1568,6 +1578,165 @@ private:
         }
 
         // ----------------------------------------------------------------
+        // PRE-PASS: Walk chain to find ANY type with a scoreable field array
+        // This handles layouts where the field count bytes are always zero
+        // (e.g. Havana) and we must infer mode from pointer shape
+        // ----------------------------------------------------------------
+        TD_Log("\n=== PRE-PASS: Walking chain for first scoreable field array ===");
+
+        // For each of the 4 offset base positions (+0x20,+0x28,+0x30,+0x38),
+        // track the best (score, offsetIndex) seen across all chain nodes
+        struct SlotScore { int score = 0; int offsetIdx = -1; int64_t ptr = 0; int baseOff = 0; };
+        SlotScore slotBest[4]; // index 0=+0x20, 1=+0x28, 2=+0x30, 3=+0x38
+        int       slotBaseOffs[4] = { 0x20, 0x28, 0x30, 0x38 };
+
+        {
+            int64_t cur = startAddress;
+            int     iter = 0, typesChecked = 0;
+            while (cur != 0 && iter < 1000 && typesChecked < 200)
+            {
+                try {
+                    reader.position = cur;
+                    int64_t tiPtr3 = reader.readLong();
+                    int64_t nextPtr3 = reader.readLong();
+                    cur = nextPtr3;
+                    ++iter;
+                    if (tiPtr3 == 0 || !isValid(tiPtr3)) continue;
+
+                    // Skip if this type is in our candidates list (already known zero-field)
+                    // Actually probe all of them — candidates were filtered to classes,
+                    // which in this game are all zero-field service objects
+                    // We want structs/params too
+                    reader.position = tiPtr3;
+                    int64_t np3 = reader.readLong();
+                    if (np3 == 0 || !isValid(np3)) continue;
+                    std::string nm3 = readStr(reader, np3, 256);
+                    if (nm3.empty() || !isValidTypeName(nm3)) continue;
+                    ++typesChecked;
+
+                    for (int bi = 0; bi < 4; ++bi)
+                    {
+                        int64_t offsets3[8] = {};
+                        reader.position = tiPtr3 + slotBaseOffs[bi];
+                        for (auto& o : offsets3) o = reader.readLong();
+
+                        for (int si = 0; si < 8; ++si)
+                        {
+                            int64_t p3 = offsets3[si];
+                            if (p3 == 0 || !isValid(p3)) continue;
+                            int sc3 = countValidFields(reader, p3, 20, 3);
+                            if (sc3 > slotBest[bi].score)
+                            {
+                                slotBest[bi].score = sc3;
+                                slotBest[bi].offsetIdx = si;
+                                slotBest[bi].ptr = p3;
+                                slotBest[bi].baseOff = slotBaseOffs[bi];
+                                TD_Log("  PRE-PASS: '%s' base=+0x%02X slot[%d]=0x%llX score=%d",
+                                    nm3.c_str(), slotBaseOffs[bi], si,
+                                    (unsigned long long)p3, sc3);
+                            }
+                        }
+                    }
+                }
+                catch (...) { continue; }
+            }
+        }
+
+        // Map pre-pass results to modes:
+        //   arrays at +0x20 -> HAVANA (mode 1, fc at +0x1A)
+        //   arrays at +0x28 -> JUPITER (mode 0, fc at +0x19)
+        //   arrays at +0x38 -> ROBOTO  (mode 3)
+        //   arrays at +0x30 -> ambiguous, treat as JUPITER fallback
+        // Pick the base offset with the highest score
+        int     prePassBestScore = 0, prePassMode = -1, prePassIdx = -1;
+        int64_t prePassPtr = 0;
+
+        for (int bi = 0; bi < 4; ++bi)
+        {
+            if (slotBest[bi].score > prePassBestScore)
+            {
+                prePassBestScore = slotBest[bi].score;
+                prePassIdx = slotBest[bi].offsetIdx;
+                prePassPtr = slotBest[bi].ptr;
+                // Map base offset to mode
+                if (slotBest[bi].baseOff == 0x20)      prePassMode = 1; // HAVANA
+                else if (slotBest[bi].baseOff == 0x28)  prePassMode = 0; // JUPITER
+                else if (slotBest[bi].baseOff == 0x38)  prePassMode = 3; // ROBOTO
+                else                                    prePassMode = 0; // fallback JUPITER
+            }
+        }
+
+        if (prePassBestScore > 0)
+            TD_Log("  PRE-PASS RESULT: mode=%d baseOff=+0x%02X slot[%d]=0x%llX score=%d",
+                prePassMode,
+                (prePassMode == 1 ? 0x20 : prePassMode == 3 ? 0x38 : 0x28),
+                prePassIdx, (unsigned long long)prePassPtr, prePassBestScore);
+        else
+            TD_Log("  PRE-PASS: no scoreable field array found in chain");
+
+        // ----------------------------------------------------------------
+        // TEST CONTACT: direct field array ptr at +0x30, own-count at +0x22
+        // Detected before Walrus/Jupiter/Havana/Roboto so its score can
+        // compete fairly. Contact is flag-based and does NOT shift mode numbers
+        // ----------------------------------------------------------------
+        bool    contactDetected = false;
+        int     contactBestScore = 0;
+        int64_t contactBestPtr = 0;
+
+        TD_Log("\n[TEST CONTACT] layout (direct field array ptr at +0x30, own-count at +0x22):");
+        for (int ci = 0; ci < (int)candidates.size() && ci < 8; ++ci)
+        {
+            auto& cand = candidates[ci];
+
+            // Own-field count: uint16 at +0x22
+            reader.position = cand.typeInfo + 0x20;
+            int64_t slot20c = reader.readLong();
+            int contactFC = (int)((slot20c >> 16) & 0xFFFF);
+
+            // Direct field-array pointer at +0x30
+            reader.position = cand.typeInfo + 0x30;
+            int64_t fap30 = reader.readLong();
+            bool fap30Valid = isValid(fap30);
+
+            TD_Log("  [cand %d] %s: slot20=0x%llX ownFC=%d +0x30=0x%llX isPtr=%s",
+                ci, cand.name.c_str(),
+                (unsigned long long)slot20c, contactFC,
+                (unsigned long long)fap30,
+                fap30Valid ? "true" : "false");
+
+            if (!fap30Valid || contactFC <= 0 || contactFC >= 500) continue;
+
+            int sc = countValidFields(reader, fap30, std::min(contactFC + 10, 30), 3);
+            TD_Log("  [cand %d] +0x30 = 0x%llX -> %d fields (expected %d)",
+                ci, (unsigned long long)fap30, sc, contactFC);
+
+            if (sc > contactBestScore)
+            {
+                contactBestScore = sc;
+                contactBestPtr = fap30;
+            }
+        }
+
+        // Contact wins if it scored AND the stride word at off20[0]&0xFFFF == 0x0010
+        // (16-byte entry size), which distinguishes it from Walrus (0x0008)
+        {
+            uint16_t strideWord = (uint16_t)(off20[0] & 0xFFFF);
+            TD_Log("  Contact stride word check: off20[0]=0x%llX strideWord=0x%04X",
+                (unsigned long long)off20[0], (unsigned)strideWord);
+            if (contactBestScore > 0 && strideWord == 0x0010)
+            {
+                contactDetected = true;
+                TD_Log("  CONTACT confirmed: score=%d stride=0x%04X ptr=0x%llX",
+                    contactBestScore, (unsigned)strideWord, (unsigned long long)contactBestPtr);
+            }
+            else if (contactBestScore > 0)
+            {
+                TD_Log("  CONTACT suppressed: score=%d but stride=0x%04X != 0x0010",
+                    contactBestScore, (unsigned)strideWord);
+            }
+        }
+
+        // ----------------------------------------------------------------
         // Tests 1-4
         // ----------------------------------------------------------------
         int     bestScore = 0, bestMode = 0, bestIdx = -1;
@@ -1690,31 +1859,145 @@ private:
         // ----------------------------------------------------------------
         // Detection result
         // ----------------------------------------------------------------
+        // Apply pre-pass as last resort if all tests scored zero
+        if (bestScore < 1 && prePassBestScore > 0)
+        {
+            // Require corroborating field-count evidence for the inferred mode
+            // Without it the PRE-PASS can be fooled by non-field-array pointers
+            // that happen to pass the name heuristic (e.g. the namespace string
+            // block in Jupiter/DAI whose address appears in the offset table)
+            //
+            // Rules:
+            //   PRE-PASS mode=HAVANA (1) requires at least one candidate with fc1A > 0
+            //   PRE-PASS mode=JUPITER (0) requires at least one candidate with fc19 > 0
+            //   PRE-PASS mode=ROBOTO  (3) is already handled by TEST 4; reaching here
+            //                             means TEST 4 scored zero, so reject
+            //   PRE-PASS mode=anything with no count evidence -> default to Jupiter
+
+            bool prePassCorroborated = false;
+
+            if (prePassMode == 1) // HAVANA — needs fc1A > 0 on at least one candidate
+            {
+                int64_t cur3 = startAddress;
+                int     iter3 = 0;
+                while (cur3 != 0 && iter3 < 500 && !prePassCorroborated)
+                {
+                    try {
+                        reader.position = cur3;
+                        int64_t tiPtr3 = reader.readLong();
+                        int64_t nextPtr3 = reader.readLong();
+                        if (tiPtr3 != 0 && isValid(tiPtr3))
+                        {
+                            reader.position = tiPtr3 + 0x1A;
+                            uint8_t fc = reader.readByte();
+                            if (fc > 0 && fc < 200) prePassCorroborated = true;
+                        }
+                        cur3 = nextPtr3;
+                    }
+                    catch (...) { break; }
+                    ++iter3;
+                }
+                TD_Log("  PRE-PASS HAVANA corroboration (any fc1A > 0): %s",
+                    prePassCorroborated ? "YES" : "NO");
+            }
+            else if (prePassMode == 0) // JUPITER — needs fc19 > 0 on at least one candidate
+            {
+                int64_t cur3 = startAddress;
+                int     iter3 = 0;
+                while (cur3 != 0 && iter3 < 500 && !prePassCorroborated)
+                {
+                    try {
+                        reader.position = cur3;
+                        int64_t tiPtr3 = reader.readLong();
+                        int64_t nextPtr3 = reader.readLong();
+                        if (tiPtr3 != 0 && isValid(tiPtr3))
+                        {
+                            reader.position = tiPtr3 + 0x19;
+                            uint8_t fc = reader.readByte();
+                            if (fc > 0 && fc < 200) prePassCorroborated = true;
+                        }
+                        cur3 = nextPtr3;
+                    }
+                    catch (...) { break; }
+                    ++iter3;
+                }
+                TD_Log("  PRE-PASS JUPITER corroboration (any fc19 > 0): %s",
+                    prePassCorroborated ? "YES" : "NO");
+            }
+            // ROBOTO (3): TEST 4 already covers this; reaching here means it scored
+            // zero so we must not trust the PRE-PASS result — leave corroborated=false
+
+            if (prePassCorroborated)
+            {
+                TD_Log("  Tests 1-4 all scored zero; applying corroborated PRE-PASS result as fallback.");
+                bestScore = prePassBestScore;
+                bestMode = prePassMode;
+                bestIdx = prePassIdx;
+                bestPtr = prePassPtr;
+            }
+            else
+            {
+                TD_Log("  PRE-PASS result rejected (no corroborating fc evidence for mode=%d); defaulting to Jupiter.",
+                    prePassMode);
+            }
+        }
+
         TD_Log("\n=== DETECTION RESULT ===");
         TD_Log("Best score: %d, mode: %d, offset index: %d, ptr: 0x%llX",
             bestScore, bestMode, bestIdx, (unsigned long long)bestPtr);
 
         if (bestScore < 1)
         {
-            TD_Log("No valid layout, defaulting to Jupiter");
+            TD_Log("No valid layout found across all %d candidates - defaulting to Jupiter", (int)candidates.size());
+            TD_Log("  (If this is wrong, check that at least one candidate has non-zero fc@0x19 or fc@0x1A)");
             _config = { 0x19, 0x28, 2, 1, 0 };
             return 0;
         }
 
         // ----------------------------------------------------------------
-        // Validate Walrus — match C# logic exactly
+        // Validate Walrus
         // ----------------------------------------------------------------
         if (bestMode == 2)
         {
             int  encodedCount = (int)((off20[0] >> 16) & 0xFF);
             bool encodedCountMatch = (encodedCount == bestScore);
-            bool has19 = fc19 > 0 && fc19 < 100 && fc19 <= (uint8_t)bestScore;
-            bool has1A = fc1A > 0 && fc1A < 100 && fc1A <= (uint8_t)bestScore;
-            TD_Log("\n=== VALIDATING Walrus: encoded=%d, matches=%s, has19=%s, has1A=%s ===",
+
+            // fc19/fc1A are only trustworthy as "real" field counts if they are
+            // plausible (< 100) AND actually match a scoreable field array at the
+            // Jupiter/Havana offsets on the first candidate. Without that second
+            // check, garbage bytes at +0x19/+0x1A in a Walrus binary look like
+            // valid field counts and cause a false demotion to HAVANA/JUPITER
+            int jupiterVerified = 0, havanaVerified = 0;
+            if (fc19 > 0 && fc19 < 100)
+            {
+                for (int i = 0; i < 8; ++i)
+                {
+                    if (off28[i] != 0 && isValid(off28[i]))
+                    {
+                        int sc = countValidFields(reader, off28[i], std::min((int)fc19, 20), 3);
+                        if (sc >= (int)fc19 * 8 / 10) { jupiterVerified = sc; break; } // 80% match
+                    }
+                }
+            }
+            if (fc1A > 0 && fc1A < 100)
+            {
+                for (int i = 0; i < 8; ++i)
+                {
+                    if (off20[i] != 0 && isValid(off20[i]))
+                    {
+                        int sc = countValidFields(reader, off20[i], std::min((int)fc1A, 20), 3);
+                        if (sc >= (int)fc1A * 8 / 10) { havanaVerified = sc; break; } // 80% match
+                    }
+                }
+            }
+
+            bool has19 = jupiterVerified > 0;
+            bool has1A = havanaVerified > 0;
+
+            TD_Log("\n=== VALIDATING Walrus: encoded=%d, matches=%s, jupiterVerified=%d, havanaVerified=%d ===",
                 encodedCount,
                 encodedCountMatch ? "true" : "false",
-                has19 ? "true" : "false",
-                has1A ? "true" : "false");
+                jupiterVerified, havanaVerified);
 
             bool isTrueWalrus = false;
             if (encodedCountMatch || encodedCount == 0)
@@ -1724,7 +2007,10 @@ private:
             }
             else
             {
-                TD_Log("FALSE POSITIVE - encoded mismatch");
+                // Encoded count mismatch: only reject if Jupiter or Havana verified strongly
+                isTrueWalrus = !(has19 || has1A);
+                TD_Log(isTrueWalrus ? "TRUE Walrus (encoded mismatch but no verified alternative)"
+                    : "FALSE POSITIVE - encoded mismatch with verified alternative");
             }
 
             if (!isTrueWalrus)
@@ -1732,7 +2018,7 @@ private:
                 TD_Log("\n=== RE-EVALUATING FOR JUPITER/HAVANA/ROBOTO ===");
                 bestScore = 0; bestMode = 0; bestIdx = -1; bestPtr = 0;
 
-                if (fc19 > 0 && fc19 < 100)
+                if (jupiterVerified > bestScore)
                 {
                     for (int i = 0; i < 8; ++i)
                     {
@@ -1747,7 +2033,7 @@ private:
                         }
                     }
                 }
-                if (fc1A > 0 && fc1A < 100)
+                if (havanaVerified > bestScore)
                 {
                     for (int i = 0; i < 8; ++i)
                     {
@@ -1769,7 +2055,39 @@ private:
                     TD_Log("  RE-ROBOTO wins: score=%d offsetIndex=%d",
                         heatBestScore, heatBestIdx);
                 }
+
+                // If re-evaluation also scored zero, trust the original Walrus detection
+                if (bestScore == 0)
+                {
+                    TD_Log("  RE-EVAL scored zero — reverting to Walrus");
+                    bestScore = 20; // restore enough to pass the bestScore < 1 guard
+                    bestMode = 2;
+                    bestIdx = 2; // off20[2] was the winning slot
+                    bestPtr = off20[2];
+                }
             }
+        }
+
+        // ----------------------------------------------------------------
+        // Contact override: if Contact was confirmed, it wins regardless of
+        // what the integer bestMode scored — it uses its own extractor path
+        // so bestMode stays as-is (it only drives _walrusMode/_robotoMode)
+        // ----------------------------------------------------------------
+        if (contactDetected && contactBestScore >= bestScore)
+        {
+            TD_Log("  CONTACT wins over bestMode=%d (contactScore=%d >= bestScore=%d)",
+                bestMode, contactBestScore, bestScore);
+            _config = { 0x22, 0x30, 0, 0, 1 };
+            _contactMode = true;
+            _walrusMode = false;
+            _robotoMode = false;
+            _dingoMode = false;
+            TD_Log("\n%s", std::string(80, '=').c_str());
+            TD_Log("DETECTED: CONTACT");
+            TD_Log("  Field count: +0x22");
+            TD_Log("  Offsets at:  +0x30");
+            TD_Log("%s\n", std::string(80, '=').c_str());
+            return 5; // Contact sentinel — matches force mode 5 and modeNames[5]
         }
 
         // ----------------------------------------------------------------
@@ -1784,6 +2102,7 @@ private:
         _config = { fcOff, offStart, bestIdx, structIdx, enumIdx };
         _walrusMode = (bestMode == 2);
         _robotoMode = (bestMode == 3);
+        _contactMode = false;
         _dingoMode = false;
 
         static const char* modeNames[] = { "JUPITER", "HAVANA", "WALRUS", "ROBOTO", "DINGO" };
@@ -1932,15 +2251,16 @@ private:
 
         // Set status immediately after detection so the UI timer shows the
         // correct mode name as soon as Pass 1 begins
-        static const char* modeNames[] = { "JUPITER", "HAVANA", "WALRUS", "ROBOTO", "DINGO" };
-        const char* detectedMode = (_fieldMode >= 0 && _fieldMode <= 4) ? modeNames[_fieldMode] : "UNKNOWN";
+        static const char* modeNames[] = { "JUPITER", "HAVANA", "WALRUS", "ROBOTO", "DINGO", "CONTACT" };
+        const char* detectedMode = (_fieldMode >= 0 && _fieldMode <= 5) ? modeNames[_fieldMode] : "UNKNOWN";
         {
             char buf[64];
             snprintf(buf, sizeof(buf), "[%s MODE]: Extracting types", detectedMode);
             statusMessage = buf;
         }
 
-        if (_dingoMode) return extractDingoTypes(reader);
+        if (_dingoMode)   return extractDingoTypes(reader);
+        if (_contactMode) return extractContactTypes(reader, startAddress);
 
         int typeCount = 0;
         int consecutiveFail = 0;
@@ -2012,11 +2332,34 @@ private:
             else {
                 reader.position = tiPtr + (int64_t)_config.fieldCountOffset;
                 fieldCount = (int)reader.readByte();
+
+                // Fallback: if fc byte is zero but there's a valid field array,
+                // score it directly (handles Havana where fc is always 0)
+                if (fieldCount == 0)
+                {
+                    int64_t probeFAP = 0;
+                    int64_t probeOffsets[8] = {};
+                    reader.position = tiPtr + (int64_t)_config.offsetsStartAt;
+                    for (auto& o : probeOffsets) o = reader.readLong();
+                    int probeIdx = _config.classFieldOffsetIdx;
+                    if (probeIdx >= 0 && probeIdx < 8 && probeOffsets[probeIdx] != 0
+                        && isValid(probeOffsets[probeIdx]))
+                        probeFAP = probeOffsets[probeIdx];
+                    if (probeFAP != 0)
+                    {
+                        int scored = countValidFields(reader, probeFAP, 200, tv);
+                        if (scored > 0) fieldCount = scored;
+                    }
+                }
             }
 
             // Offsets array (non-Roboto only)
+            // When bestScore==0, set _detectedConfig=null and read from +0x20
             int64_t offsets[8] = {};
+            int64_t offsetsFrom20[8] = {};
             if (!_robotoMode) {
+                reader.position = tiPtr + 0x20;
+                for (auto& o : offsetsFrom20) o = reader.readLong();
                 reader.position = tiPtr + (int64_t)_config.offsetsStartAt;
                 for (auto& o : offsets) o = reader.readLong();
             }
@@ -2043,7 +2386,7 @@ private:
             }
             else {
                 int64_t parentPtr = 0;
-                if (_config.offsetsStartAt == 0x28) { reader.position = tiPtr + 0x20; parentPtr = reader.readLong(); }
+                if (_config.offsetsStartAt == 0x28) { parentPtr = offsetsFrom20[0]; } // already read
                 else if (_walrusMode)                  parentPtr = offsets[1];
                 else                                   parentPtr = offsets[0];
 
@@ -2082,16 +2425,22 @@ private:
             }
             else if (fieldCount > 0 || tv == 2 || tv == 3 || tv == 8) {
                 int64_t fap = 0;
-                if (tv == 2) fap = offsets[_config.structFieldOffsetIdx];
-                else if (tv == 3) fap = offsets[_config.classFieldOffsetIdx];
+                // C# null-config fallback: when no layout was detected (defaulted to
+                // Jupiter), offsets were read from +0x20 and index 2 used for classes,
+                // index 1 for structs, and +0x20[0] for enums.
+                bool useNullConfigPath = (_config.offsetsStartAt == 0x28 && !_walrusMode);
+                if (tv == 2) {
+                    fap = useNullConfigPath ? offsetsFrom20[1] : offsets[_config.structFieldOffsetIdx];
+                }
+                else if (tv == 3) {
+                    fap = useNullConfigPath ? offsetsFrom20[2] : offsets[_config.classFieldOffsetIdx];
+                }
                 else if (tv == 8) {
                     if (_walrusMode) {
                         fap = offsets[1];
                     }
                     else {
-                        reader.position = tiPtr + 0x20;
-                        int64_t eOff[7]; for (auto& o : eOff) o = reader.readLong();
-                        fap = eOff[_config.enumFieldOffsetIdx];
+                        fap = useNullConfigPath ? offsetsFrom20[0] : offsets[_config.enumFieldOffsetIdx];
                     }
                 }
                 if (fap != 0 && isValid(fap)) {
@@ -2402,7 +2751,10 @@ private:
                 if (arrayElem.empty()) arrayElem = elemName;
             }
             else {
-                reader.position = actualTI + 0x20;
+                // Contact: array element node ptr is at offsets[0] = actualTI+0x28
+                // Jupiter/Havana/Walrus: element node ptr is at actualTI+0x20
+                int64_t arrayElemBase = _contactMode ? (actualTI + 0x28) : (actualTI + 0x20);
+                reader.position = arrayElemBase;
                 int64_t intPtr = reader.readLong();
                 if (intPtr != 0 && isValid(intPtr)) {
                     reader.position = intPtr;
@@ -2446,6 +2798,271 @@ private:
         if (name == "Float64")                                         return "Float64";
         if (name == "Boolean")                                         return "Boolean";
         return {}; // empty = not a primitive, return as-is
+    }
+
+    // -----------------------------------------------------------------------
+    // 64-BIT: Contact extraction
+    // Contact TypeInfo layout:
+    //   +0x00  namePtr         (int64 -> string in .rdata)
+    //   +0x08  flags           (uint16) -> (flags>>4)&0x1F = type (2=struct,3=class,8=enum)
+    //   +0x0A  size            (uint16)
+    //   +0x10  nsNodePtr       (int64 -> node whose first int64 is the ns string ptr)
+    //   +0x18  chainNodePtr    (int64, linked-list plumbing — not used for fields)
+    //   +0x20  slot20          (int64: low u16 = inherited count, u16 @+0x22 = own field count)
+    //   +0x28  parentNodePtr   (int64 -> typeInfo node -> namePtr)
+    //   +0x30  fieldArrayPtr   (int64, direct pointer to field array in module)
+    //
+    // Field entry (stride 0x18 = 24 bytes):
+    //   +0x00  namePtr  (int64 -> string)
+    //   +0x08  low u16  (unknown flags/padding)
+    //   +0x0A  offset   (uint16, byte offset of the field in the struct)
+    //   +0x10  typePtr  (int64 -> type resolution node, same as Jupiter/Havana)
+    //
+    // Enum field entry (stride 0x18 = 24 bytes):
+    //   +0x00  namePtr    (int64 -> string)
+    //   +0x08  zero/pad   (int64)
+    //   +0x10  enumValue  (int64, value stored as signed)
+    // -----------------------------------------------------------------------
+    int extractContactTypes(MemoryReader& reader, int64_t startAddress)
+    {
+        allTypes.clear();
+
+        const int MAX_TYPES = 50000;
+        const int MAX_FAIL = 10;
+
+        std::unordered_set<int64_t> visitedAddresses;
+        std::unordered_set<int64_t> visitedTIPtrs;
+
+        int typeCount = 0;
+        int consecutiveFail = 0;
+        int64_t cur = startAddress;
+
+        while (cur != 0 && typeCount < MAX_TYPES && consecutiveFail < MAX_FAIL)
+        {
+            if (isCancelled()) break;
+            if (visitedAddresses.count(cur)) break;
+            visitedAddresses.insert(cur);
+
+            reader.position = cur;
+            int64_t tiPtr = reader.readLong();
+            int64_t nextPtr = reader.readLong();
+
+            if (tiPtr == 0 || !isValid(tiPtr)) { ++consecutiveFail; cur = nextPtr; continue; }
+            if (visitedTIPtrs.count(tiPtr)) { cur = nextPtr; continue; }
+            visitedTIPtrs.insert(tiPtr);
+
+            // ---- Name ----
+            reader.position = tiPtr;
+            int64_t namePtr = reader.readLong();
+            if (namePtr == 0 || !isValid(namePtr)) { ++consecutiveFail; cur = nextPtr; continue; }
+            std::string typeName = readStr(reader, namePtr, 256);
+            if (typeName.empty() || !isValidTypeName(typeName)) { ++consecutiveFail; cur = nextPtr; continue; }
+            _typeInfoToName[tiPtr] = typeName;
+
+            // ---- Flags & type value ----
+            reader.position = tiPtr + 0x08;
+            uint16_t flags = reader.readUShort();
+            int tv = (flags >> 4) & 0x1F; // 2=struct, 3=class, 8=enum
+
+            // ---- Size (at +0x0A as uint16) ----
+            reader.position = tiPtr + 0x0A;
+            uint16_t sz = reader.readUShort();
+            (void)sz; // stored but not currently used downstream
+
+            // ---- Namespace (one hop: +0x10 -> node -> string ptr) ----
+            reader.position = tiPtr + 0x10;
+            int64_t nsNodePtr = reader.readLong();
+            std::string typeNs;
+            if (nsNodePtr != 0 && isValid(nsNodePtr))
+            {
+                reader.position = nsNodePtr;
+                int64_t nsStrPtr = reader.readLong();
+                if (nsStrPtr != 0 && isValid(nsStrPtr))
+                {
+                    std::string nsTmp = readStr(reader, nsStrPtr, 256);
+                    if (!nsTmp.empty() && isValidTypeName(nsTmp)) typeNs = nsTmp;
+                }
+            }
+
+            // ---- Read the offsets array starting at +0x28 ----
+            // offsets[0] = +0x28  (parent node ptr for class/struct; enum field array)
+            // offsets[1] = +0x30  (class field array)
+            // offsets[2] = +0x38
+            // offsets[3] = +0x40  (struct field array)
+            reader.position = tiPtr + 0x28;
+            int64_t offsets[6] = {};
+            for (auto& o : offsets) o = reader.readLong();
+            // offsets[0]=+0x28, [1]=+0x30, [2]=+0x38, [3]=+0x40, [4]=+0x48, [5]=+0x50
+
+            // Also read own-field count from +0x20 slot for classes
+            reader.position = tiPtr + 0x20;
+            int64_t slot20 = reader.readLong();
+
+            int fieldCount = 0;
+            int64_t fap = 0;
+
+            if (tv == 3) // Class: field array at offsets[1] (+0x30)
+            {
+                // Own-field count encoded in high uint16 of slot at +0x20
+                fieldCount = (int)((slot20 >> 16) & 0xFFFF);
+                fap = offsets[1]; // +0x30
+                if (!isValid(fap)) fap = 0;
+            }
+            else if (tv == 2) // Struct: field array at offsets[3] (+0x40)
+            {
+                fap = offsets[3]; // +0x40
+                if (!isValid(fap)) fap = 0;
+                if (fap != 0)
+                {
+                    // Own field count for structs is also at +0x22, same encoding
+                    reader.position = tiPtr + 0x22;
+                    uint8_t ownFC = reader.readByte();
+                    fieldCount = (ownFC > 0 && ownFC < 500) ? (int)ownFC : 0;
+                }
+            }
+            else if (tv == 8) // Enum: field array at offsets[0] (+0x28), no parent
+            {
+                fap = offsets[0]; // +0x28
+                if (!isValid(fap)) fap = 0;
+                if (fap != 0)
+                {
+                    // Own field count for enums sits at +0x22 (high byte of the
+                    // low uint16 of slot20, same encoding as classes use at +0x22)
+                    reader.position = tiPtr + 0x22;
+                    uint8_t ownFC = reader.readByte();
+                    fieldCount = (ownFC > 0 && ownFC < 500) ? (int)ownFC : 0;
+                }
+            }
+
+            // ---- Parent / base type: offsets[0] (+0x28) for class and struct ----
+            std::string baseType;
+            if (tv != 8 && offsets[0] != 0 && isValid(offsets[0]))
+            {
+                // offsets[0] is a node pointer; dereference to get the parent typeInfo ptr
+                reader.position = offsets[0];
+                int64_t pTI = reader.readLong();
+                if (pTI != 0 && isValid(pTI))
+                {
+                    reader.position = pTI;
+                    int64_t pNP = reader.readLong();
+                    if (pNP != 0 && isValid(pNP))
+                    {
+                        std::string pn = readStr(reader, pNP, 256);
+                        if (!pn.empty() && isValidTypeName(pn) && pn != typeName)
+                            baseType = pn;
+                    }
+                }
+            }
+
+            // ---- Category ----
+            std::string category;
+            switch (tv) {
+            case 2:  category = "Structs"; break;
+            case 8:  category = "Enums";   break;
+            default: category = "Classes"; break;
+            }
+
+            // ---- Fields ----
+            std::vector<FieldItem> fields;
+            if (fap != 0 && isValid(fap) && fieldCount > 0)
+                fields = extractContactFields(reader, fap, fieldCount, tv, typeName);
+
+            consecutiveFail = 0;
+            TypeItem ti;
+            ti.name = typeName;
+            ti.ns = typeNs;
+            ti.fullName = typeNs.empty() ? typeName : typeNs + "." + typeName;
+            ti.category = category;
+            ti.baseType = baseType;
+            ti.fields = std::move(fields);
+            allTypes.push_back(std::move(ti));
+            ++typeCount;
+            cur = nextPtr;
+        }
+
+        return (int)allTypes.size();
+    }
+
+    // -----------------------------------------------------------------------
+    // 64-BIT: Contact field extraction
+    // -----------------------------------------------------------------------
+    std::vector<FieldItem> extractContactFields(MemoryReader& reader, int64_t fieldArrayPtr,
+        int fieldCount, int typeValue,
+        const std::string& typeName)
+    {
+        std::vector<FieldItem> fields;
+        const int STRIDE = 0x18; // 24 bytes
+
+        for (int i = 0; i < fieldCount && i < 2000; ++i)
+        {
+            int64_t ep = fieldArrayPtr + (int64_t)i * STRIDE;
+            reader.position = ep;
+
+            int64_t  np = reader.readLong(); // +0x00 namePtr
+            uint16_t ffl = reader.readUShort();// +0x08 low flags (unused)
+            uint16_t fOff = reader.readUShort();// +0x0A field byte offset
+            reader.readUInt();                  // +0x0C pad (4 bytes to align next qword)
+            int64_t  tp = reader.readLong(); // +0x10 typePtr / enum value
+
+            // np==0 is a hard stop — marks end of array or inter-group gap sentinel
+            if (np == 0) break;
+            if (!isValid(np)) continue; // corrupt single entry, skip but don't stop
+
+            std::string fieldName = readStr(reader, np, 256);
+            if (fieldName.empty() || !isValidTypeName(fieldName)) continue;
+
+            if (typeValue == 8)
+            {
+                // Enum: tp holds the enum value directly as a signed integer
+                FieldItem fi;
+                fi.name = fieldName;
+                fi.type = std::to_string((int32_t)tp);
+                fi.offset = (int32_t)tp;
+                fields.push_back(std::move(fi));
+            }
+            else
+            {
+                // Class/struct: resolve type name via the same chain as Jupiter/Havana
+                std::string ftName = "Unknown";
+                bool        isArr = false;
+                std::string arrElem;
+
+                if (tp != 0 && isValid(tp))
+                {
+                    reader.position = tp;
+                    int64_t actualTI = reader.readLong();
+                    if (actualTI != 0 && isValid(actualTI))
+                    {
+                        reader.position = actualTI;
+                        int64_t  tnPtr = reader.readLong();
+                        uint16_t tFlags = reader.readUShort();
+                        uint32_t tSz = reader.readUInt();
+
+                        std::string memTN;
+                        if (tnPtr != 0 && isValid(tnPtr))
+                            memTN = readStr(reader, tnPtr, 256);
+
+                        int sType = (tFlags >> 4) & 0x1F;
+                        int resolvedType = resolveNonRobotoFieldType(memTN, sType, tSz);
+                        ftName = buildFieldTypeName(resolvedType, memTN, isArr, arrElem,
+                            reader, actualTI);
+                    }
+                }
+
+                FieldItem fi;
+                fi.name = fieldName;
+                fi.type = ftName;
+                fi.offset = (int)fOff;
+                fi.isArray = isArr;
+                fi.arrayElemType = arrElem;
+                fields.push_back(std::move(fi));
+            }
+        }
+
+        // Sort by byte offset so fields appear in struct layout order
+        std::sort(fields.begin(), fields.end(),
+            [](const FieldItem& a, const FieldItem& b) { return a.offset < b.offset; });
+        return fields;
     }
 
     // -----------------------------------------------------------------------
@@ -3223,7 +3840,7 @@ extern "C" {
     };
 
     // Set before calling td_dump_memory_* to override auto-detection.
-    // mode: -1 = auto, 0 = Jupiter, 1 = Havana, 2 = Walrus, 3 = Roboto, 4 = Skate/Dingo
+    // mode: -1 = auto, 0 = Jupiter, 1 = Havana, 2 = Walrus, 3 = Roboto, 4 = Skate/Dingo, 5 = Contact
     // Pass -1 to restore auto-detect behaviour.
     void td_set_force_mode(TD_Context* ctx, int mode)
     {

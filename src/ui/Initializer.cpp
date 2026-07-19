@@ -48,7 +48,7 @@ void Initializer::buildUi()
     m_lblTitle->adjustSize();
 
     // ---- Version label just below title ----
-    QLabel* lblVersion = new QLabel("v2.00", this);
+    QLabel* lblVersion = new QLabel("v2.10", this);
     QFont verFont("Segoe UI", 13, QFont::Light);
     lblVersion->setFont(verFont);
     lblVersion->setStyleSheet("color: #888888; background: transparent;");

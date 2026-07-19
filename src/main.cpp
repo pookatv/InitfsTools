@@ -1,7 +1,7 @@
 #include <QApplication>
 #include <QFont>
 #include "Initializer.h"
-#include "language/RuntimeTranslator.h"
+//#include "language/RuntimeTranslator.h"
 
 int main(int argc, char* argv[])
 {
@@ -10,9 +10,9 @@ int main(int argc, char* argv[])
     app.setApplicationVersion("2.0");
     app.setOrganizationName("Pooka");
 
-    // Detect system language and install translator
-    RuntimeTranslator* translator = RuntimeTranslator::instance();
-    translator->install(&app);
+    // Detect system language and install translator - needs more work
+    // RuntimeTranslator* translator = RuntimeTranslator::instance();
+    // translator->install(&app);
 
     // Translation fetch happens inside Initializer if needed
 

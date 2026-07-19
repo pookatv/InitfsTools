@@ -53,6 +53,8 @@
 #include <QtConcurrent/QtConcurrentRun>
 #include <QSemaphore>
 
+#include "../ac_patcher/PatcherBridge.h"
+
 #ifdef Q_OS_WIN
 #  include <windows.h>
 #  include <dwmapi.h>
@@ -77,6 +79,7 @@
 #include "ReferenceLibWindow.h"
 #include "PresetWindow.h"
 #include "TypeExtractorWindow.h"
+#include "ConsoleWindow.h"
 #include "DictionaryWindow.h"
 
 #include <fstream>
@@ -234,7 +237,7 @@ static inline long SCIP(QsciScintilla* e, unsigned int msg, long w, const char* 
 // Startup text
 // ============================================================
 const QString MainWindow::k_startupText =
-"# Pooka's InitFS Tools v2.00 Release #\n\n"
+"# Pooka's InitFS Tools v2.10 Release #\n\n"
 "[HOW TO USE]\n\n"
 "InitFS Tools is a powerful tool that allows you to modify an InitFS file. This can be used to do the following:\n"
 "• Enable new/hidden features in certain games\n"
@@ -249,7 +252,8 @@ const QString MainWindow::k_startupText =
 "• Clicking this button will also automatically create a cached copy of the loaded InitFS file in the /Caches folder (don't delete!)\n\n"
 "INITFS EDITOR: Once an InitFS file has been successfully loaded, there are many things you can do to it:\n"
 "• 'Payload List' - All of the payloads inside the loaded InitFS file are shown in the left panel\n"
-"• When right-clicking on a payload, four options will show up:\n"
+"• 'Payload Contents' - Left-click on a payload to view its contents in the right panel\n"
+"• When right-clicking on a payload on the payload list, four options will show up:\n"
 "     - 'Add Payload': Allows you to create a custom payload that can be saved\n"
 "     - 'Import Payload': Allows you to import contents from any file to overwrite the selected payload\n"
 "     - 'Export Payload': Allows you to export the selected payload to a chosen directory in the same file format\n"
@@ -257,7 +261,6 @@ const QString MainWindow::k_startupText =
 "     - 'Copy Payload Name': Allows you to copy the full name of the payload\n"
 "     - 'Revert Payload': Allows you to restore the selected payload back to its default state\n"
 "     - 'Remove Payload': Allows you to delete a payload from the list\n"
-"• 'Payload Contents' - Left-click on a payload to view its contents in the right panel\n"
 "• Press the 'Ctrl' + 'F' keys to open a dialog to find or replace a specific word in the current payload or across all payloads\n"
 "• You can add, delete, or modify any of the text inside the Payload Contents panel, which will be automatically saved in the editor\n"
 "• You can also switch between different views to your liking for both the payload list and payload contents panels\n\n"
@@ -265,7 +268,7 @@ const QString MainWindow::k_startupText =
 "SAVE INITFS AS: Click 'Save Initfs As' to apply and write any changes to a chosen directory\n"
 "• All InitFS files will be able to read the new changes properly and will launch without issues\n"
 "• However, the following games are not supported in any way:\n"
-"     - PC games with EA Anticheat: No bcrypt.dll support, no InitFS modding :(\n\n"
+"     - PC games with EA Anticheat: No dinput8.dll support, no InitFS modding :(\n\n"
 "GENERATE RAW INITFS: Click 'Generate Raw Initfs' to write the loaded InitFS file into a readable text document\n"
 "• This document will include every payload in the InitFS file, and all of its contents\n"
 "• The document will also generate a header that is filled with useful information\n"
@@ -287,7 +290,7 @@ const QString MainWindow::k_startupText =
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
-    setWindowTitle("Initfs Tools");
+    setWindowTitle("Initfs Tools 2.10");
     resize(1400, 800);
     setWindowIcon(QIcon(":/app.ico"));
 
@@ -972,12 +975,16 @@ void MainWindow::buildMenuBar()
     m_actRefLib->setShortcut(QKeySequence("Ctrl+Alt+R"));
     m_actPresets = m_menuTools->addAction(makeToolIcon(":/tools/icons/tools/preset_manager.png"), "Preset Manager");
     m_actPresets->setShortcut(QKeySequence("Ctrl+P"));
+    m_menuTools->addSeparator();
+    m_actConsole = m_menuTools->addAction(QIcon::fromTheme("utilities-terminal"), "Console Injector");
+    m_actConsole->setShortcut(QKeySequence("Ctrl+Alt+C"));
 
     connect(m_actDiff, &QAction::triggered, this, &MainWindow::onDiffCheck);
     connect(m_actDump, &QAction::triggered, this, &MainWindow::onTypeDumper);
     connect(m_actDict, &QAction::triggered, this, &MainWindow::onDictionary);
     connect(m_actRefLib, &QAction::triggered, this, &MainWindow::onReferenceLibrary);
     connect(m_actPresets, &QAction::triggered, this, &MainWindow::onPresets);
+    connect(m_actConsole, &QAction::triggered, this, &MainWindow::onConsoleInjector);
 
     connect(m_menuTools, &QMenu::aboutToShow, this, [this]
         {
@@ -986,6 +993,7 @@ void MainWindow::buildMenuBar()
             m_actDict->setEnabled(true);
             m_actRefLib->setEnabled(true);
             if (m_actPresets) m_actPresets->setEnabled(true);
+            if (m_actConsole) m_actConsole->setEnabled(true);
         });
 
     m_menuThemes = mb->addMenu("Themes");
@@ -1292,7 +1300,7 @@ void MainWindow::buildStatusBar()
     spring->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     sb->addWidget(spring, 1);
 
-    m_sbBrand = new QLabel("Made by Pooka - v2.00", sb);
+    m_sbBrand = new QLabel("Made by Pooka - v2.10", sb);
     m_sbBrand->setObjectName("brandLabel");
     sb->addPermanentWidget(m_sbBrand);
 }
@@ -3273,6 +3281,8 @@ void MainWindow::updateOpenWindowThemes()
             pw->applyTheme(m_darkMode);
         if (auto* diff = qobject_cast<DiffWindow*>(w))
             diff->applyTheme(m_darkMode);
+        if (auto* con = qobject_cast<ConsoleWindow*>(w))
+            con->applyTheme(m_darkMode);
     }
 }
 
@@ -4826,6 +4836,8 @@ void MainWindow::closeEvent(QCloseEvent* e)
     saveRecentFiles();
 
     QMainWindow::closeEvent(e);
+    if (e->isAccepted())
+        QApplication::quit();
 }
 
 // ============================================================
@@ -4840,7 +4852,7 @@ void MainWindow::loadRecentFiles()
     {
         s.setArrayIndex(i);
         QString p = s.value("path").toString();
-        if (!p.isEmpty())
+        if (!p.isEmpty() && QFile::exists(p))
             m_recentFiles.append(p);
     }
     s.endArray();
@@ -4877,6 +4889,9 @@ void MainWindow::refreshRecentPanel()
 
     for (const QString& path : m_recentFiles)
     {
+        if (!QFile::exists(path))
+            continue;
+
         QFileInfo fi(path);
 
         // Use platform icon instead of generic file icon
@@ -5177,10 +5192,11 @@ void MainWindow::onSaveInitfs()
         catch (const std::exception& ex) { QMessageBox::critical(this, "Error", ex.what()); return; }
     }
 
+    attemptAnticheatPatch(m_loadedFilePath);
+    attemptCryptBaseCopy(m_loadedFilePath);
     if (performSave(m_loadedFilePath))
     {
         clearSavedStateFromList();
-        attemptCryptBaseCopy(m_loadedFilePath);
     }
 }
 
@@ -5206,12 +5222,13 @@ void MainWindow::onSaveInitfsAs()
 
     m_lastSaveDir = QFileInfo(savePath).absolutePath();
 
+    attemptAnticheatPatch(savePath);
+    attemptCryptBaseCopy(savePath);
     if (performSave(savePath))
     {
         m_loadedFilePath = savePath;
         clearSavedStateFromList();
         updateFooter();
-        attemptCryptBaseCopy(savePath);
     }
 }
 
@@ -5609,7 +5626,7 @@ void MainWindow::onGenerateRaw()
 
         // ---- Write header ----
         out << "==========\n";
-        out << "Initfs Tools 2.0 | Raw Initfs\n";
+        out << "Initfs Tools v2.10 | Raw Initfs\n";
         out << "----------\n";
         out << "Internal Name: " << profileDirectoryName << "\n";
         out << "Code Name (Juice): " << juiceTitleName << "\n";
@@ -8037,6 +8054,20 @@ void MainWindow::onTypeDumper()
     m_typeExtractorWindow->activateWindow();
 }
 
+void MainWindow::onConsoleInjector()
+{
+    if (!m_consoleWindow) {
+        m_consoleWindow = new ConsoleWindow(this, this);
+        connect(m_consoleWindow, &QDialog::finished, this, [this]() {
+            m_consoleWindow = nullptr;
+            });
+    }
+    m_consoleWindow->applyTheme(m_darkMode);
+    m_consoleWindow->show();
+    m_consoleWindow->raise();
+    m_consoleWindow->activateWindow();
+}
+
 void MainWindow::onDictionary()
 {
     if (!m_dictWindow) {
@@ -8097,7 +8128,7 @@ void MainWindow::onAbout()
     msgBox.setWindowTitle("About");
     msgBox.setIcon(QMessageBox::Information);
     msgBox.setText(
-        "Initfs Tools v2.00<br>"
+        "Initfs Tools v2.10<br>"
         "Made by Pooka and Claude<br>"
         "Written and Optimized in C++<br>"
         "<a href='https://github.com/pookatv/InitfsTools'>https://github.com/pookatv/InitfsTools</a>"
@@ -8735,7 +8766,7 @@ void MainWindow::updateFooter()
     if (m_sbEditing)  m_sbEditing->setText(QString("Editing: %1").arg(editing));
     if (m_sbChanged)  m_sbChanged->setText(QString("Size Diff: %1%2").arg(m_changedCharCount > 0 ? "+" : "").arg(m_changedCharCount));
     if (m_sbSelected) m_sbSelected->setText(QString("Selected: %1").arg(getSelectedCharCount()));
-    if (m_sbBrand)    m_sbBrand->setText("Made by Pooka - v2.00");
+    if (m_sbBrand)    m_sbBrand->setText("Made by Pooka - v2.10");
 
     // Loaded File icon: folder icon
     if (m_sbLoadedIcon)
@@ -9221,13 +9252,10 @@ void MainWindow::attemptCryptBaseCopy(const QString& savedFilePath)
     QString saveName = QFileInfo(savedFilePath).fileName().toLower();
     bool looksWin32 = name.contains("win32") || saveName.contains("win32");
     if (!looksWin32) { Logger::log("[Bcrypt] Not a Win32 file, skipping."); return; }
-
-    // Locate the bcrypt.dll shipped alongside this executable
+    // Locate the dinput8.dll shipped alongside this executable
     QString exeDir = QCoreApplication::applicationDirPath();
-    QString src = exeDir + "/bcrypt.dll";
-    if (!QFile::exists(src)) src = exeDir + "/Bcrypt.dll";
+    QString src = exeDir + "/dinput8.dll";
     if (!QFile::exists(src)) { Logger::log("[Bcrypt] DLL not found next to executable, skipping."); return; }
-
     // Walk up from the saved file's directory until we find a folder with a .exe
     QDir d(QFileInfo(savedFilePath).absolutePath());
     while (!d.isRoot())
@@ -9235,26 +9263,44 @@ void MainWindow::attemptCryptBaseCopy(const QString& savedFilePath)
         if (!d.entryList({ "*.exe" }, QDir::Files).isEmpty()) break;
         d.cdUp();
     }
-
     // Skip if no Data subfolder exists alongside the exe — not a valid game directory
     if (!QDir(d.filePath("Data")).exists())
     {
         Logger::log("[Bcrypt] No Data folder found next to game exe, skipping.");
         return;
     }
-
-    // Skip if either bcrypt.dll OR CryptBase.dll already exist in the game directory
-    QString dstBcrypt = d.filePath("bcrypt.dll");
+    // Skip if either dinput8.dll OR CryptBase.dll OR bcrypt.dll already exist in the game directory
+    QString dstBcrypt = d.filePath("dinput8.dll");
     QString dstCryptBase = d.filePath("CryptBase.dll");
-    if (QFile::exists(dstBcrypt) || QFile::exists(dstCryptBase))
+    QString dstBcryptOld = d.filePath("bcrypt.dll");
+    if (QFile::exists(dstBcrypt) || QFile::exists(dstCryptBase) || QFile::exists(dstBcryptOld))
     {
         Logger::log("[Bcrypt] DLL already present in game directory, skipping.");
         return;
     }
-
     QFile::copy(src, dstBcrypt);
     Logger::log("[Bcrypt] Copied to: %s", dstBcrypt.toUtf8().constData());
-    QMessageBox::information(this, "bcrypt", QString("bcrypt.dll copied to:\n%1").arg(dstBcrypt));
+#else
+    Q_UNUSED(savedFilePath)
+#endif
+}
+
+void MainWindow::attemptAnticheatPatch(const QString& savedFilePath)
+{
+#ifdef Q_OS_WIN
+    // Walk up from the saved file's directory until we find a folder with a .exe
+    QDir d(QFileInfo(savedFilePath).absolutePath());
+    while (!d.isRoot())
+    {
+        if (!d.entryList({ "*.exe" }, QDir::Files).isEmpty()) break;
+        d.cdUp();
+    }
+    if (!QDir(d.filePath("Data")).exists())
+    {
+        Logger::log("[Patcher] No Data folder found next to game exe, skipping.");
+        return;
+    }
+    PatcherBridge::apply(d.absolutePath());
 #else
     Q_UNUSED(savedFilePath)
 #endif
