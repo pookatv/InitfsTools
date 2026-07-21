@@ -27,7 +27,7 @@ ISSUE 2: The program will not run when the language is set to anything other tha
 - ~~Fix Squadrons using the wrong mode - should use Walrus (Type Extractor)~~
 - ~~Fix NFS Payback using the wrong mode - should use Walrus (Type Extractor)~~
 - ~~Fix Mirror's Edge using the wrong mode - should use Havana (Type Extractor)~~
-- Fix FIFA 17 using the wrong mode - should use Contact (Type Extractor)
+~~- Fix FIFA 17 using the wrong mode - should use Contact (Type Extractor)~~
 - ~~Fix Dragon Age Inquisition support - only works in 2.0.0-beta2 (Type Extractor)~~
 - ~~Implement Mass Effect Andromeda support (Type Extractor)~~
 - Implement PGA Tour support (Type Extractor)
