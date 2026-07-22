@@ -35,7 +35,7 @@ ISSUE 2: The program will not run when the language is set to anything other tha
 - Fully implement Dead Space and Need For Speed Heat support for live value reading
 - ~~Fix a bug where the bcrypt.dll gets copied after the user hits ok, should be before~~
 - ~~Fix an issue where the green highlight may disappear when deleting spaces~~
-- Fix an issue where highlights are invisible (Diff Check)
+- ~~Fix an issue where highlights are invisible (Diff Check)~~
 - Fix an issue where the dictionary filters stop working (Dictionary)
 - Finish DictionaryWindow logic to support more dev commands (Dictionary)
 - ~~Fix the program not fully closing when tool windows are active~~
