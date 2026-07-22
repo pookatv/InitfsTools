@@ -2,7 +2,7 @@
 
 # Frostbite InitFS Tools
 The ultimate toolsuite for all things InitFS related, 
-featuring multi-format decryption support, a command dictionary, type extractor, diff checker, and more.
+featuring multi-format decryption support, a command dictionary, type extractor, diff checker, and more. Update 2.10 will arrive this week!
 
 Note: If an InitFS file asks you for an AES key, I will not provide it. A quick google search may help.
 
