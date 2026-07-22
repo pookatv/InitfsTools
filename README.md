@@ -22,7 +22,7 @@ ISSUE 2: The program will not run when the language is set to anything other tha
 
 <img width="2100" height="1240" src="./docs/assets/showcase.webp" />
 
-## TODO:
+## TODO (the crossed-out issues are fixed in 2.10, releasing soon):
 - Fix Dingo mode logic as it's incorrect and needs proper polishing (Type Extractor)
 - ~~Fix Squadrons using the wrong mode - should use Walrus (Type Extractor)~~
 - ~~Fix NFS Payback using the wrong mode - should use Walrus (Type Extractor)~~
@@ -34,7 +34,7 @@ ISSUE 2: The program will not run when the language is set to anything other tha
 - Implement Battlefield Hardline support (Type Extractor)
 - Fully implement Dead Space and Need For Speed Heat support for live value reading
 - ~~Fix a bug where the bcrypt.dll gets copied after the user hits ok, should be before~~
-- Fix an issue where the green highlight may disappear when deleting spaces
+- ~~Fix an issue where the green highlight may disappear when deleting spaces~~
 - Fix an issue where highlights are invisible (Diff Check)
 - Fix an issue where the dictionary filters stop working (Dictionary)
 - Finish DictionaryWindow logic to support more dev commands (Dictionary)
