@@ -44,6 +44,7 @@ ISSUE 2: The program will not run when the language is set to anything other tha
 - Finish InitfsTools Wiki (help wanted!)
 - Implement localization support for the UI
 - Implement "GoTo" default commands
+- Implement CLI support (requested by JIREX)
 
 ## COMING SOON:
 - Console Injector — Hooks into a game's console, unlocks all commands, and executes them remotely (confirmed working in: DelMar, MEA, BFH, BF4, SWBF2, SWBF2015, BFN, GW2, GW1, NFS Unbound, NFS Heat, NFS Payback, Need For Speed, NFS Rivals, Mirror's Edge, PGA Tour, DAV, DAI)
