@@ -2,7 +2,7 @@
 
 # Frostbite InitFS Tools
 The ultimate toolsuite for all things InitFS related, 
-featuring multi-format decryption support, a command dictionary, type extractor, diff checker, and more.
+featuring multi-format decryption support, a command dictionary, type extractor, diff checker, and more. Update 2.10 will arrive this week!
 
 Note: If an InitFS file asks you for an AES key, I will not provide it. A quick google search may help.
 
@@ -22,20 +22,20 @@ ISSUE 2: The program will not run when the language is set to anything other tha
 
 <img width="2100" height="1240" src="./docs/assets/showcase.webp" />
 
-## TODO:
+## TODO (the crossed-out issues are fixed in 2.10, releasing soon):
 - Fix Dingo mode logic as it's incorrect and needs proper polishing (Type Extractor)
 - ~~Fix Squadrons using the wrong mode - should use Walrus (Type Extractor)~~
 - ~~Fix NFS Payback using the wrong mode - should use Walrus (Type Extractor)~~
 - ~~Fix Mirror's Edge using the wrong mode - should use Havana (Type Extractor)~~
-- Fix FIFA 17 using the wrong mode - should use Contact (Type Extractor)
+- ~~Fix FIFA 17 using the wrong mode - should use Contact (Type Extractor)~~
 - ~~Fix Dragon Age Inquisition support - only works in 2.0.0-beta2 (Type Extractor)~~
 - ~~Implement Mass Effect Andromeda support (Type Extractor)~~
 - Implement PGA Tour support (Type Extractor)
 - Implement Battlefield Hardline support (Type Extractor)
 - Fully implement Dead Space and Need For Speed Heat support for live value reading
 - ~~Fix a bug where the bcrypt.dll gets copied after the user hits ok, should be before~~
-- Fix an issue where the green highlight may disappear when deleting spaces
-- Fix an issue where highlights are invisible (Diff Check)
+- ~~Fix an issue where the green highlight may disappear when deleting spaces~~
+- ~~Fix an issue where highlights are invisible (Diff Check)~~
 - Fix an issue where the dictionary filters stop working (Dictionary)
 - Finish DictionaryWindow logic to support more dev commands (Dictionary)
 - ~~Fix the program not fully closing when tool windows are active~~
@@ -44,6 +44,7 @@ ISSUE 2: The program will not run when the language is set to anything other tha
 - Finish InitfsTools Wiki (help wanted!)
 - Implement localization support for the UI
 - Implement "GoTo" default commands
+- Implement CLI support (requested by JIREX)
 
 ## COMING SOON:
 - Console Injector — Hooks into a game's console, unlocks all commands, and executes them remotely (confirmed working in: DelMar, MEA, BFH, BF4, SWBF2, SWBF2015, BFN, GW2, GW1, NFS Unbound, NFS Heat, NFS Payback, Need For Speed, NFS Rivals, Mirror's Edge, PGA Tour, DAV, DAI)
