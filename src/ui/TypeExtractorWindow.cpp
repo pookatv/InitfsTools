@@ -380,7 +380,7 @@ void TypeExtractorWindow::buildUi()
             onTypeSelected(cur.row());
         });
 
-    // Editor click / hover → clickable type navigation via viewport event filter
+    // Editor click / hover -> clickable type navigation via viewport event filter
     m_sci->viewport()->installEventFilter(this);
 
     // Custom context menu on the search box
@@ -2358,7 +2358,7 @@ void TypeExtractorWindow::refreshLiveValuesInPlace()
 
     append(QStringLiteral("}"), bracesStyle);
 
-    // --- Char→byte offset table ---
+    // --- Char->byte offset table ---
     const int charCount = text.size();
     QVector<int> charToByteOffset(charCount + 1, 0);
     {

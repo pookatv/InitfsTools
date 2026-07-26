@@ -3408,14 +3408,14 @@ bool DictionaryWindow::generateDictionaryFromFolder(
                 if (qline.startsWith('#') && !insideDivergenceBlock) {
                     QString content = qline.mid(1).trimmed();
 
-                    // Block tag → suppress carry, fall through to divergence logic below
+                    // Block tag -> suppress carry, fall through to divergence logic below
                     if (rxBlockTag.match(content).hasMatch()) {
                         pendingAboveComment.clear();
                         carryDeveloperComment = false;
                         // do NOT continue — let divergence-start check run on this same line
                     }
                     else {
-                        // Commented-out command → skip
+                        // Commented-out command -> skip
                         if (rxCommentedCmd.match(content).hasMatch()) {
                             pendingAboveComment.clear();
                             carryDeveloperComment = false;
@@ -3868,9 +3868,9 @@ void CommandOriginsDialog::loadData(const QList<OriginRow>& rows)
 {
     // Clean a raw stored comment string into human-readable form
     // Handles the three formats that can appear in DictOriginRow::comment:
-    //   "// [DIVERGENCE] Some note"       → "Some note"
-    //   "[Developer Comments: Some note]" → "Some note"
-    //   "(value: Some note)"              → "value: Some note"
+    //   "// [DIVERGENCE] Some note"       -> "Some note"
+    //   "[Developer Comments: Some note]" -> "Some note"
+    //   "(value: Some note)"              -> "value: Some note"
     // Multiple comments joined by " | " are cleaned segment by segment
     auto cleanComment = [](const QString& raw) -> QString {
         if (raw.isEmpty()) return raw;

@@ -17,7 +17,7 @@ Function: executeOriginRequest(requestArgs)
 Route Registration:
 - Pattern: /origin/(.*)
 - Captures everything after /origin/ as '_resource'
-- Example: /origin/overlay/show → _resource = 'overlay/show'
+- Example: /origin/overlay/show -> _resource = 'overlay/show'
 
 Origin Integration:
 EA's Origin platform provides:

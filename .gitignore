@@ -3,22 +3,16 @@ out/
 build/
 CMakeUserPresets.json
 README.md
-<<<<<<< HEAD
 BUILD_STATIC.md
-=======
->>>>>>> 68178a07310db9e2db949c830377c223a61525be
-
 # Qt generated
 *.user
 moc_*
 ui_*
 qrc_*
-
 # VS files
 .vs/
 *.suo
 *.VC.db
-
 # Object files
 *.obj
 *.exe
@@ -26,12 +20,10 @@ qrc_*
 *.lib
 *.exp
 *.pdb
-
 # Ninja
 *.ninja
 .ninja_deps
 .ninja_log
 CMakeCache.txt
 CMakeFiles/
-
 aqtinstall.log

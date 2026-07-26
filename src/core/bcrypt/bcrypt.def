@@ -1,0 +1,27 @@
+LIBRARY BCrypt
+EXPORTS
+    BCryptVerifySignature = Hooked_BCryptVerifySignature
+    BCryptOpenAlgorithmProvider
+    BCryptCloseAlgorithmProvider
+    BCryptImportKeyPair
+    BCryptDestroyKey
+    BCryptGetProperty
+    BCryptSetProperty
+    BCryptGenRandom
+    BCryptCreateHash
+    BCryptHashData
+    BCryptFinishHash
+    BCryptDestroyHash
+    BCryptEncrypt
+    BCryptDecrypt
+    BCryptGenerateSymmetricKey
+    BCryptGenerateKeyPair
+    BCryptFinalizeKeyPair
+    BCryptExportKey
+    BCryptImportKey
+    BCryptSignHash
+    BCryptSecretAgreement
+    BCryptDeriveKey
+    BCryptDestroySecret
+    BCryptDuplicateHash
+    BCryptDuplicateKey

@@ -5,6 +5,7 @@
 #include "PresetWindow.h"
 #include "TypeExtractorWindow.h"
 #include "DictionaryWindow.h"
+#include "ConsoleWindow.h"
 
 #include <QApplication>
 #include <QScreen>
@@ -21,8 +22,8 @@ Initializer::Initializer(QWidget* parent)
 {
     setAttribute(Qt::WA_DeleteOnClose);
 
-    // Total steps: MainWindow + 5 tool windows + applyTheme/reposition = 7
-    m_stepCount = 7;
+    // Total steps: MainWindow + 6 tool windows + applyTheme/reposition = 8
+    m_stepCount = 8;
 
     buildUi();
 
@@ -180,6 +181,15 @@ void Initializer::runNextStep()
         break;
 
     case 7:
+        setStatus("Loading console injector...");
+        if (!m_main->m_consoleWindow) {
+            m_main->m_consoleWindow = new ConsoleWindow(m_main, m_main);
+            m_main->m_consoleWindow->setAttribute(Qt::WA_DeleteOnClose, false);
+            m_main->m_consoleWindow->applyTheme(m_main->m_darkMode);
+        }
+        break;
+
+    case 8:
         setStatus("Applying theme...");
         m_main->applyCurrentTheme();
         m_main->repositionLaunchButton();

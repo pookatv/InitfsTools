@@ -1,63 +1,54 @@
 // FrostbiteConsole.cpp
-// ─────────────────────────────────────────────────────────────────────────────
-// Frostbite console bridge — dynamic resolution with hardcoded fallback.
-//
-// Resolution order:
-//   1. tryResolveDynamic() — pure pattern/string scanning, no hardcoded addresses
-//   2. tryResolveByRVAs()  — hardcoded VA table fallback (k_SkateRVAs / k_BF2RVAs)
 //
 // DYNAMIC RESOLUTION STEPS
-// ──────────────────────────
+//
 // Step 1: executeConsoleCommand
 //   Anchor: "Unknown console command" string in .rdata
-//   Method: find LEA Rxx,[anchor] → walk back to CC-padded prologue
+//   Method: find LEA Rxx,[anchor] -> walk back to CC-padded prologue
 //
 // Step 2: addOutputHandler
 //   Anchor: "Same handler added multiple times." string in .rdata
-//   Method: find LEA Rxx,[anchor] → walk back to prologue
+//   Method: find LEA Rxx,[anchor] -> walk back to prologue
 //
 // Step 3: s_outputHandlers
 //   Method: scan addOutputHandler body (256 bytes) for ANY RIP-relative data
 //           reference (MOV r64, LEA r64, MOVUPS xmm, MOVDQU xmm) whose target
-//           passes validateVectorHeader.  The game uses MOVUPS to load the full
+//           passes validateVectorHeader. The game uses MOVUPS to load the full
 //           xmmword_s_outputHandlers (mpBegin+mpEnd) atomically — the old code
-//           only checked for 64-bit MOV (0x8B) and missed this.
+//           only checked for 64-bit MOV (0x8B) and missed this
 //
 // Steps 4+5: s_consoleMethods, s_instanceMethods
 //   Method: scan executeConsoleCommand for ALL CALL rel32 targets that match
-//           the Init_thread_header static-getter pattern.  Collect unique
+//           the Init_thread_header static-getter pattern. Collect unique
 //           vector addresses in call-site order:
 //             [0] = s_consoleMethods   (first getter called)
 //             [1] = s_instanceMethods  (second getter called)
-//           The old code stopped at the first getter found, which happened to
-//           be s_instanceMethods (lower offset) and never reached consoleMethods.
 //
 // Step 6: g_settingsManager, settingsManager_get, settingsManager_set
 //   Anchor: "applyPendingVars" string (more reliable than "SettingsManager"
 //           because "SettingsManager" is referenced via non-LEA instructions
-//           in this build, making it invisible to findLEAToTarget).
-//   Method: string → LEA xref → walk back to prologue (ctor or callee)
-//           → scan ctor for MOV cs:[RIP+rel],Rxx → g_settingsManager address
-//           → scan entire image for MOV RCX,cs:[g_settingsManager] + CALL
-//           → top-2 callees by occurrence = get + set.
+//           in this build, making it invisible to findLEAToTarget)
+//   Method: string -> LEA xref -> walk back to prologue (ctor or callee)
+//           -> scan ctor for MOV cs:[RIP+rel],Rxx -> g_settingsManager address
+//           -> scan entire image for MOV RCX,cs:[g_settingsManager] + CALL
+//           -> top-2 callees by occurrence = get + set.
 //   Bug fixed: old code had `ctorFn[0] == 0 &&` guard in the image scan,
-//              making the entire scan a no-op (ctorFn[0] is never zero).
+//              making the entire scan a no-op (ctorFn[0] is never zero)
 //
 // BF2-SPECIFIC SUPPLEMENT (tryResolveDynamicBF2)
-// ─────────────────────────────────────────────────────────────────────────────
+//
 // Step A: s_consoleMethods  (consoleRegistry::s_consoleMethods() in source)
 //   The vector is a fixed_vector<const ConsoleMethod*, 8048> whose getter is
-//   called twice near the top of executeConsoleCommand (confirmed from source:
-//   ConsoleRegistry::getConsoleMethods → s_consoleMethods()).
+//   called twice near the top of executeConsoleCommand
 //
 //   Sub-path 1 — direct getter LEA (BF2015, NFS Heat):
 //     Follow CALL rel32 targets from execCmd one level deep (through JMP
-//     thunks). For each callee, scan up to 64 bytes for LEA Rxx,[RIP+rel].
+//     thunks). For each callee, scan up to 64 bytes for LEA Rxx,[RIP+rel]
 //     If the LEA target itself looks like a valid non-empty vector object
-//     (mpBegin non-null, mpEnd > mpBegin, mpCapacity ≥ mpEnd), use it.
+//     (mpBegin non-null, mpEnd > mpBegin, mpCapacity ≥ mpEnd), use it
 //     CORRECTION: if [tgt-0x28] is readable and [tgt-0x28+0x00] == tgt,
 //     then tgt is the inline buffer of a fixed_vector and (tgt-0x28) is the
-//     true object base — store that instead (fixes BF2015 beta).
+//     true object base — store that instead (fixes BF2015 beta)
 //
 //   Sub-path 2 — mpCapacity byte-search (BF2, MEA, and others):
 //     Collect all LEA Rxx,[RIP+rel] targets directly in execCmd body. For
@@ -68,12 +59,12 @@
 //     slot[0] as a ConsoleMethod*, confirm its +0x00 (pfn) is executable and
 //     its +0x08 (name) is a readable string starting with [A-Za-z_]. This
 //     rejects false-positive vectors (e.g. MEA's asset-path table) whose
-//     first elements are raw const char* strings, not ConsoleMethod pointers.
+//     first elements are raw const char* strings, not ConsoleMethod pointers
 //
 //   After Step A, init() re-validates the result using the same ConsoleMethod
 //   content check and clears it if invalid, allowing tryResolveDynamicFixedVector
 //   (FV scan) to find the correct getter and vector for titles like MEA where
-//   Step A's byte-search finds a structural false positive.
+//   Step A's byte-search finds a structural false positive
 //
 // Step B: Console::writeConsole / s_outputHandlers
 //   (Console::writeConsole in source iterates s_outputHandlers vector.)
@@ -87,12 +78,12 @@
 //   For each prologue match, search forward up to 128 bytes collecting
 //   MOV RBX,[RIP+rel] and MOV RDI,[RIP+rel] targets. If the two targets are
 //   exactly 8 bytes apart (adjacent mpBegin/mpEnd of s_outputHandlers) AND
-//   ADD RBX,10 (the iteration stride) exists within ±512 bytes, record this
-//   function as writeConsoleFunc and the lower target as s_outputHandlers.
+//   ADD RBX,10 (the iteration stride) exists within 512 bytes, record this
+//   function as writeConsoleFunc and the lower target as s_outputHandlers
 //
 // Step C: writeConsoleFunc via s_outputHandlers slot (fallback)
 //   If Step B found s_outputHandlers but not writeConsoleFunc, read the
-//   function pointer at slot[0]+8 of the vector as a last resort.
+//   function pointer at slot[0]+8 of the vector as a last resort
 //
 // tryResolveDynamicFixedVector (FV scan):
 //   For titles whose getter uses the fixed_vector multi-init pattern
@@ -104,83 +95,47 @@
 //     ADD RSP,28  (48 83 C4 28)
 //     RET         (C3)
 //   Decode the LEA target as the vector object, validate as non-empty with
-//   a readable mpBegin. First matching callee wins.
-// ─────────────────────────────────────────────────────────────────────────────
-// ── What we can find / what each GameRVAs field maps to ──────────────────────
+//   a readable mpBegin. First matching callee wins
 //
-// executeConsoleCommand  → ConsoleRegistry::executeConsoleCommand(const char*, bool)
-//   Anchor: "Unknown console command" string in .rdata (confirmed in source:
-//   str.set("Unknown console command \"%s\"! ..."))
+// Functions:
+// 
+// executeConsoleCommand
+//   Anchor: "Unknown console command" string in .rdata
 //   Also anchors: "No more arguments to parse", "Win32 result:", "Expected arguments: "
 //
-// s_consoleMethods       → consoleRegistry::s_consoleMethods() static local
+// s_consoleMethods
 //   fixed_vector<const ConsoleMethod*, 8048> — getter called from executeConsoleCommand
 //   Also reachable via: ConsoleRegistry::getConsoleMethods(), registerConsoleMethods(),
 //   unregisterConsoleMethods()
 //
-// s_instanceMethods      → consoleRegistry::s_instanceMethods() static local
+// s_instanceMethods
 //   fixed_vector<InstanceMethod, 128> — iterated after s_consoleMethods in executeConsoleCommand
 //
-// s_outputHandlers       → static eastl::vector<Console::HandlerDelegate_t> s_outputHandlers
-//   in Console.cpp (anonymous namespace). Iterated by Console::writeConsole().
-//   Anchor: "Same handler added multiple times." → Console::addOutputHandler → s_outputHandlers
+// s_outputHandlers
+//   Anchor: "Same handler added multiple times." -> Console::addOutputHandler -> s_outputHandlers
 //
-// addOutputHandler       → Console::addOutputHandler(HandlerDelegate_t)
-//   Anchor: "Same handler added multiple times." string (FB_FATAL_ASSERT_DESC in source)
+// addOutputHandler
+//   Anchor: "Same handler added multiple times." string
 //
-// removeOutputHandler    → Console::removeOutputHandler(HandlerDelegate_t)
+// removeOutputHandler
 //   No unique string anchor; found by proximity to addOutputHandler or
-//   by scanning addOutputHandler's callers for a sibling function.
+//   by scanning addOutputHandler's callers for a sibling function
 //
-// writeConsoleFunc       → Console::writeConsole(const char* tag, const char* buf, uint size)
-//   No unique string anchor. Found via Step B prologue scan (iterates s_outputHandlers).
+// writeConsoleFunc
+//   No unique string anchor. Found via Step B prologue scan (iterates s_outputHandlers)
 //   The two-argument overload writeConsole(eastl::string&, eastl::string&) is a thunk
-//   into this one — not useful as a hook target.
+//   into this one — not useful as a hook target
 //
-// g_settingsManager      → global SettingsManager* g_settingsManager (ConsoleObjectUtil.cpp)
+// g_settingsManager
 //   Anchor: "applyPendingVars" string appears in ConsoleObjectUtil::applyPendingVars()
 //   which references g_settingsManager directly. Also referenced in varFunc/varGroupFunc
-//   via g_settingsManager->get() / ->set().
+//   via g_settingsManager->get() / ->set()
 //
-// settingsManager_get    → SettingsManager::get(const char* varName, ...) — top callee
-//   after MOV RCX,[g_settingsManager] by occurrence count.
+// settingsManager_get
+//   top callee after MOV RCX,[g_settingsManager] by occurrence count
 //
-// settingsManager_set    → SettingsManager::set(const char* varName, const char* value)
-//   Second most frequent callee after MOV RCX,[g_settingsManager].
-//
-// ── Additional findable addresses not currently in GameRVAs ──────────────────
-//
-// ConsoleRegistry::registerConsoleMethods(const char*, ConsoleMethod*, int)
-//   Anchor: "Perf Warning - Registering duplicate console method: %s.%s"
-//   (FB_WARNING_FORMAT in registerConsoleMethods). Could be used to hook
-//   method registration dynamically at inject time.
-//
-// ConsoleRegistry::complete(const char*, eastl::vector<eastl::string>*, bool)
-//   Called from executeConsoleCommand when command == "list" or "complete".
-//   Not directly useful as a hook target but findable via those string anchors.
-//
-// Console::enqueueCommand / Console::processQueuedCommands
-//   No unique string anchors in non-retail builds. Not useful as hook targets.
-//
-// consoleRegistry::s_cs()  — the CriticalSection guarding all registry ops
-//   Not a hook target but useful for safe injection timing (wait until unlocked).
-//
-// consoleRegistry::s_enabledString / s_reservedKeywords
-//   The strings "enable", "disable", "select", "list", "complete" are in .rdata
-//   and are already used by Step 1 ("Unknown console command" anchor) indirectly.
-//
-// ── Fields NOT findable dynamically (need hardcoded RVAs) ────────────────────
-//
-// removeOutputHandler: no unique anchor string; must be hardcoded or found
-//   by scanning for the erase() call pattern adjacent to addOutputHandler.
-//
-// writeConsoleFunc: no string anchor; found by Step B prologue scan only.
-//   If Step B fails (different prologue), needs hardcoded RVA.
-//
-// delegateStride / delegateFnOffset / bf2StringLayout / use3ArgHandler:
-//   Layout constants derived from disassembly of writeConsole and
-//   executeConsoleCommand return handling — cannot be scanned dynamically,
-//   must be set per game family (BF2-family vs Skate-family).
+// settingsManager_set
+//   Second most frequent callee after MOV RCX,[g_settingsManager]
 
 #ifndef UNICODE
 #define UNICODE
@@ -194,9 +149,7 @@
 #include <cctype>
 #include <algorithm>
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Internal logging
-// ─────────────────────────────────────────────────────────────────────────────
 static void (*g_fcLogCallback)(const char* line) = nullptr;
 
 static void FC_Log(const char* fmt, ...)
@@ -206,19 +159,17 @@ static void FC_Log(const char* fmt, ...)
     va_start(args, fmt);
     vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
+
+    // Timestamp for OutputDebugString (includes [FC] tag for debugger clarity)
     OutputDebugStringA("[FC] ");
     OutputDebugStringA(buf);
     OutputDebugStringA("\n");
+
     if (g_fcLogCallback)
     {
-        char line[1088];
-        // prefix "[FC] " (5 bytes) + buf + null
-        memcpy(line, "[FC] ", 5);
-        int len = (int)strlen(buf);
-        if (len > 1082) len = 1082;
-        memcpy(line + 5, buf, len);
-        line[5 + len] = '\0';
-        g_fcLogCallback(line);
+        // Pass bare message — pipeLogLine in DLLmain adds the timestamp and
+        // strips any bracket prefix, so we don't need to do either here
+        g_fcLogCallback(buf);
     }
 }
 
@@ -228,18 +179,14 @@ namespace FrostbiteConsole {
     std::string getLastLog() { return {}; }
     void        clearLastLog() {}
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Singleton
-    // ─────────────────────────────────────────────────────────────────────────
     ConsoleBridge& ConsoleBridge::instance()
     {
         static ConsoleBridge s;
         return s;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Safe memory helpers
-    // ─────────────────────────────────────────────────────────────────────────
     /*static*/ bool ConsoleBridge::safeRead64(void* addr, uint64_t* out)
     {
         __try {
@@ -261,9 +208,7 @@ namespace FrostbiteConsole {
     bool safeRead64(void* addr, uint64_t* out) { return ConsoleBridge::safeRead64(addr, out); }
     bool safeRead32(void* addr, uint32_t* out) { return ConsoleBridge::safeRead32(addr, out); }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Memory region helpers
-    // ─────────────────────────────────────────────────────────────────────────
     static bool isExecutable(void* addr)
     {
         MEMORY_BASIC_INFORMATION mbi{};
@@ -290,9 +235,7 @@ namespace FrostbiteConsole {
         return !(mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD));
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // looksLikeString
-    // ─────────────────────────────────────────────────────────────────────────
     /*static*/ bool ConsoleBridge::looksLikeString(uint64_t ptr, int maxLen)
     {
         if (ptr < 0x10000ULL) return false;
@@ -308,11 +251,9 @@ namespace FrostbiteConsole {
         return hasAlpha;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // decodeRIPRel — decode a RIP-relative instruction operand
     // operandOffset = byte offset from instruction start to the rel32 field
     // instrLen      = total instruction length (operandOffset + 4)
-    // ─────────────────────────────────────────────────────────────────────────
     /*static*/ uint8_t* ConsoleBridge::decodeRIPRel(uint8_t* insn, int operandOffset)
     {
         int32_t rel = 0;
@@ -320,10 +261,8 @@ namespace FrostbiteConsole {
         return insn + operandOffset + 4 + rel;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // scanForString — find a literal string anywhere in the mapped image
-    // Returns pointer to first byte of the string, or nullptr.
-    // ─────────────────────────────────────────────────────────────────────────
+    // Returns pointer to first byte of the string, or nullptr
     static uint8_t* scanForString(uint8_t* base, size_t size, const char* needle)
     {
         size_t nlen = strlen(needle);
@@ -335,12 +274,10 @@ namespace FrostbiteConsole {
         return nullptr;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // findLEAToTarget — find a LEA Rxx,[RIP+rel] or MOV Rxx,[RIP+rel]
     // instruction anywhere in [searchBase, searchBase+searchSize) whose
-    // resolved target equals targetAddr.
-    // Returns pointer to the start of the instruction, or nullptr.
-    // ─────────────────────────────────────────────────────────────────────────
+    // resolved target equals targetAddr
+    // Returns pointer to the start of the instruction, or nullptr
     static uint8_t* findLEAToTarget(uint8_t* searchBase, size_t searchSize,
         uint8_t* targetAddr)
     {
@@ -370,12 +307,10 @@ namespace FrostbiteConsole {
         return nullptr;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // walkBackToPrologue — given an instruction inside a function, walk
-    // backward to find the function prologue (CC-padded or 16-byte aligned).
-    // Returns the prologue address, or nullptr.
+    // backward to find the function prologue (CC-padded or 16-byte aligned)
+    // Returns the prologue address, or nullptr
     // maxBack: maximum bytes to search backward (default 128KB)
-    // ─────────────────────────────────────────────────────────────────────────
     static uint8_t* walkBackToPrologue(uint8_t* insideFunc, uint8_t* moduleBase,
         int maxBack = 128 * 1024)
     {
@@ -405,10 +340,10 @@ namespace FrostbiteConsole {
             // SUB RSP, imm
             if (b0 == 0x48 && b1 == 0x83 && b2 == 0xEC) ok = true;
             if (b0 == 0x48 && b1 == 0x81 && b2 == 0xEC) ok = true;
-            // MOV RAX, RSP  (48 8B C4) — used by NFS Heat / large-frame MSVC ABI
-                        // NOTE: 48 8B 05 (MOV RAX,[RIP+rel]) removed — too common mid-function,
-                        // causes false prologue hits. Security-cookie functions always have a
-                        // PUSH or MOV [RSP] instruction that matches an earlier pattern.
+            // MOV RAX, RSP  (48 8B C4) — used by large-frame MSVC ABI
+            // NOTE: 48 8B 05 (MOV RAX,[RIP+rel]) removed — too common mid-function,
+            // causes false prologue hits. Security-cookie functions always have a
+            // PUSH or MOV [RSP] instruction that matches an earlier pattern
             if (b0 == 0x48 && b1 == 0x8B && b2 == 0xC4) ok = true;
 
             if (!ok) continue;
@@ -419,7 +354,6 @@ namespace FrostbiteConsole {
         return nullptr;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // findFirstRIPRelDataRef — scan [fn, fn+scanLen) for the first instruction
     // that RIP-relatively addresses a writable data location, and return that
     // address.  Handles all common x64 load patterns:
@@ -432,16 +366,15 @@ namespace FrostbiteConsole {
     //   66  REX  0F  6F ModRM  rel32 MOVDQU xmm, [RIP+rel]    9 bytes (with REX)
     //
     // The SSE forms are generated by MSVC for eastl::vector header loads
-    // (loading mpBegin+mpEnd as an xmmword in one instruction).
+    // (loading mpBegin+mpEnd as an xmmword in one instruction)
     //
-    // Returns the resolved target address, or nullptr.
-    // ─────────────────────────────────────────────────────────────────────────
+    // Returns the resolved target address, or nullptr
     static uint8_t* findFirstRIPRelDataRef(uint8_t* fn, size_t scanLen)
     {
         for (size_t i = 0; i + 7 <= scanLen; ++i) {
             uint8_t b0 = fn[i];
 
-            // ── Case 1: REX 8B/8D ModRM rel32  (standard MOV/LEA, 7 bytes) ──
+            // Case 1: REX 8B/8D ModRM rel32  (standard MOV/LEA, 7 bytes)
             if (b0 >= 0x48 && b0 <= 0x4F) {
                 if (i + 7 > scanLen) continue;
                 uint8_t b1 = fn[i + 1], b2 = fn[i + 2];
@@ -451,7 +384,7 @@ namespace FrostbiteConsole {
                     uint8_t* target = fn + i + 7 + rel;
                     if (isReadWrite(target)) return target;
                 }
-                // ── Case 2: REX 0F 10 ModRM rel32  (MOVUPS with REX, 8 bytes) ──
+                // Case 2: REX 0F 10 ModRM rel32  (MOVUPS with REX, 8 bytes)
                 if (b1 == 0x0F && i + 8 <= scanLen) {
                     uint8_t b2r = fn[i + 2], b3 = fn[i + 3];
                     if (b2r == 0x10 && (b3 & 0xC7) == 0x05) {
@@ -464,7 +397,7 @@ namespace FrostbiteConsole {
                 continue;
             }
 
-            // ── Case 3: 0F 10 ModRM rel32  (MOVUPS without REX, 7 bytes) ────
+            // Case 3: 0F 10 ModRM rel32  (MOVUPS without REX, 7 bytes)
             if (b0 == 0x0F && i + 7 <= scanLen) {
                 uint8_t b1 = fn[i + 1], b2 = fn[i + 2];
                 if (b1 == 0x10 && (b2 & 0xC7) == 0x05) {
@@ -476,7 +409,7 @@ namespace FrostbiteConsole {
                 continue;
             }
 
-            // ── Case 4: 66 [REX] 0F 6F ModRM rel32  (MOVDQU, 8 or 9 bytes) ──
+            // Case 4: 66 [REX] 0F 6F ModRM rel32  (MOVDQU, 8 or 9 bytes)
             if (b0 == 0x66 && i + 8 <= scanLen) {
                 uint8_t b1 = fn[i + 1];
                 // With REX prefix (9 bytes total)
@@ -507,10 +440,8 @@ namespace FrostbiteConsole {
         return nullptr;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // validateVectorHeader — check that addr looks like an eastl::vector header
     // (mpBegin <= mpEnd <= mpCapacity, sane size)
-    // ─────────────────────────────────────────────────────────────────────────
     static bool validateVectorHeader(void* addr, size_t maxBytes = 512 * 1024)
     {
         if (!addr) return false;
@@ -526,11 +457,9 @@ namespace FrostbiteConsole {
         return true;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // findCALLTarget — find a CALL rel32 (E8 xx xx xx xx) near offset `hint`
-    // in [fn, fn+scanLen) and return its target.
-    // If hint >= 0, start searching there; otherwise search from 0.
-    // ─────────────────────────────────────────────────────────────────────────
+    // in [fn, fn+scanLen) and return its target
+    // If hint >= 0, start searching there; otherwise search from 0
     static uint8_t* findCALLTarget(uint8_t* fn, size_t scanLen, int hint = 0)
     {
         size_t start = (hint >= 0 && (size_t)hint < scanLen) ? (size_t)hint : 0;
@@ -545,14 +474,12 @@ namespace FrostbiteConsole {
         return nullptr;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // isInitThreadHeaderPattern — check if a small function contains the
-    // Init_thread_header / Init_thread_footer pattern used for local statics.
-    // These getters are tiny (< 80 bytes) and call Init_thread_header.
-    // ─────────────────────────────────────────────────────────────────────────
+    // Init_thread_header / Init_thread_footer pattern used for local statics
+    // These getters are tiny (< 80 bytes) and call Init_thread_header
     static bool isInitThreadHeaderPattern(uint8_t* fn, size_t maxLen = 80)
     {
-        // Look for: CMP dword ptr [RIP+rel], val  (83 3D or 39)
+        // Look for: CMP dword ptr [RIP+rel], val (83 3D or 39)
         // followed by LEA/MOV RAX,[RIP+rel]
         // followed by RET (C3)
         bool hasRet = false;
@@ -567,11 +494,9 @@ namespace FrostbiteConsole {
         return hasRet && hasCmp;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // extractRIPRelTarget — given a function, scan for any LEA or MOV
-    // [RAX/RCX/RDX] = cs:[RIP+rel] and return the resolved data address.
-    // Used to pull the vector address out of a static getter.
-    // ─────────────────────────────────────────────────────────────────────────
+    // [RAX/RCX/RDX] = cs:[RIP+rel] and return the resolved data address
+    // Used to pull the vector address out of a static getter
     static uint8_t* extractRIPRelTarget(uint8_t* fn, size_t maxLen,
         bool requireWritable = true)
     {
@@ -590,17 +515,14 @@ namespace FrostbiteConsole {
         return nullptr;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // tryResolveDynamic
-    //
-    // Pure dynamic resolution — no hardcoded addresses.
-    // Returns true when all required fields are resolved.
-    // ─────────────────────────────────────────────────────────────────────────
+    // Pure dynamic resolution — no hardcoded addresses
+    // Returns true when all required fields are resolved
     bool ConsoleBridge::tryResolveDynamic(uint8_t* modBase, size_t modSize)
     {
         FC_Log("tryResolveDynamic: base=%p size=%zu", modBase, modSize);
 
-        // ── STEP 1: Find executeConsoleCommand ────────────────────────────────
+        // STEP 1: Find executeConsoleCommand
         FC_Log("Step 1: finding executeConsoleCommand");
 
         static const char kUnknownCmd[] = "Unknown console command";
@@ -620,7 +542,7 @@ namespace FrostbiteConsole {
 
         // Walk back to prologue, but then verify no CLOSER prologue exists
         // between our candidate and the xref (handles the case where walkBack
-        // overshoots into a preceding function).
+        // overshoots into a preceding function)
         uint8_t* execCmd = walkBackToPrologue(xrefInsn, modBase);
         if (!execCmd) {
             FC_Log("Step 1 FAIL: could not find prologue");
@@ -629,18 +551,18 @@ namespace FrostbiteConsole {
 
         // Scan forward from execCmd+1 to xrefInsn looking for any CC/NOP-padded
         // prologue that is CLOSER to the xref — if found, that is the real
-        // function entry and the initial walk overshot.
+        // function entry and the initial walk overshot
         // We track the highest-address valid candidate (best) rather than
         // updating execCmd on every hit, so intermediate unrelated functions
-        // between the overshot start and the real entry don't win.
+        // between the overshot start and the real entry don't win
         // Two padding styles are accepted:
-        //   1. Single-byte: CC (int3) or 90 (nop) — the common MSVC case.
+        //   1. Single-byte: CC (int3) or 90 (nop) — the common MSVC case
         //   2. Multi-byte NOP ending in 0x00: 66 2E 0F 1F 84 00 ... 00
         //      These appear when MSVC aligns a function to 16 bytes using the
         //      long NOP form.  We detect them by checking that the 0x00
         //      predecessor is reachable within 12 bytes of a 0F 1F or 66 2E
         //      signature, ensuring we don't misfire on 0x00 bytes inside
-        //      ordinary instruction encodings.
+        //      ordinary instruction encodings
         {
             uint8_t* best = nullptr;
 
@@ -656,9 +578,9 @@ namespace FrostbiteConsole {
                 if (b0 == 0x48 && b1 == 0x81 && b2 == 0xEC) return true;
                 // NOTE: 48 8B 05 (MOV RAX,[RIP+rel]) intentionally excluded —
                 // it appears mid-function (e.g. security cookie loads after
-                // stack frame setup) and causes false prologue hits in NFS Heat.
+                // stack frame setup) and causes false prologue hits in some games
                 // 48 8B C4 (MOV RAX,RSP) is the legitimate frame-pointer ABI
-                // used by NFS Heat / large-frame MSVC functions and stays.
+                // used by large-frame MSVC functions and stays
                 if (b0 == 0x48 && b1 == 0x8B && b2 == 0xC4) return true;
                 return false;
                 };
@@ -673,7 +595,7 @@ namespace FrostbiteConsole {
                     validPad = true;
 
                 // Style 2: multi-byte NOP (66 2E 0F 1F 84 00 ... 00)
-                // Only fire when prev==0x00 AND a NOP signature exists nearby.
+                // Only fire when prev==0x00 AND a NOP signature exists nearby
                 if (!validPad && prev == 0x00 && closer > modBase + 12) {
                     for (int back = 2; back <= 12; ++back) {
                         uint8_t pb = closer[-back];
@@ -705,10 +627,9 @@ namespace FrostbiteConsole {
         m_execCmd = reinterpret_cast<ExecuteConsoleCmdFn>(execCmd);
         uint8_t* execCmdPtr = execCmd;
 
-        // ── STEP 2: Find addOutputHandler ─────────────────────────────────────
+        // STEP 2: Find addOutputHandler
         // Anchor: "Same handler added multiple times."
-        // Method: string → LEA xref → walk back to prologue
-        // ─────────────────────────────────────────────────────────────────────
+        // Method: string -> LEA xref -> walk back to prologue
         FC_Log("Step 2: finding addOutputHandler");
 
         static const char kSameHandler[] = "Same handler added multiple times.";
@@ -738,22 +659,19 @@ namespace FrostbiteConsole {
             FC_Log("Step 2: addOutputHandler at %p", addHandlerFn);
             m_addOutputHandler = reinterpret_cast<AddOutputHandlerFn>(addHandlerFn);
 
-            // ── STEP 3: Find s_outputHandlers from addOutputHandler body ──────
-            // IDA shows the game loads xmmword_14846E370 (mpBegin+mpEnd of
-            // s_outputHandlers) in one MOVUPS/MOVDQU instruction near the top
-            // of addOutputHandler.  Scan 256 bytes using findFirstRIPRelDataRef
-            // which handles MOV r64, LEA r64, MOVUPS xmm, and MOVDQU xmm.
-            // Accept the first target that passes validateVectorHeader.
-            // ─────────────────────────────────────────────────────────────────
+            // STEP 3: Find s_outputHandlers from addOutputHandler body
+            // Scan 256 bytes using findFirstRIPRelDataRef
+            // which handles MOV r64, LEA r64, MOVUPS xmm, and MOVDQU xmm
+            // Accept the first target that passes validateVectorHeader
             FC_Log("Step 3: finding s_outputHandlers from addOutputHandler body");
             {
                 // Scan addOutputHandler body collecting every distinct writable
-                // RIP-relative data target.  We cannot use validateVectorHeader
+                // RIP-relative data target. We cannot use validateVectorHeader
                 // because at inject-time the vector may be unpopulated (all zeros
                 // passes) but the game loads mpBegin+mpEnd as one MOVUPS xmmword
                 // so the *first* writable data ref in this function is always
-                // s_outputHandlers.  Accept it directly; skip any address that
-                // already matched a consoleMethods or instanceMethods vector.
+                // s_outputHandlers. Accept it directly; skip any address that
+                // already matched a consoleMethods or instanceMethods vector
                 const size_t kStep3Len = 512;
                 uint8_t* step3Hits[16];
                 int       step3HitCount = 0;
@@ -819,7 +737,7 @@ namespace FrostbiteConsole {
                     FC_Log("  target[%d]=%p vhdr=%d", k, step3Hits[k],
                         (int)validateVectorHeader(step3Hits[k]));
 
-                // Pick the first target that passes validateVectorHeader.
+                // Pick the first target that passes validateVectorHeader
                 // (The first writable ref may be a CriticalSection or other
                 // data object that isn't a vector — we need the header check.)
                 for (int k = 0; k < step3HitCount && !m_outputHandlersVecAddr; ++k) {
@@ -833,20 +751,18 @@ namespace FrostbiteConsole {
         }
 
     step3:
-        // ── STEPS 4 + 5: Find s_consoleMethods and s_instanceMethods ─────────
-        //
+        // STEPS 4 + 5: Find s_consoleMethods and s_instanceMethods
         // Both live in Init_thread_header-guarded static getters called from
-        // executeConsoleCommand.  The bug in the old code: it stopped at the
+        // executeConsoleCommand. The bug in the old code: it stopped at the
         // FIRST getter found, which happened to be s_instanceMethods (at a
-        // lower call-site offset), and never reached s_consoleMethods.
+        // lower call-site offset), and never reached s_consoleMethods
         //
         // Fix: collect ALL valid getter targets in one forward pass, then
         // assign in order of appearance:
-        //   [0] → s_consoleMethods  (first unique, non-outputHandlers target)
-        //   [1] → s_instanceMethods (second unique target)
+        //   [0] -> s_consoleMethods  (first unique, non-outputHandlers target)
+        //   [1] -> s_instanceMethods (second unique target)
         //
-        // Scan limit: 16 KB of executeConsoleCommand body.
-        // ─────────────────────────────────────────────────────────────────────
+        // Scan limit: 16 KB of executeConsoleCommand body
         FC_Log("Steps 4+5: collecting Init_thread_header getter targets");
         {
             const size_t kScanLen = 16384;
@@ -879,17 +795,16 @@ namespace FrostbiteConsole {
                 // Skip s_outputHandlers if already resolved
                 if (vecAddr == reinterpret_cast<uint8_t*>(m_outputHandlersVecAddr)) continue;
 
-                FC_Log("Steps 4+5: getter[%d] at %p → vec %p (call off=%zu)",
+                FC_Log("Steps 4+5: getter[%d] at %p -> vec %p (call off=%zu)",
                     getterCount, callee, vecAddr, off);
                 getterVecs[getterCount++] = vecAddr;
             }
 
             FC_Log("Steps 4+5: found %d unique getter targets", getterCount);
 
-            // Assign in order of first appearance in executeConsoleCommand body.
+            // Assign in order of first appearance in executeConsoleCommand body
             // The first getter called is always s_consoleMethods; the second is
-            // s_instanceMethods.  (Confirmed by IDA: consoleMethods getter is
-            // called earlier in the function than instanceMethods getter.)
+            // s_instanceMethods
             if (getterCount >= 1) {
                 m_consoleMethodsVecAddr = getterVecs[0];
                 FC_Log("Step 4: s_consoleMethods at %p", getterVecs[0]);
@@ -907,13 +822,13 @@ namespace FrostbiteConsole {
             }
         }
 
-        // ── STEP 6: Find g_settingsManager, settingsManager_get, settingsManager_set
+        // STEP 6: Find g_settingsManager, settingsManager_get, settingsManager_set
         FC_Log("Step 6: finding g_settingsManager + get/set");
         {
             // Scan entire image for: 48 8B 0D rel32 (MOV RCX, cs:[RIP+rel])
-            // followed within 15 bytes by E8 rel32 (CALL).
+            // followed within 15 bytes by E8 rel32 (CALL)
             // Bucket by the load-target address; the one with the most hits is
-            // g_settingsManager (referenced by hundreds of get/set call-sites).
+            // g_settingsManager (referenced by hundreds of get/set call-sites)
             struct SmCandidate { uint8_t* addr; int readCount; int writeCount; };
             static SmCandidate smCands[512];
             int smCandCount = 0;
@@ -950,9 +865,9 @@ namespace FrostbiteConsole {
                 FC_Log("  cand[%d]=%p readCount=%d", k, smCands[k].addr, smCands[k].readCount);
 
             // Count how many distinct MOV cs:[RIP+rel],Rxx store sites write
-            // each candidate.  g_settingsManager is written by exactly 2
-            // instructions (constructor sets it, destructor zeros it).
-            // High-traffic subsystem globals tend to have many more write sites.
+            // each candidate. g_settingsManager is written by exactly 2
+            // instructions (constructor sets it, destructor zeros it)
+            // High-traffic subsystem globals tend to have many more write sites
             for (int k = 0; k < smCandCount; ++k) smCands[k].writeCount = 0;
 
             for (size_t i = 0; i + 7 <= modSize; ++i) {
@@ -970,9 +885,9 @@ namespace FrostbiteConsole {
                 FC_Log("  cand[%d]=%p readCount=%d writeCount=%d",
                     k, smCands[k].addr, smCands[k].readCount, smCands[k].writeCount);
 
-            // Pick the highest-readCount candidate written by exactly 2 store sites.
+            // Pick the highest-readCount candidate written by exactly 2 store sites
             // writeCount=0 means the "read" was actually an indirect load through a
-            // pointer, not a true global — skip it.
+            // pointer, not a true global — skip it
             uint8_t* smGlobalAddr = nullptr;
             for (int k = 0; k < smCandCount; ++k) {
                 if (smCands[k].readCount < 10) break; // sorted descending, done
@@ -1054,36 +969,34 @@ namespace FrostbiteConsole {
         return ok;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // tryResolveDynamicBF2 — BF2-specific supplement to tryResolveDynamic.
+    // tryResolveDynamicBF2 — BF2-specific supplement to tryResolveDynamic
     //
     // BF2 architecture notes:
     //   - s_outputHandlers exists but is EMPTY ([mpBegin..mpEnd) = 8 bytes,
     //     no actual delegates).  Output is captured by hooking writeConsoleFunc
-    //     directly — s_outputHandlers is never needed at runtime.
-    //   - writeConsoleFunc (0x1454CCF70) is the true dispatch target.
-    //     It iterates s_outputHandlers with stride=16, call at [slot+8].
-    //     Signature: (tag: const char*, buf: const char*, size: uint32_t).
-    //   - s_consoleMethods IS populated (83 entries) and is needed for __LIST__.
+    //     directly — s_outputHandlers is never needed at runtime
+    //   - writeConsoleFunc (0x1454CCF70) is the true dispatch target
+    //     It iterates s_outputHandlers with stride=16, call at [slot+8]
+    //     Signature: (tag: const char*, buf: const char*, size: uint32_t)
+    //   - s_consoleMethods IS populated (83 entries) and is needed for __LIST__
     //   - addOutputHandler does not exist in BF2 — direct vector insertion
     //     is also unused; we hook writeConsoleFunc instead.
     //
     // Resolution steps:
     //   A: s_consoleMethods — scan execCmd LEA targets; find matching vector
     //      by mpCapacity pointer in writable memory.
-    //   B: writeConsoleFunc — FIXED: flexible two-pass scan.
+    //   B: writeConsoleFunc — FIXED: flexible two-pass scan
     //      Pass 1: find "48 8B 1D" (MOV RBX,[RIP+rel]) anywhere in each
     //              executable region.  For each hit, scan forward up to 64
-    //              bytes for "48 8B 3D" (MOV RDI,[RIP+rel]).  If the resolved
+    //              bytes for "48 8B 3D" (MOV RDI,[RIP+rel]). If the resolved
     //              targets are 8 bytes apart AND the surrounding ±512-byte
-    //              window contains "48 83 C3 10" (ADD RBX,10), it's a match.
-    //      Pass 2: walk back to prologue from the first MOV instruction.
+    //              window contains "48 83 C3 10" (ADD RBX,10), it's a match
+    //      Pass 2: walk back to prologue from the first MOV instruction
     //      This replaces the old rigid back-to-back offset test which failed
-    //      when any instruction appeared between the two MOVs.
-    //   C: writeConsoleFunc via s_outputHandlers slot+8 (fallback).
+    //      when any instruction appeared between the two MOVs
+    //   C: writeConsoleFunc via s_outputHandlers slot+8 (fallback)
     //
-    // Success condition: execCmd (already set) + consoleMethods + writeConsoleFunc.
-    // ─────────────────────────────────────────────────────────────────────────
+    // Success condition: execCmd (already set) + consoleMethods + writeConsoleFunc
     bool ConsoleBridge::tryResolveDynamicBF2(uint8_t* modBase, size_t modSize)
     {
         FC_Log("tryResolveDynamicBF2: entering");
@@ -1101,12 +1014,11 @@ namespace FrostbiteConsole {
 
         uint8_t* execCmd = reinterpret_cast<uint8_t*>(m_execCmd);
 
-        // ── Step A: s_consoleMethods ──────────────────────────────────────────────
-        // Scan execCmd body for all LEA Rxx,[RIP+rel] targets.
+        // Step A: s_consoleMethods
+        // Scan execCmd body for all LEA Rxx,[RIP+rel] targets
         // The fixed_vector's mpCapacity field at +0x18 holds a pointer matching one
         // of those LEA targets.  Scan writable memory for a qword-aligned slot at
-        // +0x18 equal to each LEA value, validate as a vector with live mpBegin.
-        // ─────────────────────────────────────────────────────────────────────────
+        // +0x18 equal to each LEA value, validate as a vector with live mpBegin
         FC_Log("tryResolveDynamicBF2 Step A: s_consoleMethods via mpCapacity byte-search");
 
         if (!m_consoleMethodsVecAddr) {
@@ -1131,9 +1043,9 @@ namespace FrostbiteConsole {
             }
 
             // Also follow CALL targets one level deep (through JMP thunks if needed)
-            // to collect LEA targets from static getter functions called by execCmd.
-            // NFS Heat stores s_consoleMethods in a getter that is JMP-thunked and
-            // whose LEA target does not appear directly in the execCmd body.
+            // to collect LEA targets from static getter functions called by execCmd
+            // Some games store s_consoleMethods in a getter that is JMP-thunked and
+            // whose LEA target does not appear directly in the execCmd body
             for (size_t i = 0; i + 5 <= kScanExec && leaCount < 64; ++i) {
                 if (execCmd[i] != 0xE8) continue;
                 int32_t rel = 0;
@@ -1171,28 +1083,28 @@ namespace FrostbiteConsole {
                     uint8_t* tgt = fn + j + 7 + lrel;
                     if (!isReadable(tgt)) continue;
 
-                    // NFS Heat getter pattern: callee is a thin getter that does
-                                        // LEA RAX,[vecObj] + RET — the LEA target IS the vector object
-                                        // itself (not its mpCapacity field). Detect this by checking if
-                                        // tgt looks like a valid vector object directly.
-                                        // Guard: only apply if consoleMethods not already found by a
-                                        // more reliable path (Steps 4/5 Init_thread_header scan).
-                                        //
-                                        // BF2015 fixed_vector correction: for a fixed_vector<T*,N> the
-                                        // getter does LEA RAX,[objBase] where objBase layout is:
-                                        //   +0x00 mpBegin   (points INTO the inline buffer at +0x28)
-                                        //   +0x08 mpEnd
-                                        //   +0x10 mpCapacity
-                                        //   +0x18 mpEndOfStorage (= objBase + 0x28 + N*8)
-                                        //   +0x20 padding/flags
-                                        //   +0x28 inline buffer (element data)
-                                        // The LEA target is objBase (+0x00), so tgt IS the correct base.
-                                        // However, if the getter instead LEAs to the inline buffer itself
-                                        // (tgt = objBase+0x28), reading [tgt+0..+16] as a vector header
-                                        // gives garbage that may spuriously pass validation.
-                                        // Detect and correct this: if [tgt-0x28] is readable and
-                                        // [tgt-0x28+0x00] (mpBegin value) == tgt, then tgt is the inline
-                                        // buffer and (tgt-0x28) is the true object base.
+                    // Alternative getter pattern: callee is a thin getter that does
+                    // LEA RAX,[vecObj] + RET — the LEA target IS the vector object
+                    // itself (not its mpCapacity field). Detect this by checking if
+                    // tgt looks like a valid vector object directly
+                    // Guard: only apply if consoleMethods not already found by a
+                    // more reliable path (Steps 4/5 Init_thread_header scan)
+                    //
+                    // BF2015 fixed_vector correction: for a fixed_vector<T*,N> the
+                    // getter does LEA RAX,[objBase] where objBase layout is:
+                    //   +0x00 mpBegin (points INTO the inline buffer at +0x28)
+                    //   +0x08 mpEnd
+                    //   +0x10 mpCapacity
+                    //   +0x18 mpEndOfStorage (= objBase + 0x28 + N*8)
+                    //   +0x20 padding/flags
+                    //   +0x28 inline buffer (element data)
+                    // The LEA target is objBase (+0x00), so tgt IS the correct base
+                    // However, if the getter instead LEAs to the inline buffer itself
+                    // (tgt = objBase+0x28), reading [tgt+0..+16] as a vector header
+                    // gives garbage that may spuriously pass validation
+                    // Detect and correct this: if [tgt-0x28] is readable and
+                    // [tgt-0x28+0x00] (mpBegin value) == tgt, then tgt is the inline
+                    // buffer and (tgt-0x28) is the true object base
                     if (!m_consoleMethodsVecAddr) {
                         uint64_t vpBegin = 0, vpEnd = 0, vpCap = 0;
                         if (safeRead64(tgt, &vpBegin) &&
@@ -1209,7 +1121,7 @@ namespace FrostbiteConsole {
                             // Check if tgt is actually the inline buffer of a
                             // fixed_vector whose object base is at tgt-0x28.
                             // Signature: [tgt-0x28] (mpBegin field of the object)
-                            // holds the value tgt itself (points to inline buffer).
+                            // holds the value tgt itself (points to inline buffer)
                             uint8_t* candidateBase = tgt;
                             if (tgt > reinterpret_cast<uint8_t*>(0x28ULL)) {
                                 uint8_t* possibleObjBase = tgt - 0x28;
@@ -1219,11 +1131,11 @@ namespace FrostbiteConsole {
                                     objMpBegin == reinterpret_cast<uint64_t>(tgt))
                                 {
                                     // tgt is the inline buffer; the real object
-                                    // base is possibleObjBase.
+                                    // base is possibleObjBase
                                     candidateBase = possibleObjBase;
                                     FC_Log("tryResolveDynamicBF2 Step A: "
                                         "correcting inline-buffer LEA target %p "
-                                        "→ fixed_vector base %p",
+                                        "-> fixed_vector base %p",
                                         tgt, candidateBase);
                                 }
                             }
@@ -1253,11 +1165,10 @@ namespace FrostbiteConsole {
                 memcpy(needle, &Tval, 8);
 
                 // The fixed_vector object (mpCapacity at +0x18 = T) must live in
-                // the module's own writable BSS/data — not beyond it.
+                // the module's own writable BSS/data — not beyond it
                 // Clamp the scan to actual committed writable pages within the
                 // module's virtual extent, using VirtualQuery to walk regions so
-                // we skip the huge gaps that inflate modSize in large images like
-                // NFS Heat (330 MB) which would otherwise cause a multi-second hang.
+                // we skip the huge gaps that inflate modSize in large images
                 uintptr_t scanStart = reinterpret_cast<uintptr_t>(modBase);
                 uintptr_t scanEnd = scanStart + modSize;
                 uintptr_t cursor = scanStart;
@@ -1274,10 +1185,10 @@ namespace FrostbiteConsole {
                     // Advance cursor past this region regardless of whether we scan it
                     cursor = regionEnd;
 
-                    // Scan committed, readable, non-executable pages.
+                    // Scan committed, readable, non-executable pages
                     // The s_consoleMethods fixed_vector object may live in read-only
-                    // .rdata (NFS Heat) as well as writable .bss (MEA, BF2).
-                    // We validate the vector's mpBegin pointer is writable separately.
+                    // .rdata as well as writable .bss
+                    // We validate the vector's mpBegin pointer is writable separately
                     bool readable = (pmbi.State == MEM_COMMIT) &&
                         !(pmbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)) &&
                         !(pmbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ |
@@ -1296,7 +1207,7 @@ namespace FrostbiteConsole {
                         uint8_t* V = reinterpret_cast<uint8_t*>(j);
                         if (V == reinterpret_cast<uint8_t*>(m_outputHandlersVecAddr)) continue;
                         // Use isReadable instead of validateVectorHeader (which requires
-                        // writable) since the vector object itself may be in .rdata.
+                        // writable) since the vector object itself may be in .rdata
                         if (!isReadable(V)) continue;
                         uint64_t vpBegin = 0, vpEnd = 0, vpCap = 0;
                         if (!safeRead64(V, &vpBegin)) continue;
@@ -1308,7 +1219,7 @@ namespace FrostbiteConsole {
                         if ((vpCap - vpBegin) > 64 * 1024 * 1024) continue;
                         // Must have at least 4 entries (32 bytes) — reject stub
                         // vectors used as sentinels (size < 32) which are false
-                        // positives. The real s_consoleMethods always has methods.
+                        // positives. The real s_consoleMethods always has methods
                         if ((vpEnd - vpBegin) < 32) continue;
                         // mpBegin must point into readable (element data) memory
                         if (!isReadable(reinterpret_cast<void*>(
@@ -1326,32 +1237,31 @@ namespace FrostbiteConsole {
                 FC_Log("tryResolveDynamicBF2 Step A FAIL: s_consoleMethods not found");
         }
 
-        // ── Step B: writeConsoleFunc + s_outputHandlers ───────────────────────────
+        // Step B: writeConsoleFunc + s_outputHandlers
         //
         // The dispatcher (IDA: 0x1454CCF70) has this distinctive prologue:
         //
         //   48 89 5C 24 08       mov  [rsp+08h], rbx
         //   48 89 6C 24 10       mov  [rsp+10h], rbp
         //   48 89 74 24 18       mov  [rsp+18h], rsi
-        //   48 89 7C 24 20       mov  [rsp+20h], rdi   ← 4th [rsp+N] store
+        //   48 89 7C 24 20       mov  [rsp+20h], rdi   <- 4th [rsp+N] store
         //   41 56                push r14
         //   48 83 EC 20          sub  rsp, 20h
         //   48 8B 1D xx xx xx xx mov  rbx, [s_outputHandlers.mpBegin]
         //   ...
         //   48 8B 3D xx xx xx xx mov  rdi, [s_outputHandlers.mpEnd]
         //   ...
-        //   48 83 C3 10          add  rbx, 10h          ← iteration stride
+        //   48 83 C3 10          add  rbx, 10h          <- iteration stride
         //
         // Strategy:
         //   Scan every executable region for the 5-instruction prologue prefix
         //   (four [rsp+N] stores + push r14 + sub rsp,20).  For each match walk
         //   the next 128 bytes collecting MOV RBX/RDI [RIP+rel] targets; if two
-        //   are found 8 bytes apart AND ADD RBX,10 appears nearby, record it.
+        //   are found 8 bytes apart AND ADD RBX,10 appears nearby, record it
         //
         //   This is far more specific than the old approach (which matched any
         //   function containing adjacent MOV RBX/RDI loads) and will not pick up
-        //   earlier false-positive functions that share only part of the pattern.
-        // ─────────────────────────────────────────────────────────────────────────
+        //   earlier false-positive functions that share only part of the pattern
         FC_Log("tryResolveDynamicBF2 Step B: writeConsoleFunc via prologue+pattern scan");
 
         if (!m_writeConsoleFunc) {
@@ -1365,10 +1275,10 @@ namespace FrostbiteConsole {
             };
             static const size_t kPrologLen = sizeof(kProlog); // 26
 
-            // Clamp scan to the module's own executable regions only.
+            // Clamp scan to the module's own executable regions only
             // The old code walked addr=0 through the entire VA space which
             // meant scanning every loaded DLL and mapped file before reaching
-            // the game module — extremely slow on large images.
+            // the game module — extremely slow on large images
             MEMORY_BASIC_INFORMATION mbi{};
             uintptr_t cursor = reinterpret_cast<uintptr_t>(modBase);
             uintptr_t modEnd = cursor + modSize;
@@ -1459,7 +1369,7 @@ namespace FrostbiteConsole {
                 FC_Log("tryResolveDynamicBF2 Step B FAIL: prologue pattern not found");
         }
 
-        // ── Step C: writeConsoleFunc via s_outputHandlers slot+8 (fallback) ───────
+        // Step C: writeConsoleFunc via s_outputHandlers slot+8 (fallback)
         FC_Log("tryResolveDynamicBF2 Step C: writeConsoleFunc via s_outputHandlers slot");
 
         if (!m_writeConsoleFunc && m_outputHandlersVecAddr) {
@@ -1499,25 +1409,25 @@ namespace FrostbiteConsole {
             FC_Log("tryResolveDynamicBF2 Step C SKIP: s_outputHandlers not resolved");
         }
 
-        // ── Result ────────────────────────────────────────────────────────────────
+        // Result
         bool ok = (m_execCmd != nullptr) &&
             (m_consoleMethodsVecAddr != nullptr) &&
             (m_writeConsoleFunc != 0);
 
-        // ── NFS Unbound: re-scan executeConsoleCommand for the correct
-                //    s_consoleMethods getter when the resolved vector is empty.
-                //
-                // Steps 4+5 found getter 0x142747F30 → vec 0x144D461F0 (empty).
-                // The real getter is 0x142747D40 → returns 0x14557C810 (RB-tree root).
-                // That getter has a different pattern: no Init_thread_header guard;
-                // it uses a thread-local slot check then falls through to
-                //   LEA RAX,[14557C810]  (48 8D 05 xx xx xx xx)
-                //   RET
-                // We detect this by scanning execCmd for CALL rel32 targets whose
-                // body contains, within the first 32 bytes:
-                //   48 8D 05 xx xx xx xx  (LEA RAX,[RIP+rel])
-                //   C3                    (RET, possibly with ADD RSP,xx before it)
-                // and whose LEA target differs from the already-resolved (empty) vec.
+        // Unbound: re-scan executeConsoleCommand for the correct
+        // s_consoleMethods getter when the resolved vector is empty
+        //
+        // Steps 4+5 found getter 0x142747F30 -> vec 0x144D461F0 (empty)
+        // The real getter is 0x142747D40 -> returns 0x14557C810 (RB-tree root)
+        // That getter has a different pattern: no Init_thread_header guard;
+        // it uses a thread-local slot check then falls through to
+        //   LEA RAX,[14557C810]  (48 8D 05 xx xx xx xx)
+        //   RET
+        // We detect this by scanning execCmd for CALL rel32 targets whose
+        // body contains, within the first 32 bytes:
+        //   48 8D 05 xx xx xx xx  (LEA RAX,[RIP+rel])
+        //   C3                    (RET, possibly with ADD RSP,xx before it)
+        // and whose LEA target differs from the already-resolved (empty) vec
         if (m_consoleMethodsVecAddr && m_execCmd) {
             uint64_t vpB = 0, vpE = 0;
             safeRead64(m_consoleMethodsVecAddr, &vpB);
@@ -1527,13 +1437,13 @@ namespace FrostbiteConsole {
                 uint8_t* execBody = reinterpret_cast<uint8_t*>(m_execCmd);
 
                 // Scan execCmd for: CALL rel32 whose return value (in RAX/RSI/RDI)
-                // is used as a tree root within the next 16 bytes via [reg+0x10].
+                // is used as a tree root within the next 16 bytes via [reg+0x10]
                 // Pattern after the getter call:
                 //   MOV rsi, rax        (48 8B F0)  or similar reg move
                 //   MOV rcx, [rsi+0x10] (48 8B 4E 10) — tree root dereference
                 // The +0x10 dereference is the unique signature of the tree root
-                // access (left/right/parent at +0, +8, +10 in the node struct).
-                // No string utility produces this pattern after its call site.
+                // access (left/right/parent at +0, +8, +10 in the node struct)
+                // No string utility produces this pattern after its call site
                 for (size_t i = 0; i + 5 <= 0x2000; ++i) {
                     if (execBody[i] != 0xE8) continue;
                     int32_t rel = 0;
@@ -1541,12 +1451,12 @@ namespace FrostbiteConsole {
                     uint8_t* callee = execBody + i + 5 + rel;
                     if (!isExecutable(callee)) continue;
 
-                    // Check the 20 bytes after this CALL for a [reg+0x10] dereference.
+                    // Check the 20 bytes after this CALL for a [reg+0x10] dereference
                     // In x64 MSVC: MOV r64,[r64+0x10] encodes as
-                    //   48/4C/49/4D  8B  ModRM(disp8)  10
-                    // where ModRM = 0x4? (mod=01, rm=reg, reg=dst).
+                    // 48/4C/49/4D  8B  ModRM(disp8)  10
+                    // where ModRM = 0x4? (mod=01, rm=reg, reg=dst)
                     // We just look for the byte sequence: (REX) 8B ?? 10
-                    // with mod=01 field in ModRM (upper 2 bits = 01).
+                    // with mod=01 field in ModRM (upper 2 bits = 01)
                     bool hasTreeDeref = false;
                     size_t windowEnd = i + 5 + 20;
                     if (windowEnd > 0x2000) windowEnd = 0x2000;
@@ -1570,8 +1480,8 @@ namespace FrostbiteConsole {
                     }
                     if (!hasTreeDeref) continue;
 
-                    // This CALL is followed by a [reg+0x10] tree dereference.
-                    // Now extract the LEA target from the callee.
+                    // This CALL is followed by a [reg+0x10] tree dereference
+                    // Now extract the LEA target from the callee
                     uint8_t* fn = callee;
                     if (fn[0] == 0xE9) {
                         int32_t jrel = 0;
@@ -1604,7 +1514,7 @@ namespace FrostbiteConsole {
                         if (!isReadable(reinterpret_cast<void*>(
                             static_cast<uintptr_t>(t0)))) continue;
 
-                        FC_Log("tryResolveDynamicBF2: alternate getter at %p → vec %p "
+                        FC_Log("tryResolveDynamicBF2: alternate getter at %p -> vec %p "
                             "(tree-deref call site confirmed)",
                             callee, tgt);
                         m_consoleMethodsVecAddr = tgt;
@@ -1617,19 +1527,19 @@ namespace FrostbiteConsole {
             }
         }
 
-        // ── NFS Unbound tree detection ────────────────────────────────────────
-                // Only run for consoleMethods found via the alternate getter path.
-                // Step A (direct getter LEA) and Init_thread_header finds are always
-                // fixed_vector arrays — their firstQword is a ConsoleMethod* with an
-                // executable pfn, but on some games (e.g. GW2) it incidentally passes
-                // the readable+non-executable heuristic, causing a false positive.
+        // Unbound tree detection
+        // Only run for consoleMethods found via the alternate getter path
+        // Step A (direct getter LEA) and Init_thread_header finds are always
+        // fixed_vector arrays — their firstQword is a ConsoleMethod* with an
+        // executable pfn, but on some games it incidentally passes
+        // the readable+non-executable heuristic, causing a false positive
         if (m_consoleMethodsVecAddr && !m_consoleMethodsIsTree &&
             m_consoleMethodsFromAltGetter) {
             uint64_t firstQword = 0;
             if (safeRead64(m_consoleMethodsVecAddr, &firstQword) && firstQword) {
                 void* firstPtr = reinterpret_cast<void*>(static_cast<uintptr_t>(firstQword));
                 // If the value at [firstQword+0x00] is itself readable (node ptr)
-                // but NOT executable (not a pfn), this is a tree node, not an array.
+                // but NOT executable (not a pfn), this is a tree node, not an array
                 if (isReadable(firstPtr) && !isExecutable(firstPtr)) {
                     uint64_t nodeChild = 0;
                     if (safeRead64(firstPtr, &nodeChild) && nodeChild) {
@@ -1652,14 +1562,13 @@ namespace FrostbiteConsole {
         return ok;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
 // tryResolveDynamicFixedVector
 //
 // Resolves s_consoleMethods for games that use a fixed_vector multi-init getter
-// instead of Init_thread_header guards (BF2015, GW2).
+// instead of Init_thread_header guards
 //
 // Strategy:
-//   Scan executeConsoleCommand body for CALL rel32 targets.
+//   Scan executeConsoleCommand body for CALL rel32 targets
 //   For each callee, check if it matches the fixed_vector getter fingerprint:
 //     - Small function (≤ 80 instructions / ≤ 512 bytes)
 //     - Contains TEST AL,1 / JNE (the guard byte check)
@@ -1667,11 +1576,10 @@ namespace FrostbiteConsole {
 //     - The LEA target is a writable address (vector object in .data)
 //     - At runtime the vector is non-empty (mpBegin != mpEnd)
 //
-//   The first matching callee's LEA target is s_consoleMethods.
+// The first matching callee's LEA target is s_consoleMethods
 //
 // Also sets layout constants (bf2StringLayout, use3ArgHandler) identically
-// to tryResolveDynamicBF2, since these games share the same string/handler ABI.
-// ─────────────────────────────────────────────────────────────────────────────
+// to tryResolveDynamicBF2, since these games share the same string/handler ABI
     bool ConsoleBridge::tryResolveDynamicFixedVector(uint8_t* modBase, size_t modSize)
     {
         FC_Log("tryResolveDynamicFV: entering");
@@ -1689,7 +1597,7 @@ namespace FrostbiteConsole {
 
         uint8_t* execCmd = reinterpret_cast<uint8_t*>(m_execCmd);
 
-        // ── Scan execCmd for CALL rel32 targets ──────────────────────────────────
+        // Scan execCmd for CALL rel32 targets
         const size_t kScanLen = 16384;
 
         for (size_t off = 0; off + 5 <= kScanLen && !m_consoleMethodsVecAddr; ++off) {
@@ -1700,7 +1608,7 @@ namespace FrostbiteConsole {
 
             if (!isExecutable(callee)) continue;
 
-            // ── Fingerprint the callee as a fixed_vector getter ──────────────────
+            // Fingerprint the callee as a fixed_vector getter
             // Scan up to 512 bytes / 80 instructions looking for:
             //   (a) TEST AL,1  (A8 01)
             //   (b) JNE short  (75 xx)
@@ -1708,7 +1616,7 @@ namespace FrostbiteConsole {
             //       immediately followed by ADD RSP,28 (48 83 C4 28) and RET (C3)
             //
             // All three must be present; the LEA must be the last data-touching
-            // instruction before the epilogue.
+            // instruction before the epilogue
 
             bool hasGuard = false;
             uint8_t* leaInsn = nullptr;
@@ -1741,7 +1649,7 @@ namespace FrostbiteConsole {
                 }
 
                 // Stop scanning only on RET that follows ADD RSP,28
-                            // (avoids breaking on 0xC3 bytes embedded in data or other instrs)
+                // (avoids breaking on 0xC3 bytes embedded in data or other instrs)
                 if (callee[ci] == 0xC3 && ci >= 4 &&
                     callee[ci - 4] == 0x48 && callee[ci - 3] == 0x83 &&
                     callee[ci - 2] == 0xC4 && callee[ci - 1] == 0x28)
@@ -1798,36 +1706,34 @@ namespace FrostbiteConsole {
         return ok;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // tryResolveDynamicBFLabs — BF Labs-specific supplement.
+    // tryResolveDynamicBF6 — BF6-specific supplement
     //
-    // BF Labs changed console dispatch to a queue-based model:
+    // BF6 changed console dispatch to a queue-based model:
     //   executeConsoleCommand is only called from a drain loop; external callers
-    //   must use the enqueue function instead.
+    //   must use the enqueue function instead
     //
-    // Enqueue function signature (confirmed x64dbg, bflabs.exe Aug 2025):
+    // Enqueue function signature:
     //   void __fastcall enqueueCmd(const char* cmd, void* ctx, uint8_t addToLog)
     //   RVA ~ 0x4F49220 from 0x140000000 base
     //
-    // Detection strategy (no hardcoded RVAs):
+    // Detection strategy:
     //   The function is uniquely identified by this byte sequence near its start:
     //     48 8B 0D [rel32]   MOV RCX, [g_settingsManager]  ; load allocator
     //     BA 38 00 00 00     MOV EDX, 0x38                 ; alloc size = 56
     //     41 B8 10 00 00 00  MOV R8D, 0x10                 ; alignment = 16
     //
-    //   We scan all executable committed pages for this 14-byte signature.
+    //   We scan all executable committed pages for this 14-byte signature
     //   Then confirm the candidate is followed within 64 bytes by a call to
-    //   EnterCriticalSection (identified by an import thunk via [RIP+rel]).
+    //   EnterCriticalSection (identified by an import thunk via [RIP+rel])
     //
     // Sets m_enqueueCmd when found. executeCommand() uses it in place of
-    // direct m_execCmd call. All other games are unaffected.
-    // ─────────────────────────────────────────────────────────────────────────
-    bool ConsoleBridge::tryResolveDynamicBFLabs(uint8_t* modBase, size_t modSize)
+    // direct m_execCmd call. All other games are unaffected
+    bool ConsoleBridge::tryResolveDynamicBF6(uint8_t* modBase, size_t modSize)
     {
-        FC_Log("tryResolveDynamicBFLabs: entering");
+        FC_Log("tryResolveDynamicBF6: entering");
 
         if (!m_execCmd) {
-            FC_Log("tryResolveDynamicBFLabs: execCmd not set, skipping");
+            FC_Log("tryResolveDynamicBF6: execCmd not set, skipping");
             return false;
         }
 
@@ -1843,8 +1749,8 @@ namespace FrostbiteConsole {
         static const int kSigLen = sizeof(kSig);
 
         // We search for the MOV EDX,38 / MOV R8D,10 pair; the MOV RCX preceding
-        // it must be a 7-byte RIP-relative load (48 8B 0D xx xx xx xx).
-        // Walk all committed executable pages.
+        // it must be a 7-byte RIP-relative load (48 8B 0D xx xx xx xx)
+        // Walk all committed executable pages
         MEMORY_BASIC_INFORMATION mbi{};
         uint8_t* scanPtr = modBase;
         uint8_t* const modEnd = modBase + modSize;
@@ -1874,7 +1780,7 @@ namespace FrostbiteConsole {
 
                     // Walk back to function prologue (look for CC pad before)
                     // The function starts with: 48 89 5C 24 08  push/save pattern
-                    // Walk back up to 256 bytes looking for CC or 90 padding byte.
+                    // Walk back up to 256 bytes looking for CC or 90 padding byte
                     uint8_t* candidate = nullptr;
                     for (int back = 1; back <= 256; ++back) {
                         uint8_t* p = preInsn - back;
@@ -1903,9 +1809,9 @@ namespace FrostbiteConsole {
 
                     // Verify EnterCriticalSection call exists within 128 bytes
                     // after the signature match — the function acquires a lock
-                    // before pushing to the command queue.
+                    // before pushing to the command queue
                     // We detect this by finding any FF 15 [RIP+rel] (CALL [import])
-                    // within 128 bytes forward of the signature match.
+                    // within 128 bytes forward of the signature match
                     bool hasCallImport = false;
                     for (int fwd = 0; fwd < 128 && (regionBase + i + kSigLen + fwd + 6) <= regionEnd; ++fwd) {
                         uint8_t* p = regionBase + i + kSigLen + fwd;
@@ -1917,7 +1823,7 @@ namespace FrostbiteConsole {
                     if (!hasCallImport) continue;
 
                     found = candidate;
-                    FC_Log("tryResolveDynamicBFLabs: enqueue candidate at %p "
+                    FC_Log("tryResolveDynamicBF6: enqueue candidate at %p "
                         "(sig match at %p)", found, regionBase + i);
                 }
             }
@@ -1925,18 +1831,16 @@ namespace FrostbiteConsole {
         }
 
         if (!found) {
-            FC_Log("tryResolveDynamicBFLabs: enqueue function not found");
+            FC_Log("tryResolveDynamicBF6: enqueue function not found");
             return false;
         }
 
         m_enqueueCmd = reinterpret_cast<EnqueueCmdFn>(found);
-        FC_Log("tryResolveDynamicBFLabs: m_enqueueCmd=%p", (void*)found);
+        FC_Log("tryResolveDynamicBF6: m_enqueueCmd=%p", (void*)found);
         return true;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // init
-    // ─────────────────────────────────────────────────────────────────────────
     bool ConsoleBridge::init(const char* targetModule)
     {
         if (m_initDone) return isReady();
@@ -1973,42 +1877,38 @@ namespace FrostbiteConsole {
         size_t   modSize = static_cast<size_t>(mi.SizeOfImage);
         FC_Log("init: module base=%p size=%zu", modBase, modSize);
 
-        // ── Detect ABI family structurally, without relying on exe name ────────
-                //
-                // The two families differ in:
-                //   Skate-family: addOutputHandler game fn exists ("Same handler added
-                //                 multiple times." anchor found); SSO string layout;
-                //                 Init_thread_header getter pattern for consoleMethods.
-                //   BF2-family:   no addOutputHandler; 3-pointer string layout;
-                //                 fixed_vector multi-init getter OR mpCapacity byte-search
-                //                 for consoleMethods; writeConsoleFunc hooked directly.
-                //
-                // Detection probes (applied to the already-mapped module):
-                //
-                //   PROBE 1 — "Same handler added multiple times." string present?
-                //             Yes → Skate-family (addOutputHandler exists).
-                //             No  → BF2-family.
-                //
-                //   PROBE 2 — Does tryResolveDynamic find m_addOutputHandler?
-                //             Yes → confirmed Skate-family; run no supplements.
-                //             No  → treat as BF2-family; run BF2+FV supplements.
-                //
-                // The exe name is kept ONLY as a last-resort hint for the hardcoded RVA
-                // fallback table selection, where per-build addresses differ.  It is never
-                // used to gate which dynamic-resolution path is attempted.
-
-                // Structural probe 1: look for the addOutputHandler sentinel string.
+        // Detect ABI family structurally, without relying on exe name
+        //
+        // The two families differ in:
+        //   Skate-family: addOutputHandler game fn exists ("Same handler added
+        //                 multiple times." anchor found); SSO string layout;
+        //                 Init_thread_header getter pattern for consoleMethods
+        //   BF2-family:   no addOutputHandler; 3-pointer string layout;
+        //                 fixed_vector multi-init getter OR mpCapacity byte-search
+        //                 for consoleMethods; writeConsoleFunc hooked directly
+        //
+        // Detection probes (applied to the already-mapped module):
+        //
+        //   PROBE 1 — "Same handler added multiple times." string present?
+        //             Yes -> Skate-family (addOutputHandler exists)
+        //             No  -> BF2-family
+        //
+        //   PROBE 2 — Does tryResolveDynamic find m_addOutputHandler?
+        //             Yes -> confirmed Skate-family; run no supplements
+        //             No  -> treat as BF2-family; run BF2+FV supplements
+        //
+        // Structural probe 1: look for the addOutputHandler sentinel string
         static const char kSameHandler[] = "Same handler added multiple times.";
         const bool hasAddHandlerString =
             (scanForString(modBase, modSize, kSameHandler) != nullptr);
         FC_Log("init: hasAddHandlerString=%d", (int)hasAddHandlerString);
 
-        // ── Try generic dynamic resolution ────────────────────────────────────
+        // Try generic dynamic resolution
         FC_Log("init: trying dynamic resolution");
         bool dynamicOk = tryResolveDynamic(modBase, modSize);
 
         // Structural probe 2: did the generic pass resolve addOutputHandler?
-        // If not, this is a BF2-family game regardless of exe name.
+        // If not, this is a BF2-family game
         const bool isBF2FamilyStructural =
             !hasAddHandlerString || (m_addOutputHandler == nullptr);
         FC_Log("init: isBF2FamilyStructural=%d (hasAddHandlerStr=%d addHandler=%p)",
@@ -2017,17 +1917,17 @@ namespace FrostbiteConsole {
 
         if (!dynamicOk && isBF2FamilyStructural) {
             // BF2 supplement: finds writeConsoleFunc + outputHandlers via
-            // prologue scan, and attempts Step A for consoleMethods.
+            // prologue scan, and attempts Step A for consoleMethods
             FC_Log("init: running BF2-specific dynamic supplement");
             tryResolveDynamicBF2(modBase, modSize);
 
             // SWBF2015-specific override: if consoleMethods vector has fewer
             // than 4 entries it was a false positive — clear it so FV scan
-            // or RVA fallback can correct it.
-            // Only clear stub vectors that were found by Step A itself.
+            // or RVA fallback can correct it
+            // Only clear stub vectors that were found by Step A itself
             // Addresses found by the more reliable Init_thread_header scan
             // (Steps 4/5) may be legitimately empty at init time (BFN populates
-            // consoleMethods lazily) and must not be cleared here.
+            // consoleMethods lazily) and must not be cleared here
             if (m_consoleMethodsVecAddr && m_consoleMethodsFromStepA) {
                 uint64_t vpB = 0, vpE = 0;
                 safeRead64(m_consoleMethodsVecAddr, &vpB);
@@ -2040,10 +1940,7 @@ namespace FrostbiteConsole {
                 }
             }
 
-            // Fixed-vector getter scan: covers BF2015, GW2, NFSRivals and any
-            // future title that uses the multi-init fixed_vector getter pattern.
-            // Runs after BF2 so writeConsoleFunc is already set; this only needs
-            // to find consoleMethods.
+            // Fixed-vector getter scan
             {
                 uint64_t vpB = 0, vpE = 0;
                 if (m_consoleMethodsVecAddr) {
@@ -2052,16 +1949,15 @@ namespace FrostbiteConsole {
                         m_consoleMethodsVecAddr) + 8, &vpE);
                 }
                 // Only run FV scan if consoleMethods is genuinely missing or was
-                                // found by Step A (mpCapacity scan) and is empty. Never clear an
-                                // address found by the Init_thread_header scan (Steps 4/5) — those
-                                // vectors may be legitimately empty at init time (e.g. BFN populates
-                                // consoleMethods lazily after the game fully loads).
-// Also reject a Step-A result whose first element doesn't look
+                // found by Step A (mpCapacity scan) and is empty. Never clear an
+                // address found by the Init_thread_header scan (Steps 4/5) — those
+                // vectors may be legitimately empty at init time
+                // Also reject a Step-A result whose first element doesn't look
                 // like a ConsoleMethod*: dereference slot[0] and check that
                 // +0x00 (pfn) is executable and +0x08 (name) is a readable
                 // string starting with [A-Za-z_]. This catches false-positive
                 // vectors like MEA's asset-path table whose elements are raw
-                // const char* strings, not ConsoleMethod pointers.
+                // const char* strings, not ConsoleMethod pointers
                 bool stepAContentInvalid = false;
                 if (m_consoleMethodsVecAddr && m_consoleMethodsFromStepA &&
                     vpB != 0 && vpE > vpB)
@@ -2111,29 +2007,29 @@ namespace FrostbiteConsole {
                 }
             }
 
-            // BF Labs supplement: find queue-based enqueue function.
-                        // Runs regardless of bf2Ok — even if consoleMethods/writeConsole
-                        // failed, command execution via the queue may still work.
-                        // Does not affect any other game (signature is BF Labs-specific).
-            tryResolveDynamicBFLabs(modBase, modSize);
+            // BF6 supplement: find queue-based enqueue function
+            // Runs regardless of bf2Ok — even if consoleMethods/writeConsole
+            // failed, command execution via the queue may still work
+            // Does not affect any other game (signature is BF6-specific)
+            tryResolveDynamicBF6(modBase, modSize);
 
             bool bf2Ok = (m_execCmd != nullptr) &&
                 (m_consoleMethodsVecAddr != nullptr) &&
                 (m_writeConsoleFunc != 0);
 
-            // For BF Labs: execCmd + enqueueCmd is sufficient to execute
-            // commands even if consoleMethods/writeConsole are missing.
-            const bool bfLabsOk = (m_execCmd != nullptr) && (m_enqueueCmd != nullptr);
+            // For BF6: execCmd + enqueueCmd is sufficient to execute
+            // commands even if consoleMethods/writeConsole are missing
+            const bool bf6Ok = (m_execCmd != nullptr) && (m_enqueueCmd != nullptr);
 
-            if (bf2Ok || bfLabsOk) {
+            if (bf2Ok || bf6Ok) {
                 FC_Log("init: resolved dynamically via BF2+FV supplements "
-                    "(bf2Ok=%d bfLabsOk=%d enqueue=%p)",
-                    (int)bf2Ok, (int)bfLabsOk, (void*)m_enqueueCmd);
+                    "(bf2Ok=%d bf6Ok=%d enqueue=%p)",
+                    (int)bf2Ok, (int)bf6Ok, (void*)m_enqueueCmd);
                 dynamicOk = true;
             }
             else {
                 // Keep writeConsoleFunc and outputHandlers already found by
-                // BF2 Step B — only consoleMethods needs RVA fallback.
+                // BF2 Step B — only consoleMethods needs RVA fallback
                 FC_Log("init: BF2+FV consoleMethods missing, partial state preserved "
                     "(writeConsoleFunc=%p outputHandlers=%p)",
                     (void*)m_writeConsoleFunc, m_outputHandlersVecAddr);
@@ -2141,7 +2037,72 @@ namespace FrostbiteConsole {
         }
 
         if (!dynamicOk) {
-            FC_Log("init: dynamic resolution incomplete, no hardcoded RVA fallback available");
+            FC_Log("init: dynamic resolution incomplete - try setting custom RVAs in FrostbiteConsole.h");
+        }
+
+        // ---- Manual override application (debug only, disabled by default) ----
+        // Runs after normal resolution so overrides always win when set, but
+        // any field left at 0 in kManualOverrides falls through to whatever
+        // dynamic resolution already found above
+        if (g_enableManualOverrides)
+        {
+            auto resolveAddr = [&](uint64_t v) -> uint64_t {
+                if (v == 0) return 0;
+                return g_manualOverridesAreRVAs
+                    ? v + reinterpret_cast<uint64_t>(modBase)
+                    : v;
+                };
+
+            if (kManualOverrides.execCmd) {
+                m_execCmd = reinterpret_cast<ExecuteConsoleCmdFn>(
+                    static_cast<uintptr_t>(resolveAddr(kManualOverrides.execCmd)));
+                FC_Log("init: MANUAL OVERRIDE execCmd=%p", (void*)m_execCmd);
+            }
+            if (kManualOverrides.consoleMethods) {
+                m_consoleMethodsVecAddr = reinterpret_cast<void*>(
+                    static_cast<uintptr_t>(resolveAddr(kManualOverrides.consoleMethods)));
+                FC_Log("init: MANUAL OVERRIDE consoleMethods=%p", m_consoleMethodsVecAddr);
+            }
+            if (kManualOverrides.outputHandlers) {
+                m_outputHandlersVecAddr = reinterpret_cast<void*>(
+                    static_cast<uintptr_t>(resolveAddr(kManualOverrides.outputHandlers)));
+                FC_Log("init: MANUAL OVERRIDE outputHandlers=%p", m_outputHandlersVecAddr);
+            }
+            if (kManualOverrides.addHandler) {
+                m_addOutputHandler = reinterpret_cast<AddOutputHandlerFn>(
+                    static_cast<uintptr_t>(resolveAddr(kManualOverrides.addHandler)));
+                FC_Log("init: MANUAL OVERRIDE addHandler=%p", (void*)m_addOutputHandler);
+            }
+            if (kManualOverrides.instanceMethods) {
+                m_instanceMethodsVecAddr = reinterpret_cast<void*>(
+                    static_cast<uintptr_t>(resolveAddr(kManualOverrides.instanceMethods)));
+                FC_Log("init: MANUAL OVERRIDE instanceMethods=%p", m_instanceMethodsVecAddr);
+            }
+            if (kManualOverrides.settingsManagerAddr) {
+                m_settingsManagerAddr = reinterpret_cast<uint8_t*>(
+                    static_cast<uintptr_t>(resolveAddr(kManualOverrides.settingsManagerAddr)));
+                FC_Log("init: MANUAL OVERRIDE smAddr=%p", (void*)m_settingsManagerAddr);
+            }
+            if (kManualOverrides.settingsGet) {
+                m_settingsGet = reinterpret_cast<SettingsGetFn>(
+                    static_cast<uintptr_t>(resolveAddr(kManualOverrides.settingsGet)));
+                FC_Log("init: MANUAL OVERRIDE settingsGet=%p", (void*)m_settingsGet);
+            }
+            if (kManualOverrides.settingsSet) {
+                m_settingsSet = reinterpret_cast<SettingsSetFn>(
+                    static_cast<uintptr_t>(resolveAddr(kManualOverrides.settingsSet)));
+                FC_Log("init: MANUAL OVERRIDE settingsSet=%p", (void*)m_settingsSet);
+            }
+            if (kManualOverrides.writeConsoleFunc) {
+                m_writeConsoleFunc = static_cast<uintptr_t>(
+                    resolveAddr(kManualOverrides.writeConsoleFunc));
+                FC_Log("init: MANUAL OVERRIDE writeConsoleFunc=%p", (void*)m_writeConsoleFunc);
+            }
+            if (kManualOverrides.enqueueCmd) {
+                m_enqueueCmd = reinterpret_cast<EnqueueCmdFn>(
+                    static_cast<uintptr_t>(resolveAddr(kManualOverrides.enqueueCmd)));
+                FC_Log("init: MANUAL OVERRIDE enqueueCmd=%p", (void*)m_enqueueCmd);
+            }
         }
 
         bool ok = isReady();
@@ -2157,9 +2118,7 @@ namespace FrostbiteConsole {
         return ok;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // executeCommand
-    // ─────────────────────────────────────────────────────────────────────────
     __declspec(noinline) static bool shimExecCmd(
         ExecuteConsoleCmdFn fn, EastlString* ret, const char* cmd)
     {
@@ -2175,9 +2134,9 @@ namespace FrostbiteConsole {
     }
 
     // Extracts the string content from the EastlString result and copies it
-    // into a plain buffer before the EastlString destructor can fire.
+    // into a plain buffer before the EastlString destructor can fire
     // The game's allocator may throw a C++ exception (0xE06D7363) during
-    // destructor — this shim catches it so the caller never sees it.
+    // destructor — this shim catches it so the caller never sees it
     __declspec(noinline) static bool shimExtractResult(
         EastlString* ret, char* outBuf, size_t outLen, size_t* outSize)
     {
@@ -2197,13 +2156,13 @@ namespace FrostbiteConsole {
         }
     }
 
-    // Shim for BF Labs queue-based enqueue — isolates __try from the
-        // executeCommand frame which has C++ object unwinding (std::string).
+    // Shim for BF6 queue-based enqueue — isolates __try from the
+    // executeCommand frame which has C++ object unwinding (std::string)
 __declspec(noinline) static bool shimEnqueueCmd(
         ConsoleBridge::EnqueueCmdFn fn, const char* cmd)
     {
-        // Job object: only [rdx+0] and [rdx+8] are read by the constructor.
-        // Zero both for fire-and-forget dispatch (no completion callback).
+        // Job object: only [rdx+0] and [rdx+8] are read by the constructor
+        // Zero both for fire-and-forget dispatch (no completion callback)
         uint64_t nullJob[2] = { 0, 0 };
         __try {
             fn(cmd, nullJob, 0);
@@ -2220,8 +2179,8 @@ __declspec(noinline) static bool shimEnqueueCmd(
     {
         if (!cmd) return {};
 
-        // BF Labs queue-based path: enqueue the command and return immediately.
-        // The game drains the queue on its own thread; no return value is available.
+        // BF6 queue-based path: enqueue the command and return immediately
+        // The game drains the queue on its own thread; no return value is available
         if (m_enqueueCmd) {
             shimEnqueueCmd(m_enqueueCmd, cmd);
             return {};
@@ -2247,9 +2206,7 @@ __declspec(noinline) static bool shimEnqueueCmd(
         return std::string(resultBuf, resultSize);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // walkConsoleTree — in-order RB-tree traversal for NFS Unbound
-    // ─────────────────────────────────────────────────────────────────────────
+    // walkConsoleTree — in-order RB-tree traversal
     /*static*/ void ConsoleBridge::walkConsoleTree(uint8_t* node, uint8_t* root,
         std::vector<const ConsoleMethod*>& out,
         int depth)
@@ -2304,18 +2261,16 @@ __declspec(noinline) static bool shimEnqueueCmd(
             walkConsoleTree(right, root, out, depth + 1);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // getMethods
-    // ─────────────────────────────────────────────────────────────────────────
     const ConsoleMethod* const* ConsoleBridge::getMethods(int& outCount)
     {
         outCount = 0;
 
-        // ── NFS Unbound tree path ─────────────────────────────────────────────
+        // Unbound tree path
         // When the resolver detected a RB-tree instead of a fixed_vector,
-        // walk the tree and return a pointer into the flat cache.
+        // walk the tree and return a pointer into the flat cache
         // This path does NOT touch m_instanceMethodsVecAddr — it is completely
-        // separate from the fixed_vector logic used by all other games.
+        // separate from the fixed_vector logic used by all other games
         if (m_consoleMethodsIsTree && m_consoleMethodsVecAddr) {
             m_treeMethodCache.clear();
 
@@ -2325,8 +2280,8 @@ __declspec(noinline) static bool shimEnqueueCmd(
                 return nullptr;
             }
 
-            // The tree header node's left child is the actual first node.
-            // If left == root the tree is empty.
+            // The tree header node's left child is the actual first node
+            // If left == root the tree is empty
             uint64_t firstVal = 0;
             if (!safeRead64(root, &firstVal) || !firstVal) {
                 FC_Log("getMethods(tree): could not read first node ptr");
@@ -2349,10 +2304,10 @@ __declspec(noinline) static bool shimEnqueueCmd(
             return m_treeMethodCache.data();
         }
 
-        // ── Standard fixed_vector path (all other games) ──────────────────────
+        // Standard fixed_vector path (all other games)
         // BFN and similar titles leave s_consoleMethods empty and register
         // all commands via s_instanceMethods instead.  Fall back to it when
-        // consoleMethods is absent or empty.
+        // consoleMethods is absent or empty
         void* vecAddr = m_consoleMethodsVecAddr;
         if (vecAddr) {
             uint64_t vpB = 0, vpE = 0;
@@ -2428,22 +2383,14 @@ __declspec(noinline) static bool shimEnqueueCmd(
         return reinterpret_cast<const void*>(static_cast<uintptr_t>(begin));
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // addOutputHandler / removeOutputHandler  (4-arg, Skate)
-    //
-    // Skate's addOutputHandler game function is reliable and correctly handles
-    // the delegate layout — always prefer it over direct vector insertion.
-    // Direct insertion is only used as a last-resort fallback when the game
-    // function wasn't resolved (shouldn't happen for Skate via RVA table).
-    // ─────────────────────────────────────────────────────────────────────────
+    // addOutputHandler / removeOutputHandler (4-arg)
     void ConsoleBridge::addOutputHandler(OutputHandlerFn fn)
     {
         if (!fn) return;
         FC_Log("addOutputHandler: fn=%p", (void*)fn);
 
         if (m_addOutputHandler) {
-            // Preferred path: use the game's own addOutputHandler function.
-            // This is the only path used for Skate and is proven to work.
+            // Preferred path: use the game's own addOutputHandler function
             HandlerDelegate delegate;
             delegate.m_pThis = nullptr;
             delegate.m_pFunction = reinterpret_cast<void*>(fn);
@@ -2452,7 +2399,7 @@ __declspec(noinline) static bool shimEnqueueCmd(
             return;
         }
 
-        // Fallback: direct vector insertion (Skate should never reach here).
+        // Fallback: direct vector insertion
         if (!m_outputHandlersVecAddr) {
             FC_Log("addOutputHandler: game function not resolved and no vec addr");
             return;
@@ -2500,7 +2447,6 @@ __declspec(noinline) static bool shimEnqueueCmd(
         FC_Log("removeOutputHandler: fn not found");
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // addOutputHandler3 / removeOutputHandler3  (BF2 writeConsole hook)
     //
     // BF2 has no standalone addOutputHandler.  We patch writeConsoleFunc
@@ -2511,14 +2457,13 @@ __declspec(noinline) static bool shimEnqueueCmd(
     //
     // A trampoline in executable VirtualAlloc'd memory holds the displaced
     // original 15 bytes followed by a JMP back to site+15, so the original
-    // function body continues to execute via the trampoline.
-    // ─────────────────────────────────────────────────────────────────────────
+    // function body continues to execute via the trampoline
 
     static uint8_t  s_bf2OrigBytes[15] = {};
     static uint8_t* s_bf2HookSite = nullptr;
     static OutputHandlerFn3 s_bf2UserFn3 = nullptr;
 
-    // Trampoline stub — allocated executable memory, calls original then user fn.
+    // Trampoline stub — allocated executable memory, calls original then user fn
     // Layout:
     //   [0..14]  = saved original 15 bytes
     //   [15..28] = JMP back to hookSite+15  (FF 25 00 00 00 00 + 8-byte addr)
@@ -2569,11 +2514,11 @@ __declspec(noinline) static bool shimEnqueueCmd(
         }
 
         // The first 3 instructions at writeConsoleFunc are [rsp+N] stores —
-        // no RIP-relative operands — safe to copy verbatim to any address.
+        // no RIP-relative operands — safe to copy verbatim to any address
         //   48 89 5C 24 08   mov [rsp+08], rbx   5 bytes
         //   48 89 6C 24 10   mov [rsp+10], rbp   5 bytes
         //   48 89 74 24 18   mov [rsp+18], rsi   5 bytes
-        // Total = 15 bytes.
+        // Total = 15 bytes
         static const int kPatchLen = 15;
 
         // Save original bytes
@@ -2626,9 +2571,7 @@ __declspec(noinline) static bool shimEnqueueCmd(
         FC_Log("removeOutputHandler3(hook): restored original bytes");
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
     // Settings manager helpers
-    // ─────────────────────────────────────────────────────────────────────────
     bool ConsoleBridge::settingsGet(const char* varName, char* outBuf, size_t outLen)
     {
         if (!m_settingsGet || !m_settingsManagerAddr || !varName || !outBuf) return false;
@@ -2660,4 +2603,4 @@ __declspec(noinline) static bool shimEnqueueCmd(
         __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
     }
 
-} // namespace FrostbiteConsole
+}

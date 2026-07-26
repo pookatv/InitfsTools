@@ -1674,14 +1674,19 @@ private:
         else
             TD_Log("  PRE-PASS: no scoreable field array found in chain");
 
-        // ----------------------------------------------------------------
-        // TEST CONTACT: direct field array ptr at +0x30, own-count at +0x22
-        // Detected before Walrus/Jupiter/Havana/Roboto so its score can
-        // compete fairly. Contact is flag-based and does NOT shift mode numbers
-        // ----------------------------------------------------------------
+    // ----------------------------------------------------------------
+    // TEST CONTACT: direct field array ptr at +0x30, own-count at +0x22
+    // Detected before Walrus/Jupiter/Havana/Roboto so its score can
+    // compete fairly. Contact is flag-based and does NOT shift mode numbers
+    // ----------------------------------------------------------------
         bool    contactDetected = false;
         int     contactBestScore = 0;
         int64_t contactBestPtr = 0;
+        int     contactExactMatches = 0;
+        int     contactCandidatesTested = 0;
+
+        const int kContactMinConfidentFieldCount = 3;
+        const int kContactMinQualifyingCandidates = 2;
 
         TD_Log("\n[TEST CONTACT] layout (direct field array ptr at +0x30, own-count at +0x22):");
         for (int ci = 0; ci < (int)candidates.size() && ci < 8; ++ci)
@@ -1706,33 +1711,48 @@ private:
 
             if (!fap30Valid || contactFC <= 0 || contactFC >= 500) continue;
 
-            int sc = countValidFields(reader, fap30, std::min(contactFC + 10, 30), 3);
+            ++contactCandidatesTested;
+
+            // Request exactly contactFC entries — no extra slack. We are not
+            // trying to find where the array "naturally" stops (that assumption
+            // is what broke twice already); we only need to know whether this
+            // type's own claimed fields are individually well-formed. What lies
+            // beyond entry contactFC-1 is irrelevant and deliberately unexamined
+            int sc = countValidFields(reader, fap30, contactFC, 3);
             TD_Log("  [cand %d] +0x30 = 0x%llX -> %d fields (expected %d)",
                 ci, (unsigned long long)fap30, sc, contactFC);
 
-            if (sc > contactBestScore)
+            if (sc == contactFC)
             {
-                contactBestScore = sc;
-                contactBestPtr = fap30;
+                if (contactFC >= kContactMinConfidentFieldCount)
+                {
+                    ++contactExactMatches;
+                    if (sc > contactBestScore)
+                    {
+                        contactBestScore = sc;
+                        contactBestPtr = fap30;
+                    }
+                }
+                else
+                {
+                    TD_Log("  [cand %d] exact match on ownFC=%d ignored (below confidence floor of %d)",
+                        ci, contactFC, kContactMinConfidentFieldCount);
+                }
             }
         }
 
-        // Contact wins if it scored AND the stride word at off20[0]&0xFFFF == 0x0010
-        // (16-byte entry size), which distinguishes it from Walrus (0x0008)
+        // Contact is confirmed only when several independent candidates each
+        // land an exact match on their own encoded field count
         {
-            uint16_t strideWord = (uint16_t)(off20[0] & 0xFFFF);
-            TD_Log("  Contact stride word check: off20[0]=0x%llX strideWord=0x%04X",
-                (unsigned long long)off20[0], (unsigned)strideWord);
-            if (contactBestScore > 0 && strideWord == 0x0010)
+            TD_Log("  Contact exact-match check: %d/%d tested candidates matched their own field count exactly (min confidence=%d, quorum=%d)",
+                contactExactMatches, contactCandidatesTested,
+                kContactMinConfidentFieldCount, kContactMinQualifyingCandidates);
+            if (contactExactMatches >= kContactMinQualifyingCandidates)
             {
                 contactDetected = true;
-                TD_Log("  CONTACT confirmed: score=%d stride=0x%04X ptr=0x%llX",
-                    contactBestScore, (unsigned)strideWord, (unsigned long long)contactBestPtr);
-            }
-            else if (contactBestScore > 0)
-            {
-                TD_Log("  CONTACT suppressed: score=%d but stride=0x%04X != 0x0010",
-                    contactBestScore, (unsigned)strideWord);
+                TD_Log("  CONTACT confirmed: score=%d ptr=0x%llX (%d exact-match candidates, quorum=%d)",
+                    contactBestScore, (unsigned long long)contactBestPtr,
+                    contactExactMatches, kContactMinQualifyingCandidates);
             }
         }
 
@@ -3350,7 +3370,7 @@ private:
         auto isDataAddr = [&](int64_t a) -> bool { return dataStart && a >= dataStart && a < dataEnd; };
         auto isTIAddr = [&](int64_t a) -> bool { return tiSecStart && a >= tiSecStart && a < tiSecEnd; };
 
-        // Pre-build sharedPtr → TypeInfo address map for O(1) parent lookup
+        // Pre-build sharedPtr -> TypeInfo address map for O(1) parent lookup
         std::unordered_map<int64_t, int64_t> sharedPtrToTI;
         for (int64_t pos = dataStart; pos < dataEnd - 0x18; pos += 8) {
             try {

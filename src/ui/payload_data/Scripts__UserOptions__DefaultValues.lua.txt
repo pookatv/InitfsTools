@@ -631,7 +631,7 @@ Medium: TAA_low
 High: TAA_high
 Ultra: TAA_high (no DLSS by default)
 DLSS Benefits:
-- Render at lower resolution (1440p → 4K)
+- Render at lower resolution (1440p -> 4K)
 - AI upscaling recovers detail
 - Higher frame rates at higher perceived resolution
 - Anti-aliasing as byproduct of temporal reconstruction

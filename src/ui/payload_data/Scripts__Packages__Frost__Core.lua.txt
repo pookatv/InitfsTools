@@ -147,7 +147,7 @@ end
 First URL protection implementation.
 
 New Features:
-- URL protection: :// → :__SLASHES__ → :// transformation
+- URL protection: :// -> :__SLASHES__ -> :// transformation
 - Prevents URLs (like https://example.com) from being treated as comments
 
 Why: C&C likely had online services with URLs in config files.
@@ -853,7 +853,7 @@ Refined URL handling + trim() function.
 
 New Features:
 - trim() function - Removes leading/trailing whitespace from values
-- Improved URL protection: :// → :\/\/ → :// (using escape sequences)
+- Improved URL protection: :// -> :\/\/ -> :// (using escape sequences)
 
 Why: Values were getting stored with trailing spaces, causing bugs.
 
@@ -1792,7 +1792,7 @@ New Features:
 - mergeTableContentsTo() - Recursive table merging
 
 Why: 
-- Developers kept copy-pasting from Word/Slack with non-breaking spaces → silent bugs
+- Developers kept copy-pasting from Word/Slack with non-breaking spaces -> silent bugs
 - Skate needed extensive command-line configuration for playtests
 - Better dev tools for debugging
 

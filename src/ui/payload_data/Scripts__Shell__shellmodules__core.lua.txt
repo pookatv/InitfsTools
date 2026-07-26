@@ -18,7 +18,7 @@ Note: Function name 'executeOriginRequest' appears to be copy-paste error, shoul
 Route Registration:
 - Pattern: /core/(.*)
 - Captures everything after /core/ as '_resource'
-- Example: /core/system/info → _resource = 'system/info'
+- Example: /core/system/info -> _resource = 'system/info'
 
 Core Services:
 Engine-level functionality not specific to other modules, such as:

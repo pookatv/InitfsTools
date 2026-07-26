@@ -481,7 +481,7 @@ void ReferenceLibWindow::closeEvent(QCloseEvent* e)
 // [/version]
 //
 // Filenames encode the payload path with '/' replaced by '__'.
-// e.g. Scripts__Game__Startup.lua.txt → "Scripts/Game/Startup.lua"
+// e.g. Scripts__Game__Startup.lua.txt -> "Scripts/Game/Startup.lua"
 // ============================================================
 void ReferenceLibWindow::loadLibrary()
 {

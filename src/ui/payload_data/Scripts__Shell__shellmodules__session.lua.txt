@@ -28,8 +28,8 @@ Route Registration:
 - Pattern: /session/([^/]+)
 - Captures session action as 'sessionGroup'
 - Examples:
-  * /session/quit → sessionGroup = 'quit'
-  * /session/surrender → sessionGroup = 'surrender'
+  * /session/quit -> sessionGroup = 'quit'
+  * /session/surrender -> sessionGroup = 'surrender'
 
 Console Commands:
 - quit: Closes application

@@ -53,7 +53,7 @@
 #include <QtConcurrent/QtConcurrentRun>
 #include <QSemaphore>
 
-#include "../ac_patcher/PatcherBridge.h"
+#include "../patcher/PatcherBridge.h"
 
 #ifdef Q_OS_WIN
 #  include <windows.h>
@@ -244,7 +244,7 @@ const QString MainWindow::k_startupText =
 "• Understanding and modifying game functions such as the default loaded level\n"
 "• Understanding and modifying graphic settings across multiple platforms\n"
 "• Setting default values such as FOV, difficulty, and many more\n"
-"Need additional help? Click the 'Wiki' button found in the \"Help\" tab to learn more about using this tool effectively! And read below:\n\n"
+"Need additional help? Click the 'Wiki' button found in the \"Help\" tab to learn more about using this effectively! And read below:\n\n"
 "\"File/Edit Tab + General Info\"\n\n"
 "LOAD INITFS: Click 'Load Initfs' to select an InitFS file (or click the big button)\n"
 "• All InitFS obfuscation types can be loaded\n"
@@ -267,8 +267,9 @@ const QString MainWindow::k_startupText =
 "SAVE INITFS: Click 'Save Initfs' to apply and write any changes to the currently loaded InitFS file\n\n"
 "SAVE INITFS AS: Click 'Save Initfs As' to apply and write any changes to a chosen directory\n"
 "• All InitFS files will be able to read the new changes properly and will launch without issues\n"
-"• However, the following games are not supported in any way:\n"
-"     - PC games with EA Anticheat: No dinput8.dll support, no InitFS modding :(\n\n"
+"• However, the following games are not supported as of right now:\n"
+"     - FC games on PC (check https://discord.gg/yxAbpmNaFX)\n"
+"     - Madden and College Football games on PC (check https://discord.gg/maddenmoddingcommunity and https://discord.gg/cfmc)\n\n"
 "GENERATE RAW INITFS: Click 'Generate Raw Initfs' to write the loaded InitFS file into a readable text document\n"
 "• This document will include every payload in the InitFS file, and all of its contents\n"
 "• The document will also generate a header that is filled with useful information\n"
@@ -278,10 +279,11 @@ const QString MainWindow::k_startupText =
 "CLOSE INITFS: Click 'Close Initfs' to go back to this very homepage!\n\n"
 "\"Tools Tab\"\n\n"
 "DIFF CHECK: Click 'Diff Check' to compare all contents between one InitFS file and another (must load an InitFS file first!)\n\n"
-"TYPE EXTRACTOR: Click 'Type Extractor' to view all types from an EXE or FrostyEditor SDK, including all existing commands found in-game\n\n"
-"DICTIONARY: Click 'Dictionary' to open a window specifically designed for viewing all commands and comments from multiple InitFS files\n\n"
+"TYPE EXTRACTOR: Click 'Type Extractor' to view all types from an EXE or FrostyEditor SDK, including all commands found in-game\n\n"
+"DICTIONARY: Click 'Dictionary' to open a window specifically designed for viewing commands and comments from multiple InitFS files\n\n"
 "REFERENCE LIBRARY: Click 'Reference Library' to browse and view base and custom-made payloads from various titles over the years\n\n"
 "PRESET MANAGER: Click 'Preset Manager' to browse and insert user-saved presets containing sets of commands (also found in /Presets)\n\n"
+"CONSOLE INJECTOR: Click 'Console Injector' to hook into a game's console, unlocks all commands, and execute them remotely/in-game\n\n"
 "[Found a bug or have a suggestion? Reach out to me on Discord: pookatv, otherwise, enjoy!]";
 
 // ============================================================
@@ -415,7 +417,18 @@ void MainWindow::buildCentralWidget()
     m_lblPayloadList->setStyleSheet("font-weight: normal;");
     m_lblPayloadList->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
     leftHeaderHBox->addWidget(m_lblPayloadList, 0, Qt::AlignVCenter);
-    leftHeaderHBox->addStretch(1);
+
+    m_txtPayloadSearch = new QLineEdit(leftHeaderRow);
+    m_txtPayloadSearch->setObjectName("txtPayloadSearch");
+    m_txtPayloadSearch->setPlaceholderText("Search Payloads");
+    m_txtPayloadSearch->setClearButtonEnabled(true);
+    m_txtPayloadSearch->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    m_txtPayloadSearch->setEnabled(false);
+    leftHeaderHBox->addWidget(m_txtPayloadSearch, 1, Qt::AlignVCenter);
+    connect(m_txtPayloadSearch, &QLineEdit::textChanged,
+        this, &MainWindow::onPayloadSearchChanged);
+
+    leftHeaderHBox->addStretch(0);
 
     m_btnListViewMode = new QToolButton(leftHeaderRow);
     m_btnListViewMode->setAutoRaise(true);
@@ -1081,6 +1094,10 @@ void MainWindow::buildMenuBar()
         m_actLaunchWith->setCheckable(true);
         m_actLaunchWithout->setCheckable(true);
 
+        m_menuLaunch->addSeparator();
+        m_actChangeLaunchProgram = m_menuLaunch->addAction(
+            QIcon::fromTheme("utilities-system-monitor"), "Change Launch Program");
+
         connect(m_actLaunchWith, &QAction::triggered, this, [this]()
             {
                 m_launchWithChanges = true;
@@ -1095,6 +1112,7 @@ void MainWindow::buildMenuBar()
                 m_actLaunchWith->setChecked(false);
                 m_actLaunchWithout->setChecked(true);
             });
+        connect(m_actChangeLaunchProgram, &QAction::triggered, this, &MainWindow::onChangeLaunchProgram);
         connect(m_menuLaunch, &QMenu::aboutToShow, this, [this]()
             {
                 m_actLaunchWith->setChecked(m_launchWithChanges);
@@ -1112,6 +1130,49 @@ void MainWindow::buildMenuBar()
         m_btnLaunch->setObjectName("menuBtnLaunch");
         m_btnLaunch->setVisible(false);
         m_btnLaunch->setContentsMargins(0, 0, 0, 0);
+
+        // Right-click anywhere on the button (not just the dropdown arrow)
+        // always re-opens the executable picker, even if one is already cached
+        m_btnLaunch->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(m_btnLaunch, &QToolButton::customContextMenuRequested, this,
+            [this](const QPoint&) { onChangeLaunchProgram(); });
+
+        // Patch status button — sits immediately to the right of the launch button
+        m_btnPatch = new QToolButton(menuBar());
+        m_btnPatch->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        m_btnPatch->setAutoRaise(true);
+        m_btnPatch->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+        m_btnPatch->setObjectName("menuBtnPatch");
+        m_btnPatch->setVisible(false);
+        m_btnPatch->setContentsMargins(0, 0, 0, 0);
+
+        connect(m_btnPatch, &QToolButton::clicked, this, [this]()
+            {
+                QString gameDir = resolveGameDirForPatch();
+                if (gameDir.isEmpty()) return;
+
+                bool patched = PatcherBridge::isPatched(gameDir);
+                if (!patched)
+                {
+                    auto btn = QMessageBox::question(this, "Patch Anticheat",
+                        "Would you like to patch the game anticheat?\n\n"
+                        "This will disable online functionality. "
+                        "You can revert this at any time by clicking the button again.",
+                        QMessageBox::Ok | QMessageBox::Cancel);
+                    if (btn != QMessageBox::Ok) return;
+                    PatcherBridge::apply(gameDir);
+                }
+                else
+                {
+                    auto btn = QMessageBox::question(this, "Revert Anticheat",
+                        "Would you like to revert the anticheat patch and restore online functionality?\n\n"
+                        "This will undo the patch and remove any DLLs sent to the game directory.",
+                        QMessageBox::Ok | QMessageBox::Cancel);
+                    if (btn != QMessageBox::Ok) return;
+                    PatcherBridge::revert(gameDir);
+                }
+                updatePatchButton();
+            });
 
         connect(m_btnLaunch, &QToolButton::clicked, this, [this]()
             {
@@ -1366,6 +1427,16 @@ void MainWindow::showEvent(QShowEvent* e)
         m_recentFilesLoaded = true;
         loadRecentFiles();
         refreshRecentPanel();
+    }
+
+    if (!m_initialFocusSet) {
+        m_initialFocusSet = true;
+        // Qt auto-focuses the first tab-stop widget (now the search box) once
+        // the window is shown. Defer to the next event loop pass so this wins
+        // over that default focus grab, and hand focus to the editor instead.
+        QTimer::singleShot(0, this, [this]() {
+            if (m_editor) m_editor->setFocus();
+            });
     }
 }
 
@@ -2972,6 +3043,20 @@ void MainWindow::applyTheme(bool dark)
         : "QLabel { color: palette(windowText); background: transparent; }";
     if (m_lblPayloadList)     m_lblPayloadList->setStyleSheet(labelCss);
     if (m_lblPayloadContents) m_lblPayloadContents->setStyleSheet(labelCss);
+
+    if (m_txtPayloadSearch)
+    {
+        if (dark)
+            m_txtPayloadSearch->setStyleSheet(
+                "QLineEdit#txtPayloadSearch { background: #121212; color: #f0f0f0; "
+                "  border: 1px solid #555555; border-radius: 2px; padding: 2px 6px; }"
+                "QLineEdit#txtPayloadSearch:focus { border: 1px solid #0078d7; }");
+        else
+            m_txtPayloadSearch->setStyleSheet(
+                "QLineEdit#txtPayloadSearch { background: white; color: black; "
+                "  border: 1px solid palette(mid); border-radius: 2px; padding: 2px 6px; }"
+                "QLineEdit#txtPayloadSearch:focus { border: 1px solid #0078d7; }");
+    }
     if (m_lblReadOnly)
         m_lblReadOnly->setStyleSheet(
             dark ? "QLabel { color: #ff4444; font-weight: bold; background: transparent; }"
@@ -3486,7 +3571,7 @@ void MainWindow::applyJsonHighlighting(int startPos, int endPos)
     QString seg = QString::fromUtf8(segBytes);
     const int segCharLen = seg.length();
 
-    // Build char→byte offset table once — O(N), replaces per-token seg.left(i).toUtf8() calls
+    // Build char->byte offset table once — O(N), replaces per-token seg.left(i).toUtf8() calls
     QVector<int> charToByte(segCharLen + 1, 0);
     {
         int bytePos = 0;
@@ -3622,7 +3707,7 @@ void MainWindow::applyUrlHighlighting(int startPos, int endPos)
         QString seg = lineText.mid(lineOffsetBytes, clampEnd - clampStart);
         if (seg.isEmpty()) continue;
 
-        // Build char→byte table for this line segment — eliminates seg.left(N).toUtf8() per URL
+        // Build char->byte table for this line segment — eliminates seg.left(N).toUtf8() per URL
         const int segCharLen = seg.length();
         static thread_local QVector<int> charToByte;
         charToByte.resize(segCharLen + 1);
@@ -3682,7 +3767,7 @@ void MainWindow::applyUrlHighlighting(int startPos, int endPos)
 }
 
 // ============================================================
-// Hotspot click → open URL in default browser
+// Hotspot click -> open URL in default browser
 // ============================================================
 void MainWindow::onEditorHotspotClick(int position, int /*modifiers*/)
 {
@@ -3792,7 +3877,7 @@ void MainWindow::applyHighlightingRange(int startPos, int endPos)
         segBytes.data());
     QString seg = QString::fromUtf8(segBytes);
 
-    // Build a char→byte offset lookup table for `seg` once, up front
+    // Build a char->byte offset lookup table for `seg` once, up front
     const int segCharLen = seg.length();
     static thread_local QVector<int> charToByte;
     charToByte.resize(segCharLen + 1);
@@ -4226,12 +4311,31 @@ void MainWindow::onEditorModified(int pos, int mtype, const char* text, int leng
         {
             m_insertedRangesUndoStack.push_back(m_insertedRanges);
             int dEnd = pos + length;
+
+            // Maps a position through the deletion: positions before the deleted
+            // span are untouched, positions after it shift left by `length`, and
+            // positions inside it collapse onto `pos` (the deletion point).
+            auto mapPos = [&](int p) -> int
+                {
+                    if (p <= pos)  return p;
+                    if (p >= dEnd) return p - length;
+                    return pos;
+                };
+
             QList<QPair<int, int>> kept;
             for (const auto& r : m_insertedRanges)
             {
-                int rEnd = r.first + r.second;
-                if (rEnd <= pos) { kept.append(r); continue; }
-                if (r.first >= dEnd) { kept.append(qMakePair(r.first - length, r.second)); continue; }
+                int oldStart = r.first;
+                int oldEnd = r.first + r.second;
+
+                int newStart = mapPos(oldStart);
+                int newEnd = mapPos(oldEnd);
+                int newLen = newEnd - newStart;
+
+                if (newLen > 0)
+                    kept.append(qMakePair(newStart, newLen));
+                // newLen <= 0 means this range was fully consumed by the deletion —
+                // correctly dropped, not lost by accident.
             }
             m_insertedRanges = kept;
         }
@@ -5112,6 +5216,7 @@ bool MainWindow::loadFileFromPath(const QString& path)
         updateLaunchButtonVisibility();
         if (m_btnViewMode)     m_btnViewMode->setEnabled(true);
         if (m_btnListViewMode) m_btnListViewMode->setEnabled(true);
+        if (m_txtPayloadSearch) m_txtPayloadSearch->setEnabled(true);
         rebuildFilterMenu();
         updateFooter();
         statusBar()->show();
@@ -5123,7 +5228,58 @@ bool MainWindow::loadFileFromPath(const QString& path)
                     m_lstPayloads->setCurrentRow(0);
             });
 
-        QMessageBox::information(this, "Success", "File loaded and payloads extracted.");
+        // Only show the ac warning if a launcher exe is detected alongside
+        // a game exe next to a Data/ folder — launcher presence = EA ac game
+        {
+            bool acDetected = false;
+#ifdef Q_OS_WIN
+            QDir d(QFileInfo(path).absolutePath());
+            while (!d.isRoot())
+            {
+                if (QDir(d.filePath("Data")).exists())
+                {
+                    QFileInfoList exeList = d.entryInfoList({ "*.exe" }, QDir::Files);
+                    bool hasLauncher = false;
+                    bool hasGameExe = false;
+                    for (const QFileInfo& fi : exeList)
+                    {
+                        QString nameLower = fi.fileName().toLower();
+                        if (nameLower.contains("trial")) continue;
+                        bool isLauncher = nameLower.contains("_launcher") ||
+                            nameLower.contains("gameservicelauncher");
+                        if (isLauncher)
+                            hasLauncher = true;
+                        else
+                            hasGameExe = true;
+                    }
+                    if (hasLauncher && hasGameExe)
+                    {
+                        acDetected = true;
+                        break;
+                    }
+                }
+                d.cdUp();
+            }
+#endif
+            if (acDetected)
+            {
+                QMessageBox msgBox(this);
+                msgBox.setWindowTitle("Anticheat Detected");
+                msgBox.setIcon(QMessageBox::Warning);
+                msgBox.setTextFormat(Qt::RichText);
+                msgBox.setText(
+                    "This game has an anticheat installed.<br><br>"
+                    "Attempting to launch or save changes to this file will try to patch the "
+                    "anticheat, which <b>disables online functionality</b>.<br><br>"
+                    "You can revert this at any given time by clicking the colored "
+                    "Anticheat Status button at the top to restore online play.<br><br>"
+                    "<b>Disclaimer:</b> This tool is not responsible for any account "
+                    "suspensions that may result from launching, and patching "
+                    "is not guaranteed to work on every game.");
+                msgBox.setStandardButtons(QMessageBox::Ok);
+                msgBox.exec();
+            }
+        }
         return true;
     }
     catch (const std::exception& ex)
@@ -5135,7 +5291,7 @@ bool MainWindow::loadFileFromPath(const QString& path)
 }
 
 // ============================================================
-// File → Load Initfs
+// File -> Load Initfs
 // ============================================================
 void MainWindow::onLoadInitfs()
 {
@@ -5197,6 +5353,7 @@ void MainWindow::onSaveInitfs()
     if (performSave(m_loadedFilePath))
     {
         clearSavedStateFromList();
+        updatePatchButton();
     }
 }
 
@@ -5229,6 +5386,7 @@ void MainWindow::onSaveInitfsAs()
         m_loadedFilePath = savePath;
         clearSavedStateFromList();
         updateFooter();
+        updatePatchButton();
     }
 }
 
@@ -5261,23 +5419,30 @@ bool MainWindow::performSave(const QString& targetPath)
                 Converter::encryptionKey = std::vector<uint8_t>(key.begin(), key.end());
             }
             Converter::obfuscateInitfsFromPlainData(srcPath, plain, dstPath, key);
-            QMessageBox::information(this, "Success", "Saved initfs (AES-encrypted).");
+            Logger::log("[SaveInitfs] Successfully saved initfs (AES-encrypted).");
         }
         else if (m_loadedType == DeobfuscatorType::BF3)
         {
             Converter::writeBF3ObfuscatedInitfs(srcPath, m_rootObj, dstPath);
-            QMessageBox::information(this, "Success", "Saved initfs (BF3 obfuscated).");
+            Logger::log("[SaveInitfs] Successfully saved initfs (BF3 obfuscated).");
         }
         else if (m_loadedType == DeobfuscatorType::PVZ)
         {
             Converter::writePvzObfuscatedInitfs(srcPath, m_rootObj, dstPath);
-            QMessageBox::information(this, "Success", "Saved initfs (PVZ obfuscated).");
+            Logger::log("[SaveInitfs] Successfully saved initfs (PVZ obfuscated).");
         }
         else
         {
             Converter::writeDeobfuscatedInitfsFromDbObject(srcPath, m_rootObj, dstPath, m_loadedType);
-            QMessageBox::information(this, "Success", "Saved initfs.");
+            Logger::log("[SaveInitfs] Successfully saved initfs.");
         }
+
+#ifdef Q_OS_WIN
+        MessageBeep(MB_ICONINFORMATION);
+#else
+        QApplication::beep();
+#endif
+
         return true;
     }
     catch (const std::exception& ex)
@@ -5769,8 +5934,8 @@ void MainWindow::onRestoreInitfs()
         // Derive the destination filename by stripping the identifier prefix
         // from the cache leaf:
         //   Format: <8charHash>_[patch_|update_]<originalFilename>
-        //   e.g. "c5773295_patch_initfs_Win32" → "initfs_Win32"
-        //        "c5773295_initfs_Win32"        → "initfs_Win32"
+        //   e.g. "c5773295_patch_initfs_Win32" -> "initfs_Win32"
+        //        "c5773295_initfs_Win32"        -> "initfs_Win32"
         // ------------------------------------------------------------------
         QString strippedLeaf = m_cacheLeaf;
 
@@ -5812,7 +5977,7 @@ void MainWindow::onRestoreInitfs()
 
         try
         {
-            // 1. Copy cache file → destination (overwrite if it already exists)
+            // 1. Copy cache file -> destination (overwrite if it already exists)
             if (QFile::exists(destPath))
             {
                 if (!QFile::remove(destPath))
@@ -5861,7 +6026,7 @@ void MainWindow::onRestoreInitfs()
             {
                 QMessageBox::critical(this, "Restore",
                     "File was copied to disk successfully, but the editor could not "
-                    "reload it. Reload manually via File → Load.");
+                    "reload it. Reload manually via File -> Load.");
                 return;
             }
 
@@ -6097,6 +6262,7 @@ void MainWindow::unloadCurrentInitfs()
     updateLaunchButtonVisibility();
     if (m_btnViewMode)     m_btnViewMode->setEnabled(false);
     if (m_btnListViewMode) m_btnListViewMode->setEnabled(false);
+    if (m_txtPayloadSearch) { m_txtPayloadSearch->clear(); m_txtPayloadSearch->setEnabled(false); }
 
     // Reset status bar
     if (m_sbLoaded)        m_sbLoaded->setText("Loaded File:");
@@ -6186,6 +6352,12 @@ void MainWindow::populatePayloadList()
                 {
                     QString ext = "." + QFileInfo(name).suffix().toLower();
                     if (!m_activeExtensions.contains(ext)) { idx++; return; }
+                }
+
+                if (!m_payloadSearchText.isEmpty()
+                    && !name.toLower().contains(m_payloadSearchText))
+                {
+                    idx++; return;
                 }
 
                 // Platform filter — use cached text snapshot to avoid payload copy
@@ -8058,7 +8230,8 @@ void MainWindow::onConsoleInjector()
 {
     if (!m_consoleWindow) {
         m_consoleWindow = new ConsoleWindow(this, this);
-        connect(m_consoleWindow, &QDialog::finished, this, [this]() {
+        m_consoleWindow->setAttribute(Qt::WA_DeleteOnClose, false);
+        connect(m_consoleWindow, &QObject::destroyed, this, [this]() {
             m_consoleWindow = nullptr;
             });
     }
@@ -8173,6 +8346,17 @@ void MainWindow::onSortAZ() { m_sortMode = SortMode::AZ;        updateSortCheckm
 void MainWindow::onSortZA() { m_sortMode = SortMode::ZA;        updateSortCheckmarks(); int c = m_currentPayloadIndex; populatePayloadList(); restoreSelectionAfterFilter(c); }
 void MainWindow::onSortBigSmall() { m_sortMode = SortMode::BigSmall;  updateSortCheckmarks(); int c = m_currentPayloadIndex; populatePayloadList(); restoreSelectionAfterFilter(c); }
 void MainWindow::onSortSmallBig() { m_sortMode = SortMode::SmallBig;  updateSortCheckmarks(); int c = m_currentPayloadIndex; populatePayloadList(); restoreSelectionAfterFilter(c); }
+
+// ============================================================
+// Payload name search  (names only — never touches payload contents)
+// ============================================================
+void MainWindow::onPayloadSearchChanged(const QString& text)
+{
+    m_payloadSearchText = text.trimmed().toLower();
+    int cur = (m_currentPayloadIndex >= 0) ? m_currentPayloadIndex : -1;
+    populatePayloadList();
+    restoreSelectionAfterFilter(cur);
+}
 
 // ============================================================
 // Per-payload Scintilla document switching
@@ -9252,10 +9436,32 @@ void MainWindow::attemptCryptBaseCopy(const QString& savedFilePath)
     QString saveName = QFileInfo(savedFilePath).fileName().toLower();
     bool looksWin32 = name.contains("win32") || saveName.contains("win32");
     if (!looksWin32) { Logger::log("[Bcrypt] Not a Win32 file, skipping."); return; }
-    // Locate the dinput8.dll shipped alongside this executable
+
     QString exeDir = QCoreApplication::applicationDirPath();
-    QString src = exeDir + "/dinput8.dll";
-    if (!QFile::exists(src)) { Logger::log("[Bcrypt] DLL not found next to executable, skipping."); return; }
+
+    // Detect OS version via RtlGetVersion (avoids manifest compatibility shim)
+    OSVERSIONINFOEXW osvi{};
+    osvi.dwOSVersionInfoSize = sizeof(osvi);
+    NTSTATUS(WINAPI * RtlGetVersion)(LPOSVERSIONINFOEXW) =
+        (NTSTATUS(WINAPI*)(LPOSVERSIONINFOEXW))GetProcAddress(
+            GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion");
+    if (RtlGetVersion) RtlGetVersion(&osvi);
+    bool isWin10 = (osvi.dwMajorVersion == 10 && osvi.dwBuildNumber < 22000);
+
+    // On Windows 10: copy dinput8.dll only when the file is PVZ or AES-encrypted.
+    // On Windows 11+: always copy bcrypt.dll regardless of obfuscation type.
+    bool usedinput8 = isWin10
+        && (m_loadedHadEncrypted || m_loadedType == DeobfuscatorType::PVZ);
+
+    QString dllName = usedinput8 ? "dinput8.dll" : "bcrypt.dll";
+    QString src = exeDir + "/" + dllName;
+    if (!QFile::exists(src))
+    {
+        Logger::log("[Bcrypt] %s not found next to executable, skipping.",
+            dllName.toUtf8().constData());
+        return;
+    }
+
     // Walk up from the saved file's directory until we find a folder with a .exe
     QDir d(QFileInfo(savedFilePath).absolutePath());
     while (!d.isRoot())
@@ -9263,23 +9469,28 @@ void MainWindow::attemptCryptBaseCopy(const QString& savedFilePath)
         if (!d.entryList({ "*.exe" }, QDir::Files).isEmpty()) break;
         d.cdUp();
     }
+
     // Skip if no Data subfolder exists alongside the exe — not a valid game directory
     if (!QDir(d.filePath("Data")).exists())
     {
         Logger::log("[Bcrypt] No Data folder found next to game exe, skipping.");
         return;
     }
-    // Skip if either dinput8.dll OR CryptBase.dll OR bcrypt.dll already exist in the game directory
-    QString dstBcrypt = d.filePath("dinput8.dll");
-    QString dstCryptBase = d.filePath("CryptBase.dll");
-    QString dstBcryptOld = d.filePath("bcrypt.dll");
-    if (QFile::exists(dstBcrypt) || QFile::exists(dstCryptBase) || QFile::exists(dstBcryptOld))
+
+    // Skip if either dinput8.dll OR bcrypt.dll already exist in the game directory
+    QString dstDinput8 = d.filePath("dinput8.dll");
+    QString dstCryptBase = d.filePath("bcrypt.dll");
+    if (QFile::exists(dstDinput8) || QFile::exists(dstCryptBase))
     {
         Logger::log("[Bcrypt] DLL already present in game directory, skipping.");
         return;
     }
-    QFile::copy(src, dstBcrypt);
-    Logger::log("[Bcrypt] Copied to: %s", dstBcrypt.toUtf8().constData());
+
+    QString dst = d.filePath(dllName);
+    QFile::copy(src, dst);
+    Logger::log("[Bcrypt] Copied %s to: %s",
+        dllName.toUtf8().constData(),
+        dst.toUtf8().constData());
 #else
     Q_UNUSED(savedFilePath)
 #endif
@@ -9336,9 +9547,17 @@ void MainWindow::repositionLaunchButton()
     int w = qMax(m_btnLaunch->sizeHint().width(), minW);
 
     int h = mb->height() - 1;
-    // Use rightEdge directly with no gap — the button's own left padding provides spacing
     m_btnLaunch->setGeometry(rightEdge, 0, w, h);
     m_btnLaunch->raise();
+
+    // Position patch button immediately to the right of the launch button
+    if (m_btnPatch && m_btnPatch->isVisible())
+    {
+        m_btnPatch->adjustSize();
+        int pw = qMax(m_btnPatch->sizeHint().width(), 160);
+        m_btnPatch->setGeometry(rightEdge + w, 0, pw, h);
+        m_btnPatch->raise();
+    }
 }
 
 bool MainWindow::isWin32Platform() const
@@ -9347,6 +9566,61 @@ bool MainWindow::isWin32Platform() const
     return lower.contains("win32")
         || lower.contains("dedicatedserver")
         || lower.contains("editor");
+}
+
+QString MainWindow::resolveGameDirForPatch() const
+{
+    // Walk up from the loaded file's directory to find the game exe folder
+    if (m_loadedFilePath.isEmpty()) return {};
+    QDir d(QFileInfo(m_loadedFilePath).absolutePath());
+    while (!d.isRoot())
+    {
+        if (QDir(d.filePath("Data")).exists())
+        {
+            QFileInfoList exeList = d.entryInfoList({ "*.exe" }, QDir::Files);
+            for (const QFileInfo& fi : exeList)
+            {
+                QString nl = fi.fileName().toLower();
+                if (nl.contains("trial")) continue;
+                bool isLauncher = nl.contains("_launcher") ||
+                    nl.contains("gameservicelauncher");
+                if (isLauncher) return d.absolutePath();
+            }
+        }
+        d.cdUp();
+    }
+    return {};
+}
+
+void MainWindow::updatePatchButton()
+{
+    if (!m_btnPatch) return;
+    QString gameDir = resolveGameDirForPatch();
+    if (gameDir.isEmpty())
+    {
+        m_btnPatch->setVisible(false);
+        return;
+    }
+
+    bool patched = PatcherBridge::isPatched(gameDir);
+    if (patched)
+    {
+        m_btnPatch->setText("Anticheat Patched - Online Disabled");
+        m_btnPatch->setStyleSheet(
+            "QToolButton { color: #00cc00; background: transparent; border: none; padding: 0px 8px; }"
+            "QToolButton:hover { background: #1a2a1a; }"
+            "QToolButton:pressed { background: #003a6e; color: white; }");
+    }
+    else
+    {
+        m_btnPatch->setText("Anticheat Not Patched - Online Enabled");
+        m_btnPatch->setStyleSheet(
+            "QToolButton { color: #cc0000; background: transparent; border: none; padding: 0px 8px; }"
+            "QToolButton:hover { background: #2a1a1a; }"
+            "QToolButton:pressed { background: #6e0000; color: white; }");
+    }
+
+    repositionLaunchButton();
 }
 
 void MainWindow::setLaunchButtonRunningState(bool running)
@@ -9381,6 +9655,13 @@ void MainWindow::updateLaunchButtonVisibility()
         && !resolveLaunchExe(true).isEmpty();
 
     m_btnLaunch->setVisible(show);
+
+    if (m_btnPatch)
+    {
+        m_btnPatch->setVisible(show);
+        if (show) updatePatchButton();
+    }
+
     repositionLaunchButton();
 
     if (show && !m_sessionExePath.isEmpty())
@@ -9487,6 +9768,60 @@ QString MainWindow::resolveLaunchExe(bool silentProbe)
     return {};
 }
 
+void MainWindow::onChangeLaunchProgram()
+{
+    if (m_loadedFilePath.isEmpty()) return;
+
+    // Don't allow changing the target while a launch is actively running
+    if (m_launchProcess && m_launchProcess->state() != QProcess::NotRunning)
+    {
+        QMessageBox::information(this, "Change Launch Program",
+            "Cannot change the launch target while a program is currently running.");
+        return;
+    }
+
+    QDir d(QFileInfo(m_loadedFilePath).absolutePath());
+    while (!d.isRoot())
+    {
+        QStringList exes = d.entryList({ "*.exe", "*.bat" }, QDir::Files);
+        if (!exes.isEmpty() && QDir(d.filePath("Data")).exists())
+        {
+            // Pre-select whatever is currently chosen, if it's in this list
+            int currentIdx = 0;
+            if (!m_sessionExePath.isEmpty())
+            {
+                QString currentName = QFileInfo(m_sessionExePath).fileName();
+                int idx = exes.indexOf(currentName);
+                if (idx >= 0) currentIdx = idx;
+            }
+
+            bool ok = false;
+            QString chosen = QInputDialog::getItem(
+                this,
+                "Select Executable",
+                "Select the program to launch:",
+                exes, currentIdx, false, &ok);
+
+            if (ok && !chosen.isEmpty())
+            {
+                QString newPath = d.filePath(chosen);
+                if (newPath != m_sessionExePath)
+                {
+                    m_sessionExePath = newPath;
+                    Logger::log("[Launch] Launch target changed to: %s",
+                        m_sessionExePath.toUtf8().constData());
+                }
+                startExternalProcessWatch();
+            }
+            return;
+        }
+        d.cdUp();
+    }
+
+    QMessageBox::information(this, "Change Launch Program",
+        "No executable found near the loaded initfs file.");
+}
+
 void MainWindow::onLaunchWithChanges()
 {
     // If already running, kill it
@@ -9524,6 +9859,7 @@ void MainWindow::onLaunchWithChanges()
     }
 
     setLaunchButtonRunningState(true);
+    updatePatchButton();
 
     // Save after launch
     QTimer::singleShot(150, this, [this]() { onSaveInitfs(); });
@@ -9566,6 +9902,7 @@ void MainWindow::onLaunchWithoutChanges()
     }
 
     setLaunchButtonRunningState(true);
+    updatePatchButton();
 }
 
 // ============================================================

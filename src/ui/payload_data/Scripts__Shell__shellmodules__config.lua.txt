@@ -13,9 +13,9 @@ Function: getAspect(width, height)
 - Calculates aspect ratio from resolution
 - Returns string representation or nil
 - Ratio mappings:
-  * 1.6 → '16:10'
-  * 1.7-1.8 → '16:9'
-  * 1.3-1.4 → '4:3'
+  * 1.6 -> '16:10'
+  * 1.7-1.8 -> '16:9'
+  * 1.3-1.4 -> '4:3'
   * Other ratios return nil (filtered out)
 
 Function: executeConfigRequest(requestArgs)
@@ -49,7 +49,7 @@ Response Format:
 Route Registration:
 - Pattern: /config/([^/]+)
 - Captures config group name as 'configGroup'
-- Example: /config/display → configGroup = 'display'
+- Example: /config/display -> configGroup = 'display'
 
 House Colors:
 In C&C, 'house' refers to player faction/color. This retrieves available player colors for multiplayer matches.

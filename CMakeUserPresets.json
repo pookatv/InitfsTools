@@ -16,7 +16,7 @@
       },
       "environment": {
         "QML_DEBUG_ARGS": "-qmljsdebugger=file:{6763d892-e28f-4d39-b358-16e0ffabd24a},block",
-        "PATH": "<YOUR_QT_BACKPORT_PATH>/bin;$penv{PATH}"
+        "PATH": "C:/Users/Luca/Documents/_InitfsConverterEXE/C++/Qt_6.10_Backport/bin;$penv{PATH}"
       }
     },
     {
@@ -37,10 +37,10 @@
       "name": "Qt-Default-Dynamic",
       "inherits": "Qt",
       "environment": {
-        "QTDIR": "<YOUR_QT_BACKPORT_PATH>"
+        "QTDIR": "C:/Users/Luca/Documents/_InitfsConverterEXE/C++/Qt_6.10_Backport"
       },
       "cacheVariables": {
-        "QT_PATH": "<YOUR_QT_BACKPORT_PATH>"
+        "QT_PATH": "C:/Users/Luca/Documents/_InitfsConverterEXE/C++/Qt_6.10_Backport"
       },
       "architecture": {
         "strategy": "external",
@@ -66,11 +66,6 @@
     },
     {
       "hidden": true,
-      "name": "Qt-Default",
-      "inherits": "Qt"
-    },
-    {
-      "hidden": true,
       "name": "Cross-Default",
       "inherits": "Qt",
       "cacheVariables": {
@@ -84,7 +79,8 @@
       "name": "Cross-Debug",
       "inherits": [
         "Cross-Default",
-        "Qt-Default-Dynamic"
+        "Qt-Default-Dynamic",
+        "Qt-Default"
       ],
       "binaryDir": "${sourceDir}/out/build/cross-debug",
       "cacheVariables": {
@@ -97,18 +93,47 @@
       "name": "Cross-Release",
       "inherits": [
         "Cross-Default",
-        "Qt-Default-Static"
+        "Qt-Default-Static",
+        "Qt-Default"
       ],
       "binaryDir": "${sourceDir}/out/build/cross-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "QT_STATIC": "ON"
       }
+    },
+    {
+      "hidden": true,
+      "name": "Qt-Default",
+      "inherits": "Qt 6.10 Backport",
+      "vendor": {
+        "qt-project.org/Default": {
+          "checksum": "CI6QxMQavMOap5Cy7B+bBN1LG/c="
+        }
+      }
+    },
+    {
+      "hidden": true,
+      "name": "Qt 6.10 Backport",
+      "inherits": "Qt",
+      "environment": {
+        "QTDIR": "C:/Users/Luca/Documents/_InitfsConverterEXE/C++/Qt_6.10_Backport"
+      },
+      "architecture": {
+        "strategy": "external",
+        "value": "x64"
+      },
+      "generator": "Ninja",
+      "vendor": {
+        "qt-project.org/Version": {
+          "checksum": "LC7UY9VLB5os+svP/+rs5qwMZwY="
+        }
+      }
     }
   ],
   "vendor": {
     "qt-project.org/Presets": {
-      "checksum": "VUT0iFeK4dkbp4+iU8n8Y+fZrF4="
+      "checksum": "ji5PdEWCQPKq119FUaqECp6WxbY="
     }
   }
 }

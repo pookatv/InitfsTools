@@ -34,22 +34,22 @@ bindProfileVar(newVal):
 
 User Settings Table:
 Maps JavaScript setting names to profile variables:
-- shellfullscreen → RtsProfileSettings.FrontEndFullscreen
-- gamefullscreen → RtsProfileSettings.GameFullscreen
-- fullscreenwidth → RtsProfileSettings.FullscreenWidth
-- fullscreenheight → RtsProfileSettings.FullscreenHeight
-- windowedwidth → RtsProfileSettings.WindowedWidth
-- windowedheight → RtsProfileSettings.WindowedHeight
-- mastervolume → RtsProfileSettings.MasterVolume
-- edgepan → RtsProfileSettings.EdgePan
-- edgescrollspeed → RtsProfileSettings.EdgeScrollSpeed
-- middlemousecameradrag → RtsProfileSettings.MiddleMouseCameraDrag
-- movemodeattack → RtsProfileSettings.MoveModeAttack
-- allowdeselect → RtsProfileSettings.AllowDeselect
+- shellfullscreen -> RtsProfileSettings.FrontEndFullscreen
+- gamefullscreen -> RtsProfileSettings.GameFullscreen
+- fullscreenwidth -> RtsProfileSettings.FullscreenWidth
+- fullscreenheight -> RtsProfileSettings.FullscreenHeight
+- windowedwidth -> RtsProfileSettings.WindowedWidth
+- windowedheight -> RtsProfileSettings.WindowedHeight
+- mastervolume -> RtsProfileSettings.MasterVolume
+- edgepan -> RtsProfileSettings.EdgePan
+- edgescrollspeed -> RtsProfileSettings.EdgeScrollSpeed
+- middlemousecameradrag -> RtsProfileSettings.MiddleMouseCameraDrag
+- movemodeattack -> RtsProfileSettings.MoveModeAttack
+- allowdeselect -> RtsProfileSettings.AllowDeselect
 
 User Audio Settings Table:
 Subset for audio-only updates:
-- mastervolume → RtsProfileSettings.MasterVolume
+- mastervolume -> RtsProfileSettings.MasterVolume
 
 Request Handlers:
 
@@ -80,11 +80,11 @@ executeUserSettingsDiscardRequest(requestArgs):
 - Returns {status: 0}
 
 Route Registration:
-- /usersettings/applyAudio → executeUserSettingsApplyAudioRequest
-- /usersettings/apply → executeUserSettingsApplyRequest
-- /usersettings/save → executeUserSettingsSaveRequest
-- /usersettings/discard → executeUserSettingsDiscardRequest
-- /usersettings → executeUserSettingsRequest (GET all settings)
+- /usersettings/applyAudio -> executeUserSettingsApplyAudioRequest
+- /usersettings/apply -> executeUserSettingsApplyRequest
+- /usersettings/save -> executeUserSettingsSaveRequest
+- /usersettings/discard -> executeUserSettingsDiscardRequest
+- /usersettings -> executeUserSettingsRequest (GET all settings)
 
 Native Functions Used:
 - getUserOptions(array) - Retrieves multiple options

@@ -57,7 +57,7 @@ end
 Standardized physics quality across EA's entire portfolio.
 
 Changes from 2011-2015:
-- Logging changed: log:info → log:debug (reduced console verbosity)
+- Logging changed: log:info -> log:debug (reduced console verbosity)
 - All other settings identical
 
 Settings remain unchanged:
@@ -299,7 +299,7 @@ applySettings([=[
 Returns to standard wheel physics with enhanced debris system.
 
 Changes from Battlefront (2015):
-- Logging changed: log:info → log:debug
+- Logging changed: log:info -> log:debug
 - Wheel physics settings identical to 2015
 - Debris quality system retained and unchanged
 

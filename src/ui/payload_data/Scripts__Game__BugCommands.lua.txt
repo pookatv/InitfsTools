@@ -167,7 +167,7 @@ Commands =
 Racing game adaptation - vehicle/track context instead of soldier positions.
 
 Changes from BF3:
-- Title changed: 'Venice' → 'NFS12'
+- Title changed: 'Venice' -> 'NFS12'
 - Added Severity field: 'B - Major'
 - Added Build Type field
 - Removed: Assignee, Milestone Hindering
@@ -175,7 +175,7 @@ Changes from BF3:
   - LastCarType - Which car was being driven
   - LastLocation - Track/location context
   - juiceusertype - User type classification
-- Changed: 'Found in Change List' → 'Found CL'
+- Changed: 'Found in Change List' -> 'Found CL'
 - Removed: Player position tracking (not relevant for racing)
 
 Why: Racing games needed vehicle/track context instead of soldier positions.
@@ -318,8 +318,8 @@ Commands =
 EA LA's custom template - massive QA field expansion.
 
 Major Changes:
-- Renamed: StandardB4BugBug → MOHWB4BugBug (studio-specific)
-- Title: 'Venice' → 'MOHW'
+- Renamed: StandardB4BugBug -> MOHWB4BugBug (studio-specific)
+- Title: 'Venice' -> 'MOHW'
 - Added extensive QA metadata fields:
   - Bug Type: 'QA Bug'
   - Coverage Pillar: 'Functionality'
@@ -554,11 +554,11 @@ Changes from MOHW:
 - Back to StandardB4BugBug naming
 - Title: 'CNCO_DL' (Generals 2 codename)
 - Removed most MOHW complexity
-- Changed Issue Type: 'Bug' → 'QA Bug'
+- Changed Issue Type: 'Bug' -> 'QA Bug'
 - Added Sub Project field: 'Back to the Future'
-- Changed 'Game Level' → 'Description' with 'Game.level' API
+- Changed 'Game Level' -> 'Description' with 'Game.level' API
 - Simplified bug template in Description field
-- Changed 'Found in Change List (Game)' → 'Version Found'
+- Changed 'Found in Change List (Game)' -> 'Version Found'
 - Removed extensive QA metadata fields
 
 Why: C&C was cancelled mid-development; they reverted to a simpler system.
@@ -1106,7 +1106,7 @@ New Features:
   '\n\nExpected: '
 - Camera URL: 'DebugCam.getCameraURL'
 - Dev Priority field: '0 - Not Set'
-- Platform API changed: 'BugManager.getPlatform' → 'BugManager.getB4BugPlatform'
+- Platform API changed: 'BugManager.getPlatform' -> 'BugManager.getB4BugPlatform'
 - Version Found field added
 - 'ENTERED VIA B4BUG' marker in Description
 
@@ -1722,8 +1722,8 @@ Games Using This Version:
 - Plants vs Zombies: Battle for Neighborville (2019)
 
 The Big Rename:
-- StandardB4BugBug → StandardBugDroneBug
-- 'B4Bug' → 'BugDrone' (EA rebranded the tool)
+- StandardB4BugBug -> StandardBugDroneBug
+- 'B4Bug' -> 'BugDrone' (EA rebranded the tool)
 - Report Method field still says 'B4Bug' (backend didn't change)
 
 Why: Pure marketing/branding decision. The tool was renamed 'BugDrone' but the underlying system remained identical. Zero technical changes.
@@ -1893,8 +1893,8 @@ Games Using This Version:
 - Future Frostbite titles
 
 UI System Change:
-- TestCommand1: 'UI.DrawEnable' → 'RimeSettings.DrawEnable'
-- AnimationCommand1: 'UI.DrawEnable' → 'RimeSettings.DrawEnable'
+- TestCommand1: 'UI.DrawEnable' -> 'RimeSettings.DrawEnable'
+- AnimationCommand1: 'UI.DrawEnable' -> 'RimeSettings.DrawEnable'
 - All other commands unchanged
 
 Why: Frostbite's UI system was completely rebuilt for PS5/Xbox Series X generation. 'Rime' is the new UI framework replacing the legacy 'UI' system. Only the UI toggle commands needed updating.

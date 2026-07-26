@@ -527,12 +527,14 @@ private slots:
     // Launch
     void onLaunchWithChanges();
     void onLaunchWithoutChanges();
+    void onChangeLaunchProgram();
     void updateLaunchButtonVisibility();
     QString resolveLaunchExe(bool silentProbe = false);
 
     // Payload list
     void onPayloadSelectionChanged();
     void onPayloadContextMenu(const QPoint& pos);
+    void onPayloadSearchChanged(const QString& text);
 
     // Context menu items
     void onAddPayload();
@@ -689,6 +691,8 @@ private:
     void repositionLaunchButton();
     void startExternalProcessWatch();
     void clearSavedStateFromList();
+    void updatePatchButton();
+    QString resolveGameDirForPatch() const;
 
     // ---- MD5 ----
     QString computeMD5(const QByteArray& data) const;
@@ -723,8 +727,11 @@ private:
     QMenu* m_menuLaunch = nullptr;
     QAction* m_actLaunchWith = nullptr;
     QAction* m_actLaunchWithout = nullptr;
+    QAction* m_actChangeLaunchProgram = nullptr;
     QString      m_sessionExePath;
     bool         m_launchWithChanges = true;
+
+    QToolButton* m_btnPatch = nullptr;
 
     QProcess* m_launchProcess = nullptr;
     QTimer* m_processWatchTimer = nullptr;
@@ -768,6 +775,7 @@ private:
     QSplitter* m_splitter = nullptr;
     QWidget* m_leftPanel = nullptr;
     QLabel* m_lblPayloadList = nullptr;
+    QLineEdit* m_txtPayloadSearch = nullptr;
     QToolButton* m_btnListViewMode = nullptr;
     QListWidget* m_lstPayloads = nullptr;
     QTreeWidget* m_treePayloads = nullptr;
@@ -867,6 +875,8 @@ private:
     bool          m_filterByPlatform = false;
     bool          m_expandAllOnNextRebuild = false;
     bool          m_collapseAllOnNextRebuild = false;
+    QString       m_payloadSearchText;
+    bool          m_initialFocusSet = false;
 
     int  m_lastSearchIndex = 0;
     bool m_lastSearchBackward = false;

@@ -26,7 +26,7 @@ Final Command:
 
 Additional Testing vs cycleSpLevels:
 - server.loadLevel Levels/FrontEnd/FrontEnd - Loads main menu/frontend
-- Tests campaign → menu → campaign transitions
+- Tests campaign -> menu -> campaign transitions
 - 30 second sleep after menu load (shorter than mission loads)
 
 Missions Tested: Same 8 missions as cycleSpLevels

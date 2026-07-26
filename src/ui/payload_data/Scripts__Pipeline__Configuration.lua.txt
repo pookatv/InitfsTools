@@ -18,18 +18,18 @@ Maya Version Detection:
 - Supports: 8.5 (850) and 2009
 
 Command-Line Switches (Boolean):
-- debug → Pipeline.DebugMode
-- validateData → Pipeline.ValidateData
-- addToPerforce → Pipeline.AddToPerforce
-- noconsole → Pipeline.NoConsole
-- verbose → Pipeline.Verbose
-- trace → Pipeline.EnableTracing
-- nohal → Pipeline.DisableHalDevice
-- trim → Pipeline.TrimLayout
-- updateIndex → Pipeline.UpdateIndexOnly
+- debug -> Pipeline.DebugMode
+- validateData -> Pipeline.ValidateData
+- addToPerforce -> Pipeline.AddToPerforce
+- noconsole -> Pipeline.NoConsole
+- verbose -> Pipeline.Verbose
+- trace -> Pipeline.EnableTracing
+- nohal -> Pipeline.DisableHalDevice
+- trim -> Pipeline.TrimLayout
+- updateIndex -> Pipeline.UpdateIndexOnly
 
 Command-Line Arguments (String):
-- opfilter → Pipeline.OpFilter
+- opfilter -> Pipeline.OpFilter
 
 Diagnostics:
 - Pipeline.Verbose triggers settings dump and command-line dump
@@ -1622,8 +1622,8 @@ end
 EA Sports restores legacy switches.
 
 Changes from Dragon Age:
-- Restored: trace → Pipeline.EnableTracing
-- Restored: nohal → Pipeline.DisableHalDevice
+- Restored: trace -> Pipeline.EnableTracing
+- Restored: nohal -> Pipeline.DisableHalDevice
 - Restored: functionParameters argument
 - Reverted to Pipeline/Cache only (removed ContentDatabase)
 
@@ -1811,7 +1811,7 @@ This architecture enables:
 - Future-proof extensibility
 
 Comment Change:
-- 'Normal users should typically not edit this file' → 'Licensee developers should not edit this file'
+- 'Normal users should typically not edit this file' -> 'Licensee developers should not edit this file'
 - Emphasizes Frostbite ownership vs game team customization
 
 This is the modern template that will carry Frostbite pipeline configuration into the next generation.
@@ -1946,7 +1946,7 @@ end
 Skate's variant with refined comment.
 
 Changes from BF6/NFL 26:
-- Comment: 'Normal users' → 'Licensee developers'
+- Comment: 'Normal users' -> 'Licensee developers'
 - Emphasized stronger ownership boundaries
 - Removed opfilter argument completely
 

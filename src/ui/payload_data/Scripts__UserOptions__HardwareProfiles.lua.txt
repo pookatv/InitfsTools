@@ -133,7 +133,7 @@ Revolutionary Changes:
    - [0x8086] = Intel.lua (Intel integrated graphics)
 
 2. getDeviceSettings() Function - Device ID-based quality detection
-   - Console detection: "Xenon" (Xbox 360) → Medium, "PS3" → High
+   - Console detection: "Xenon" (Xbox 360) -> Medium, "PS3" -> High
    - Vendor lookup: vendorDB[vendorId][deviceId] returns quality preset
    - Fallback: Medium quality if device not found
 
@@ -404,12 +404,12 @@ X86 ARCHITECTURE DETECTION - Added 32-bit system handling.
 Key Addition:
 1. isX86 Parameter - New architecture detection
    - getDeviceSettings(vendorId, deviceId, adapterName, isX86)
-   - if isX86 == 1 → Force Quality.Low preset
+   - if isX86 == 1 -> Force Quality.Low preset
    - Protects 32-bit systems from high memory usage
 
 2. Restored Features from 2011
    - vendorDB system returns
-   - Multi-GPU bonus (gpuCount > 1 → Quality 4)
+   - Multi-GPU bonus (gpuCount > 1 -> Quality 4)
    - Console platform detection (Xenon, PS3)
 
 3. GPU Detection Updates
@@ -540,14 +540,14 @@ NEXT-GEN CONSOLE SUPPORT - Added PS4/Xbox One detection with BioWare-specific ha
 
 Key Changes:
 1. Next-Gen Console Detection
-   - Added GEN4A (Xbox One) detection → Quality.High
-   - Added GEN4B (PS4) detection → Quality.High
+   - Added GEN4A (Xbox One) detection -> Quality.High
+   - Added GEN4B (PS4) detection -> Quality.High
    - BioWare-specific platform handling
 
 2. GPU Updates
    - Added GeForce GTX 6xx series support
    - Maintained quality ratings 1-4 system
-   - Kept multi-GPU bonus (gpuCount > 1 → Quality 4)
+   - Kept multi-GPU bonus (gpuCount > 1 -> Quality 4)
 
 3. Architecture Support
    - Retained vendorDB system from 2011
@@ -830,7 +830,7 @@ Key Changes:
 2. Platform Detection Order
    - Console (Xenon, PS3)
    - Mobile (iOS, Android)
-   - Architecture (x86 → Low)
+   - Architecture (x86 -> Low)
    - PC (vendorDB lookup)
 
 3. Wide Game Coverage

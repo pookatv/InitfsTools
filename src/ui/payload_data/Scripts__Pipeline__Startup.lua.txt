@@ -842,7 +842,7 @@ core.import(scriptsRoot .. "Configuration.lua")
 Comment refinement only.
 
 Changes:
-- 'can really only be used' → 'can only be used'
+- 'can really only be used' -> 'can only be used'
 - Minor wording simplification
 
 Functionality identical to BF6/NFL 26. This represents Skate's finalized version with polished documentation.

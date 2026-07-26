@@ -7,7 +7,7 @@ Main game configuration script - loads all settings, handles command-line argume
 Original Battlefield 3 era implementation.
 
 Features:
-- Basic configuration cascade: Settings.lua → Game.cfg → custom configs → local overrides → level configs
+- Basic configuration cascade: Settings.lua -> Game.cfg -> custom configs -> local overrides -> level configs
 - Command-line argument parsing with -customconfig support
 - Editor detection via core.liveeditingenable
 - Local config files: /local/local.cfg, /local/localeditor.cfg, /local/localgame.cfg
@@ -2969,7 +2969,7 @@ Enhanced disabled asserts config handling.
 
 New Features:
 - tostring() wrapper for commandLine values in -customconfig
-- Changed DisabledAsserts.cfg path: '/Local/' → '/Local/'
+- Changed DisabledAsserts.cfg path: '/Local/' -> '/Local/'
 - useDisabledAssertsCfg flag with default true
 
 Changes from BFV:
@@ -3975,7 +3975,7 @@ New Features:
   - -developercfg command-line option
   - /local/developer.cfg support
   - DeveloperCFG setting in local.cfg
-  - Loop-based loading (developer.cfg → local.cfg → repeat if needed)
+  - Loop-based loading (developer.cfg -> local.cfg -> repeat if needed)
 - Game.Level assignment from command-line
 
 Changes from Beta:
@@ -5373,12 +5373,12 @@ end
 [version]
 2023-2024 (EA Sports: FC 24, Madden 24, NHL 24)
 [notes]
-Enhanced platform support + FIFA→FC transition.
+Enhanced platform support + FIFA->FC transition.
 
 New Features:
 - /local/Local.cfg (case-sensitive Android support)
 - /sdcard/local.cfg (Nintendo Switch SD card)
-- FIFA/fifagame/fifagame → fc/FCGame/FCGame level name redirect
+- FIFA/fifagame/fifagame -> fc/FCGame/FCGame level name redirect
 - Bot.cfg system restored (Madden)
 - allowCommandlineSettings restored
 
@@ -6081,7 +6081,7 @@ Major New Features:
   - Scripts/Editor/GameView.lua
   - Scripts/Editor/Native.lua
   - ExecutionMode_UniversalEditor support (new unified editor)
-- cleanLevelName() helper function - normalizes paths (backslash → forward slash)
+- cleanLevelName() helper function - normalizes paths (backslash -> forward slash)
 - core.parseLocalCfgs(editorActive) - centralized local config loading
 - core.parseCmdLineSettings() - called BEFORE and AFTER DebugSettings.lua
 - readCfg() with allowAssignVar parameter - tracks runtime-modifiable variables

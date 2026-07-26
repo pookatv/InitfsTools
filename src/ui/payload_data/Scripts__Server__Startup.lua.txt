@@ -63,7 +63,7 @@ Platform restrictions removed.
 
 Critical Change:
 - Removed platform check (xenon/ps3 early return)
-- Frost.Core.import() flag changed: {silent=true} → {required=false}
+- Frost.Core.import() flag changed: {silent=true} -> {required=false}
 
 Why Platform Check Removed:
 1. Xbox 360/PS3 no longer supported (last-gen hardware)

@@ -632,10 +632,6 @@ void DiffWindow::configureScintilla(QsciScintilla* sci)
     sci->setFont(QFont("Consolas", 10));
     sci->setLexer(nullptr); // Null lexer — we do custom styling
 
-    // No selection highlight — navigation is shown via IND_NAV box indicator instead
-    sci->SendScintilla(2067, (uintptr_t)0, (intptr_t)0); // SCI_SETSELFOREGROUND useSetting=0
-    sci->SendScintilla(2068, (uintptr_t)0, (intptr_t)0); // SCI_SETSELBACKGROUND useSetting=0
-
     // IND_NAV — blue box outline drawn over everything, used by selectWholeLineInBothPanels
     sci->SendScintilla(QsciScintilla::SCI_INDICSETSTYLE, (uintptr_t)IND_NAV, (intptr_t)6); // INDIC_BOX
     sci->SendScintilla(QsciScintilla::SCI_INDICSETFORE, (uintptr_t)IND_NAV, (intptr_t)0x00D77800); // BGR blue
@@ -722,11 +718,18 @@ void DiffWindow::applyEditorTheme(QsciScintilla* sci)
     sci->SendScintilla(QsciScintilla::SCI_STYLESETFORE, (uintptr_t)S_BRACKET, toSci(bracket));
     sci->SendScintilla(QsciScintilla::SCI_STYLESETBACK, (uintptr_t)S_BRACKET, toSci(m_colBack));
 
-    sci->SendScintilla(QsciScintilla::SCI_INDICSETFORE, (uintptr_t)IND_ADD,         toSci(m_colAdd));
-    sci->SendScintilla(QsciScintilla::SCI_INDICSETFORE, (uintptr_t)IND_DEL,         toSci(m_colDel));
-    sci->SendScintilla(QsciScintilla::SCI_INDICSETFORE, (uintptr_t)IND_MOD,         toSci(m_colMod));
+    sci->SendScintilla(QsciScintilla::SCI_INDICSETFORE, (uintptr_t)IND_ADD, toSci(m_colAdd));
+    sci->SendScintilla(QsciScintilla::SCI_INDICSETFORE, (uintptr_t)IND_DEL, toSci(m_colDel));
+    sci->SendScintilla(QsciScintilla::SCI_INDICSETFORE, (uintptr_t)IND_MOD, toSci(m_colMod));
     sci->SendScintilla(QsciScintilla::SCI_INDICSETFORE, (uintptr_t)IND_ADD_OUTLINE, toSci(m_colAdd));
     sci->SendScintilla(QsciScintilla::SCI_INDICSETFORE, (uintptr_t)IND_DEL_OUTLINE, toSci(m_colDel));
+
+    // Restore normal mouse-drag text selection highlight (translucent overlay so it
+    // layers over syntax colours and the diff indicators instead of covering them)
+    const QColor selColor = m_dark ? QColor(0, 120, 215) : QColor(51, 153, 255);
+    sci->SendScintilla(QsciScintilla::SCI_SETSELBACK, (uintptr_t)1, toSci(selColor));
+    sci->SendScintilla(QsciScintilla::SCI_SETSELALPHA, (uintptr_t)100, (intptr_t)0);
+    sci->SendScintilla(QsciScintilla::SCI_SETSELFORE, (uintptr_t)0, (intptr_t)0); // keep original text colour
 }
 
 // ============================================================
@@ -1147,7 +1150,7 @@ void DiffWindow::buildAllAlignedAndTargets()
                     if (!newLines[insIdx[k]].trimmed().isEmpty()) insNB.append(k);
 
                 int pairs = qMin(delNB.size(), insNB.size());
-                QHash<int, int> pairedDel2Ins; // delIdx-index → insIdx-index
+                QHash<int, int> pairedDel2Ins; // delIdx-index -> insIdx-index
                 pairedDel2Ins.reserve(pairs);
                 QSet<int> pairedInsSlots;
                 // Pre-compute trimmed non-blank lines to avoid O(pairs) repeated trimming

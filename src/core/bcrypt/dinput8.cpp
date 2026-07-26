@@ -6,7 +6,7 @@ static HMODULE hOriginalDInput8 = NULL;
 static HMODULE hOriginalBCrypt = NULL;
 static HMODULE hOriginalCrypt32 = NULL;
 
-// ─── BCryptVerifySignature hook ───────────────────────────────────────────────
+// BCryptVerifySignature hook
 
 typedef NTSTATUS(WINAPI* PFN_BCryptVerifySignature)(
     BCRYPT_KEY_HANDLE hKey,
@@ -40,10 +40,7 @@ NTSTATUS WINAPI Hooked_BCryptVerifySignature(
     return result;
 }
 
-// ─── CryptQueryObject hook ────────────────────────────────────────────────────
-// FCLiveEditor uses PLH x64Detour to hook CryptQueryObject via Crypt32.dll
-// to bypass EA anticheat signature verification on game boot.
-// We replicate this with an IAT patch on the game exe's Crypt32 import.
+// CryptQueryObject hook
 
 typedef BOOL(WINAPI* PFN_CryptQueryObject)(
     DWORD dwObjectType,
@@ -86,14 +83,13 @@ BOOL WINAPI Hooked_CryptQueryObject(
             return result;
     }
 
-    // Verification failed — spoof success so anticheat lets the game boot
     if (pdwContentType) *pdwContentType = CERT_QUERY_CONTENT_PKCS7_SIGNED_EMBED;
     if (pdwFormatType)  *pdwFormatType = CERT_QUERY_FORMAT_BINARY;
     if (pdwMsgAndCertEncodingType) *pdwMsgAndCertEncodingType = X509_ASN_ENCODING | PKCS_7_ASN_ENCODING;
     return TRUE;
 }
 
-// ─── IAT patcher ─────────────────────────────────────────────────────────────
+// IAT patcher
 
 static void PatchIATEntry(HMODULE hExe, const char* targetDll,
     const char* funcName, ULONGLONG hookAddr)
@@ -137,17 +133,14 @@ static void PatchIAT()
     HMODULE hExe = GetModuleHandleA(NULL);
     if (!hExe) return;
 
-    // BCryptVerifySignature — bypass signature check (existing)
     PatchIATEntry(hExe, "bcrypt.dll", "BCryptVerifySignature",
         (ULONGLONG)Hooked_BCryptVerifySignature);
 
-    // CryptQueryObject — bypass certificate query used by EA anticheat
-    // to verify game executable signature before allowing boot
     PatchIATEntry(hExe, "crypt32.dll", "CryptQueryObject",
         (ULONGLONG)Hooked_CryptQueryObject);
 }
 
-// ─── RET-patch helpers ────────────────────────────────────────────────────────
+// RET-patch helpers
 
 static void PatchFunction(const char* module, const char* funcName)
 {
@@ -171,7 +164,7 @@ static DWORD WINAPI PatchThread(LPVOID)
     return 1;
 }
 
-// ─── DInput8 export forwards ──────────────────────────────────────────────────
+// DInput8 export forwards
 
 HRESULT WINAPI DirectInput8Create(
     HINSTANCE hinst, DWORD dwVersion, REFIID riidltf,
@@ -215,7 +208,7 @@ HRESULT WINAPI DllUnregisterServer()
     return Real ? Real() : E_NOTIMPL;
 }
 
-// ─── DllMain ─────────────────────────────────────────────────────────────────
+// DllMain
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
 {

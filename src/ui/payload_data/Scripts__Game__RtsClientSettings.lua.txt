@@ -39,9 +39,9 @@ applyEnvVar(envVarName, settingKey):
 - Applies to specified setting if exists
 
 Environment Variable Mapping:
-- EAGenericAuthToken → RtsClientSettings.EAGenericAuthToken
-- EALaunchEAID → RtsClientSettings.EALaunchEAID
-- EALaunchEnv → RtsClientSettings.EALaunchEnv
+- EAGenericAuthToken -> RtsClientSettings.EAGenericAuthToken
+- EALaunchEAID -> RtsClientSettings.EALaunchEAID
+- EALaunchEnv -> RtsClientSettings.EALaunchEnv
 
 Origin Mode Detection:
 Triggered by: -originMode command line argument OR EALaunchEAID environment variable
@@ -81,18 +81,18 @@ Network Configuration Loading:
 - Allows server-side configuration distribution
 
 Blaze Environment Enumeration Mapping:
-- 'PROD' → RtsClientSettings.BlazeEnvironmentEnum 3
-- 'CERT' → RtsClientSettings.BlazeEnvironmentEnum 2
-- 'DEV' → RtsClientSettings.BlazeEnvironmentEnum 0
-- Default/TEST → RtsClientSettings.BlazeEnvironmentEnum 1
+- 'PROD' -> RtsClientSettings.BlazeEnvironmentEnum 3
+- 'CERT' -> RtsClientSettings.BlazeEnvironmentEnum 2
+- 'DEV' -> RtsClientSettings.BlazeEnvironmentEnum 0
+- Default/TEST -> RtsClientSettings.BlazeEnvironmentEnum 1
 
 Origin Log Level Enumeration Mapping:
-- 'Severe' → OriginLogLevelEnum 1
-- 'Major' → OriginLogLevelEnum 2
-- 'Minor' → OriginLogLevelEnum 3
-- 'Trivial' → OriginLogLevelEnum 4
-- 'All' → OriginLogLevelEnum 5
-- Default/None → OriginLogLevelEnum 0
+- 'Severe' -> OriginLogLevelEnum 1
+- 'Major' -> OriginLogLevelEnum 2
+- 'Minor' -> OriginLogLevelEnum 3
+- 'Trivial' -> OriginLogLevelEnum 4
+- 'All' -> OriginLogLevelEnum 5
+- Default/None -> OriginLogLevelEnum 0
 
 Blaze System:
 - EA's multiplayer/authentication backend service

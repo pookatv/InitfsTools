@@ -1,6 +1,6 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
-#define FB_CONSOLE_OVERLAY_DLL_BUILD   // must be defined before ConsoleOverlay.h
+#define FB_CONSOLE_OVERLAY_DLL_BUILD
 #include <windows.h>
 #include <psapi.h>
 #include <tlhelp32.h>
@@ -10,19 +10,19 @@
 
 #pragma comment(lib, "psapi.lib")
 
-// ─────────────────────────────────────────────────────────────────────────────
+
 // dxgi.dll proxy exports
 //
 // When renamed to dxgi.dll and placed in the game's install directory, the
 // game loads this DLL automatically at startup as a proxy for the real
-// dxgi.dll. We forward all DXGI exports to the real system DLL.
+// dxgi.dll. We forward all DXGI exports to the real system DLL
 //
 // Detection: if no host pipe is waiting (proxy/standalone mode), the worker
 // thread detects this and goes straight to the unlock path without waiting
 // for a host connection. This only triggers when loaded by a game process —
 // tool processes (InitfsTools.exe) are identified by checking the calling
-// executable's name and skip this entirely.
-// ─────────────────────────────────────────────────────────────────────────────
+// executable's name and skip this entirely
+
 static HMODULE g_hRealDxgi = nullptr;
 
 // Cached function pointers — resolved once in loadRealDxgiDll()
@@ -122,44 +122,60 @@ extern "C"
     }
 } // extern "C"
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Globals
-// ─────────────────────────────────────────────────────────────────────────────
 static HANDLE  g_hPipe = INVALID_HANDLE_VALUE;
 static LONG    g_running = 0;
 static volatile bool g_expectingOutput = false;
 // Set by ConsoleOverlay when it calls executeCommand so the output handler
-// does not silently drop game output during overlay-initiated executions.
+// does not silently drop game output during overlay-initiated executions
 volatile bool g_overlayExecuting = false;
 static HANDLE  g_thread = nullptr;
 static HMODULE g_hModule = nullptr;
 static char    g_gameDir[MAX_PATH] = {};
+
+// Set to true to (re)enable writing FBConsoleBridge_log.txt to disk in the
+// game directory. Left false by default — the log is still generated and
+// sent over the pipe to the ConsoleWindow UI either way, this flag only
+// controls whether it's also persisted to a file on disk
+// Not "static" — ConsoleOverlay.cpp's overlayLog() shares this same flag
+extern const bool g_enableDiskLog = false;
 static bool    g_suspendedForUnlock = false;
 static bool    g_proxyMode = false;
 
-// ─────────────────────────────────────────────────────────────────────────────
+// Baseline command count captured by the host right before "Unlock All
+// Commands" was clicked, passed in via the flag file's content. Used for
+// the "(was X, +Y unlocked)" summary instead of a live snapshot taken
+// during the frozen restart, which would always read 0
+static int     g_baselineCommandCount = 0;
+
+static int parseIntA(const char* s)
+{
+    int val = 0;
+    bool neg = false;
+    if (*s == '-') { neg = true; ++s; }
+    while (*s >= '0' && *s <= '9')
+    {
+        val = val * 10 + (*s - '0');
+        ++s;
+    }
+    return neg ? -val : val;
+}
+
 // Static I/O buffers
-// ─────────────────────────────────────────────────────────────────────────────
 static char g_readBuf[64 * 1024];
 static char g_replyBuf[512 * 1024];
 
-// ─────────────────────────────────────────────────────────────────────────────
 // STL strings — only ever touched from cpp_* functions, never from __try blocks
-// ─────────────────────────────────────────────────────────────────────────────
 static std::string s_diagStr;
 static std::string s_resultStr;
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Pre-READY log queue
 // Lines logged before READY is sent are buffered here and flushed afterward,
-// because the host isn't reading OUTPUT packets until after it sees READY.
-// ─────────────────────────────────────────────────────────────────────────────
-// Forward declaration
+// because the host isn't reading OUTPUT packets until after it sees READY
+
 static bool pipeWriteRaw(const char* data, uint32_t len);
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Logging helpers — pure Win32, no STL, safe from any context
-// ─────────────────────────────────────────────────────────────────────────────
 static void pipeLogLine(const char* msg)
 {
     // Format: "OUTPUT:[Inject]|<msg>"
@@ -181,8 +197,8 @@ static void pipeLogLine(const char* msg)
 
 static void logToFile(const char* msg)
 {
-    // Append to disk log
-    if (g_gameDir[0])
+    // Append to disk log (only when explicitly re-enabled via g_enableDiskLog)
+    if (g_enableDiskLog && g_gameDir[0])
     {
         char path[MAX_PATH];
         lstrcpyA(path, g_gameDir);
@@ -216,17 +232,15 @@ static void logDec(const char* prefix, DWORD val)
     logToFile(tmp);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Pipe helpers — raw buffers only
-// ─────────────────────────────────────────────────────────────────────────────
 static bool pipeWriteRaw(const char* data, uint32_t len)
 {
     if (g_hPipe == INVALID_HANDLE_VALUE) return false;
 
     // Use overlapped writes with a timeout to prevent the game thread from
-    // blocking indefinitely if the host hasn't drained the pipe read buffer.
+    // blocking indefinitely if the host hasn't drained the pipe read buffer
     // This is critical in proxy+pipe mode where the overlay calls executeCommand
-    // from the game's render/message thread while the pipe reader is separate.
+    // from the game's render/message thread while the pipe reader is separate
     OVERLAPPED ov = {};
     ov.hEvent = CreateEventA(nullptr, TRUE, FALSE, nullptr);
     if (!ov.hEvent) return false;
@@ -322,17 +336,7 @@ static uint32_t pipeReadRaw(char* buf, uint32_t bufSize)
     return r;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Output handler core — pure Win32, no STL, safe to call from any thread.
-// Shared by both the 4-arg (Skate) and 3-arg (BF2) trampolines.
-//
-// Preserves the full pointer validation from the original working Skate handler:
-//   - size sanity check
-//   - VirtualQuery on buf before touching it
-//   - VirtualQuery on tag before touching it
-// These guards are essential; stripping them causes crashes or pipe corruption
-// when the game passes marginal or null pointers.
-// ─────────────────────────────────────────────────────────────────────────────
 static void __fastcall gameOutputHandler_impl(const char* tag, const char* buf, unsigned int size)
 {
     // Allow output when: the worker thread is mid-shimExecute (pipe command),
@@ -383,10 +387,8 @@ static void __fastcall gameOutputHandler_impl(const char* tag, const char* buf, 
     pipeWriteRaw(s_outputBuf, (uint32_t)total);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Trampoline: 4-arg form (Skate)
-// FastDelegate passes (m_pThis, tag, buf, size) — RCX discarded, RDX/R8/R9 used.
-// ─────────────────────────────────────────────────────────────────────────────
+// Trampoline: 4-arg form
+// FastDelegate passes (m_pThis, tag, buf, size) — RCX discarded, RDX/R8/R9 used
 static void __fastcall gameOutputHandler(void* /*thisDiscarded*/,
     const char* tag,
     const char* buf,
@@ -395,23 +397,16 @@ static void __fastcall gameOutputHandler(void* /*thisDiscarded*/,
     gameOutputHandler_impl(tag, buf, size);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Trampoline: BF2 output handler
+// Trampoline: 3-arg form
 //
-// BF2's executeConsoleCommand calls each handler slot as:
+//   executeConsoleCommand calls each handler slot as:
 //   RCX = slot[0x18]  (object ptr / "this", ignored by us)
 //   RDX = eastl::string* result  (3-pointer layout: {char* begin, char* end, ...})
 //
-// The output is already fully formatted into a single eastl::string before the
-// callback fires. There is no (tag, buf, size) triple as in Skate. We extract
-// the string data from the BF2 3-pointer layout and forward it to the pipe.
-// ─────────────────────────────────────────────────────────────────────────────
-// BF2 calls each handler slot identically to Skate:
-//   rcx = slot[0]  (object ptr stored in slot, passed as "this")
+//   The output is already fully formatted into a single eastl::string:
 //   rdx = tag      (const char*)
 //   r8  = buf      (const char*)
 //   r9d = size     (unsigned int)
-// Confirmed from 0x1454CCF70: mov rcx,[rbx] / call [rbx+8] with tag/buf/size in rdx/r8/r9
 static void __fastcall gameOutputHandler3(void*        /*thisIgnored*/,
     const char* tag,
     const char* buf,
@@ -420,9 +415,7 @@ static void __fastcall gameOutputHandler3(void*        /*thisIgnored*/,
     gameOutputHandler_impl(tag, buf, size);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // cpp_* functions — may use std::string freely, must NEVER contain __try
-// ─────────────────────────────────────────────────────────────────────────────
 __declspec(noinline) static void cpp_getDiag()
 {
     s_diagStr = FrostbiteConsole::diagnosticInfo();
@@ -436,17 +429,26 @@ __declspec(noinline) static void cpp_execute(const char* cmd)
 __declspec(noinline) static void cpp_addHandler()
 {
     logToFile("[cpp] calling addOutputHandler");
+    // In proxy mode we skip direct registration only when the overlay
+    // successfully initialized — its outputHandler is already in the game's
+    // list and will chain to g_pipeOutputHandler. If the overlay did NOT
+    // initialize (e.g. game has its own ingame console, or D3D resolve failed),
+    // no handler would be in the list at all, so we must register directly.
+    const bool overlayOwnsSlot = g_proxyMode && ConsoleOverlay::isInitialized();
     if (FrostbiteConsole::ConsoleBridge::instance().use3ArgHandler())
     {
         uintptr_t fnAddr = (uintptr_t)&gameOutputHandler3;
         logHex("[cpp] gameOutputHandler3 hi=", (DWORD)(fnAddr >> 32));
         logHex("[cpp] gameOutputHandler3 lo=", (DWORD)(fnAddr & 0xFFFFFFFF));
-        // In proxy mode the overlay's outputHandler is already registered.
-        // Only register gameOutputHandler as an additional slot when the
-        // overlay is NOT initialized — otherwise just set g_pipeOutputHandler
-        // so the overlay can chain pipe-bound output itself via g_overlayExecuting.
-        if (!g_proxyMode)
+        if (!overlayOwnsSlot)
+        {
+            logToFile("[cpp] registering gameOutputHandler3 directly (overlay not owning slot)");
             FrostbiteConsole::addOutputHandler3(&gameOutputHandler3);
+        }
+        else
+        {
+            logToFile("[cpp] proxy+overlay active — skipping direct registration, overlay will chain");
+        }
         ConsoleOverlay::g_pipeOutputHandler =
             reinterpret_cast<ConsoleOverlay::PipeHandlerFn>(&gameOutputHandler3);
     }
@@ -455,8 +457,15 @@ __declspec(noinline) static void cpp_addHandler()
         uintptr_t fnAddr = (uintptr_t)&gameOutputHandler;
         logHex("[cpp] gameOutputHandler hi=", (DWORD)(fnAddr >> 32));
         logHex("[cpp] gameOutputHandler lo=", (DWORD)(fnAddr & 0xFFFFFFFF));
-        if (!g_proxyMode)
+        if (!overlayOwnsSlot)
+        {
+            logToFile("[cpp] registering gameOutputHandler directly (overlay not owning slot)");
             FrostbiteConsole::addOutputHandler(&gameOutputHandler);
+        }
+        else
+        {
+            logToFile("[cpp] proxy+overlay active — skipping direct registration, overlay will chain");
+        }
         ConsoleOverlay::g_pipeOutputHandler =
             reinterpret_cast<ConsoleOverlay::PipeHandlerFn>(&gameOutputHandler);
     }
@@ -464,6 +473,26 @@ __declspec(noinline) static void cpp_addHandler()
 
 __declspec(noinline) static void cpp_removeHandler()
 {
+    // In proxy mode, only skip direct removal when the overlay owns the slot.
+    // If the overlay did NOT initialize (no ingame console overlay), we registered
+    // gameOutputHandler directly and must remove it here to avoid stale callbacks.
+    // Always null g_pipeOutputHandler so the stale pipe handle is not written to.
+    if (g_proxyMode)
+    {
+        ConsoleOverlay::g_pipeOutputHandler = nullptr;
+        if (!ConsoleOverlay::isInitialized())
+        {
+            // We registered directly because the overlay did not own the slot —
+            // remove the handler we added so re-attach starts clean
+            if (FrostbiteConsole::ConsoleBridge::instance().use3ArgHandler())
+                FrostbiteConsole::removeOutputHandler3(&gameOutputHandler3);
+            else
+                FrostbiteConsole::removeOutputHandler(&gameOutputHandler);
+        }
+        // If the overlay IS initialized it owns the slot — do not touch it,
+        // the overlay manages its own registration lifetime via shutdown()
+        return;
+    }
     if (FrostbiteConsole::ConsoleBridge::instance().use3ArgHandler())
         FrostbiteConsole::removeOutputHandler3(&gameOutputHandler3);
     else
@@ -544,11 +573,7 @@ __declspec(noinline) static void cpp_listVars()
     logToFile("[vars] enumeration done");
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // shim_* functions — contain __try/__except
-// MUST NOT construct/destruct any C++ object.
-// Only call cpp_* functions and touch raw pointers/ints.
-// ─────────────────────────────────────────────────────────────────────────────
 __declspec(noinline) static int shimInit()
 {
     __try { return FrostbiteConsole::init() ? 1 : 0; }
@@ -594,7 +619,7 @@ __declspec(noinline) static void shimRemoveHandler()
 
 __declspec(noinline) static int shimGetMethods()
 {
-    // getMethods reads BSS directly, no game call — SEH kept for safety only.
+    // getMethods reads BSS directly, no game call — SEH kept for safety only
     __try { return cpp_getMethods(); }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -610,7 +635,7 @@ __declspec(noinline) static void shimResetForReinit()
 }
 
 // Execute a command and copy the result into g_replyBuf as a "RESULT:<text>"
-// packet.  Returns the total packet length written into g_replyBuf.
+// packet.  Returns the total packet length written into g_replyBuf
 __declspec(noinline) static int shimExecute(const char* cmd)
 {
     static char g_resultBuf[256 * 1024];
@@ -635,7 +660,6 @@ __declspec(noinline) static int shimExecute(const char* cmd)
     return total;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Unlock patches
 //
 // Two patches, both found by byte-pattern scan so they work regardless of ASLR:
@@ -643,17 +667,13 @@ __declspec(noinline) static int shimExecute(const char* cmd)
 // Pattern: 66 C1 E8 0D  A8 01  0F 84 xx xx xx xx
 //           shr ax,0Dh  test al,1  je <skip>
 //
-// Patch 1 (offset +4, 2 bytes): A8 01 -> B0 01  (TEST AL,1 -> MOV AL,1)
-//   Forces the isExposed flag to always be true — equivalent to Kyber's
-//   SettingsManagerAddHk forcing exposeToConsole=true on every call.
+//   Patch 1 (offset +4, 2 bytes): A8 01 -> B0 01  (TEST AL,1 -> MOV AL,1)
+//   Forces the isExposed flag to always be true
 //
-// Patch 2 (offset +6, 6 bytes): 0F 84 xx xx xx xx -> 90 90 90 90 90 90
-//   NOPs the je that skips registration when the flag is false — equivalent
-//   to Kyber's Nop(0x140235C2E, 6).
+//   Patch 2 (offset +6, 6 bytes): 0F 84 xx xx xx xx -> 90 90 90 90 90 90
+//   NOPs the je that skips registration when the flag is false
 //
-// Both patches together = Full console unlock.
-// No hooks, no trampolines, no re-registration needed.
-// ─────────────────────────────────────────────────────────────────────────────
+// Both patches together = Full console unlock
 
 static uint8_t  s_patch1OrigBytes[2] = {};   // TEST AL,1 original
 static uint8_t* s_patch1Addr = nullptr;
@@ -726,8 +746,8 @@ __declspec(noinline) static int shimApplyUnlock()
         if (!found) { logToFile("[unlock] pattern not found"); return -1; }
         if (matchCount > 1) logToFile("[unlock] WARNING: multiple matches, using first");
 
-        // ── Patch 1: TEST AL,1 -> MOV AL,1  (offset +4, 2 bytes) ─────────────
-        // Forces exposeToConsole flag to always be true — Kyber's SettingsManagerAddHk
+        // Patch 1: TEST AL,1 -> MOV AL,1  (offset +4, 2 bytes)
+        // Forces exposeToConsole flag to always be true
         s_patch1Addr = found + 4;
         {
             DWORD oldProt = 0;
@@ -744,8 +764,7 @@ __declspec(noinline) static int shimApplyUnlock()
             logToFile("[unlock] patch1 applied: MOV AL,1");
         }
 
-        // ── Patch 2: NOP the je  (offset +6, 6 bytes) ────────────────────────
-        // Equivalent to Kyber's Nop(0x140235C2E, 6)
+        // Patch 2: NOP the je  (offset +6, 6 bytes)
         s_patch2Addr = found + 6;
         {
             DWORD oldProt = 0;
@@ -823,14 +842,12 @@ __declspec(noinline) static int shimRevertUnlock()
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Worker thread — no __try, no STL
-// ─────────────────────────────────────────────────────────────────────────────
 static DWORD WINAPI workerThread(LPVOID)
 {
     // Check for the skip-sleep event written by the Qt host during an unlock
     // restart. If it's signalled, the host injected us post-WaitForInputIdle
-    // so the game is already up — no need to wait.
+    // so the game is already up — no need to wait
     bool skipSleep = false;
     {
         HANDLE hEvt = OpenEventA(SYNCHRONIZE | EVENT_MODIFY_STATE,
@@ -880,10 +897,10 @@ static DWORD WINAPI workerThread(LPVOID)
         logToFile("[worker] all threads frozen early (unlock path)");
     }
 
-    // ── Create named pipe (inject mode only) ──────────────────────────────────
-    // Proxy mode skips the pipe entirely — no host process is present.
+    // Create named pipe (inject mode only)
+    // Proxy mode skips the pipe entirely — no host process is present
     // g_hPipe stays INVALID_HANDLE_VALUE so all pipeWriteRaw calls are no-ops,
-    // and pipeReadRaw returns 0 immediately so the command loop exits at once.
+    // and pipeReadRaw returns 0 immediately so the command loop exits at once
     if (!g_proxyMode)
     {
         logToFile("[worker] creating pipe");
@@ -918,43 +935,63 @@ static DWORD WINAPI workerThread(LPVOID)
     {
         // Proxy mode: spin up a background thread that creates the pipe and
         // waits indefinitely for a host to connect. The worker (and the game)
-        // continue immediately — nothing is frozen.
+        // continue immediately — nothing is frozen
         logToFile("[worker] proxy mode — spawning background pipe listener");
 
         HANDLE hPipeThread = CreateThread(nullptr, 0, [](LPVOID) -> DWORD
             {
                 logToFile("[proxy pipe] listener started");
 
-                HANDLE hPipe = CreateNamedPipeA(
-                    "\\\\.\\pipe\\FBConsoleBridge",
-                    PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-                    PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-                    1, 65536, 65536, 0, nullptr);
-
-                if (hPipe == INVALID_HANDLE_VALUE)
+                // Outer loop: each pass creates a fresh pipe instance and waits
+                // for a host. When the host detaches (command loop below breaks),
+                // we loop back and re-arm the pipe instead of letting the thread
+                // exit — otherwise Attach -> Detach -> Attach has nothing left to
+                // connect to, since the pipe was destroyed after the first detach
+                while (InterlockedCompareExchange(&g_running, 1, 1) == 1)
                 {
-                    logDec("[proxy pipe] CreateNamedPipe failed GLE=", GetLastError());
-                    return 1;
-                }
+                    HANDLE hPipe = CreateNamedPipeA(
+                        "\\\\.\\pipe\\FBConsoleBridge",
+                        PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+                        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+                        1, 65536, 65536, 0, nullptr);
 
-                logToFile("[proxy pipe] pipe created, waiting for host (no timeout)");
-
-                if (!ConnectNamedPipe(hPipe, nullptr))
-                {
-                    DWORD gle = GetLastError();
-                    if (gle != ERROR_PIPE_CONNECTED)
+                    if (hPipe == INVALID_HANDLE_VALUE)
                     {
-                        logDec("[proxy pipe] ConnectNamedPipe failed GLE=", gle);
-                        CloseHandle(hPipe);
+                        DWORD gle = GetLastError();
+                        logDec("[proxy pipe] CreateNamedPipe failed GLE=", gle);
+                        if (gle == ERROR_PIPE_BUSY || gle == ERROR_ACCESS_DENIED)
+                        {
+                            // ERROR_PIPE_BUSY  (231) — previous instance still alive
+                            // ERROR_ACCESS_DENIED (5) — OS hasn't fully released the
+                            //   previous handle yet; happens transiently after CloseHandle
+                            // Both are recoverable — wait briefly and retry
+                            logToFile("[proxy pipe] pipe not ready yet, waiting 500ms and retrying...");
+                            Sleep(500);
+                            continue;
+                        }
                         return 1;
                     }
-                }
 
-                logToFile("[proxy pipe] host connected");
-                g_hPipe = hPipe;
+                    logToFile("[proxy pipe] pipe created, waiting for host (no timeout)");
+
+                    if (!ConnectNamedPipe(hPipe, nullptr))
+                    {
+                        DWORD gle = GetLastError();
+                        if (gle != ERROR_PIPE_CONNECTED)
+                        {
+                            logDec("[proxy pipe] ConnectNamedPipe failed GLE=", gle);
+                            CloseHandle(hPipe);
+                            hPipe = INVALID_HANDLE_VALUE;
+                            Sleep(200);
+                            continue;  // re-arm instead of killing the thread
+                        }
+                    }
+
+                    logToFile("[proxy pipe] host connected");
+                    g_hPipe = hPipe;
                 FrostbiteConsole::setLogCallback([](const char* line) { logToFile(line); });
 
-                // Register output handler so game output flows to the pipe.
+                // Register output handler so game output flows to the pipe
                 if (FrostbiteConsole::isReady())
                 {
                     logToFile("[proxy pipe] registering output handler");
@@ -962,7 +999,7 @@ static DWORD WINAPI workerThread(LPVOID)
                 }
 
                 // Send READY with the live method count — addresses already
-                // resolved by the worker thread's init, nothing to re-scan.
+                // resolved by the worker thread's init, nothing to re-scan
                 {
                     int cmdCount = shimGetMethods();
                     static char readyBuf[64];
@@ -971,7 +1008,7 @@ static DWORD WINAPI workerThread(LPVOID)
                     logToFile(readyBuf);
                 }
 
-                // ── Command loop — identical to the main worker loop ──────────
+                // Command loop — identical to the main worker loop
                 logToFile("[proxy pipe] entering command loop");
                 static char proxyReadBuf[64 * 1024];
                 while (InterlockedCompareExchange(&g_running, 1, 1) == 1)
@@ -1188,20 +1225,33 @@ static DWORD WINAPI workerThread(LPVOID)
                 }
 
                 logToFile("[proxy pipe] command loop exited");
+                // Unregister the output handler before closing the pipe so that
+                // pipeWriteRaw is not called with an invalid handle, and so we
+                // can cleanly re-register it when the next host connects (line 930)
+                if (FrostbiteConsole::isReady())
+                {
+                    logToFile("[proxy pipe] removing output handler before re-arm");
+                    shimRemoveHandler();
+                }
                 DisconnectNamedPipe(hPipe);
                 CloseHandle(hPipe);
+                hPipe = INVALID_HANDLE_VALUE;
                 g_hPipe = INVALID_HANDLE_VALUE;
+                logToFile("[proxy pipe] host detached — re-arming pipe for next attach");
+                }
+
+                logToFile("[proxy pipe] listener thread exiting (g_running=0)");
                 return 0;
             }, nullptr, 0, nullptr);
 
         if (hPipeThread) CloseHandle(hPipeThread);
     }
 
-    // ── FrostbiteConsole::init — retry until exec command resolves ───────────
+    // FrostbiteConsole::init — retry until exec command resolves
     // When injected early (before the game's main loop starts), the exec command
     // anchor string may not be reachable yet. Keep retrying until it resolves or
     // 60 seconds pass. The unlock patches are already applied from DLL_PROCESS_ATTACH
-    // so settings registration is being intercepted during this whole wait.
+    // so settings registration is being intercepted during this whole wait
     logToFile("[worker] calling init (with retry)");
     int initResult = 0;
     static char diagBuf[1024];
@@ -1210,7 +1260,7 @@ static DWORD WINAPI workerThread(LPVOID)
     {
         // If DllMain already applied the patches successfully, skip the
         // scan entirely — the pattern bytes have been overwritten and will
-        // never be found again.
+        // never be found again
         if (s_unlockApplied)
         {
             logToFile("[worker] unlock path: patches already applied by DllMain, skipping scan");
@@ -1218,11 +1268,11 @@ static DWORD WINAPI workerThread(LPVOID)
         else
         {
 
-            // Fast path: scan only for the 8-byte patch pattern directly.
+        // Fast path: scan only for the 8-byte patch pattern directly
         // This is orders of magnitude faster than running init() and does not
-        // depend on any string anchor or prologue scan completing first.
+        // depend on any string anchor or prologue scan completing first
         // We poll every 10ms until the pattern is found, then immediately
-        // freeze all threads and apply the patches.
+        // freeze all threads and apply the patches
         static const uint8_t kPattern[] = {
             0x66, 0xC1, 0xE8, 0x0D,  // shr ax, 0Dh
             0xA8, 0x01,               // test al, 1
@@ -1242,7 +1292,7 @@ static DWORD WINAPI workerThread(LPVOID)
 
         DWORD selfTid = GetCurrentThreadId();
 
-        // Scan helper — one full pass over executable regions.
+        // Scan helper — one full pass over executable regions
         auto scanOnce = [&]() -> bool {
             MEMORY_BASIC_INFORMATION pmbi{};
             uintptr_t cursor = reinterpret_cast<uintptr_t>(modBase);
@@ -1308,9 +1358,9 @@ static DWORD WINAPI workerThread(LPVOID)
             }
             };
 
-        // Threads are already frozen from the early-freeze block at worker entry.
-                // Pulse-scan: thaw briefly to let the loader advance, re-freeze, scan.
-                // Exits immediately on first match — no unnecessary delay.
+        // Threads are already frozen from the early-freeze block at worker entry
+        // Pulse-scan: thaw briefly to let the loader advance, re-freeze, scan
+        // Exits immediately on first match — no unnecessary delay
         bool patternFound = false;
         logToFile("[worker] unlock path: scanning for patch pattern (frozen, with pulses)");
         for (int attempt = 0; attempt < 300 && !patternFound; ++attempt)
@@ -1367,7 +1417,7 @@ static DWORD WINAPI workerThread(LPVOID)
         else
         {
             logToFile("[worker] patch pattern not found within timeout — resuming threads and proceeding without unlock");
-            // Pattern never appeared; thaw now since we won't reach the post-READY resume block.
+            // Pattern never appeared; thaw now since we won't reach the post-READY resume block
             HANDLE hSnap2 = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
             if (hSnap2 != INVALID_HANDLE_VALUE)
             {
@@ -1388,9 +1438,9 @@ static DWORD WINAPI workerThread(LPVOID)
         }
 
         // Skip full init pre-resume — consoleMethods won't be populated while
-                // threads are frozen so the scan is wasted. Just mark initResult=1
-                // so the worker proceeds to the resume block. The real init runs
-                // post-resume where consoleMethods is actually live.
+        // threads are frozen so the scan is wasted. Just mark initResult=1
+        // so the worker proceeds to the resume block. The real init runs
+        // post-resume where consoleMethods is actually live
         initResult = 1;
         diagBuf[0] = '\0';
 
@@ -1401,13 +1451,13 @@ static DWORD WINAPI workerThread(LPVOID)
     }
     else
     {
-        // Normal (non-unlock) path.
+        // Normal (non-unlock) path
         // Freeze all other threads for the duration of the init scan so the
-        // game's memory state is stable while FrostbiteConsole::init() walks it.
-        // Threads are resumed immediately after init resolves (or gives up).
+        // game's memory state is stable while FrostbiteConsole::init() walks it
+        // Threads are resumed immediately after init resolves (or gives up)
         DWORD selfTid = GetCurrentThreadId();
 
-        // ── Freeze ───────────────────────────────────────────────────────────
+        // Freeze
         {
             HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
             if (hSnap != INVALID_HANDLE_VALUE)
@@ -1455,7 +1505,7 @@ static DWORD WINAPI workerThread(LPVOID)
             Sleep(500);
         }
 
-        // ── Thaw ─────────────────────────────────────────────────────────────
+        // Thaw
         {
             HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
             if (hSnap != INVALID_HANDLE_VALUE)
@@ -1490,31 +1540,28 @@ static DWORD WINAPI workerThread(LPVOID)
         lstrcpyA(errBuf, "ERROR:");
         lstrcatA(errBuf, diagBuf);
         pipeWriteStr(errBuf);
-        // Don't return — still send READY so host doesn't hang.
+        // Don't return — still send READY so host doesn't hang
     }
 
-    // ── Resume all threads now that patches are applied and init is done ──────
+    // Resume all threads now that patches are applied and init is done
     if (g_suspendedForUnlock)
     {
-        // Snapshot method count before resume — this is the locked baseline
-        int countBefore = shimGetMethods();
-        static char beforeMsg[64];
-        wsprintfA(beforeMsg, "[unlock] methods before resume: %d", countBefore);
-        logToFile(beforeMsg);
-        pipeWriteStr(beforeMsg + 9); // strip "[unlock] " prefix, send as OUTPUT line via pipe
-        // Actually send as a proper output packet so host sees it
-        {
-            static char outBefore[128];
-            wsprintfA(outBefore, "OUTPUT:[Unlock]|Commands before resume: %d", countBefore);
-            pipeWriteRaw(outBefore, (uint32_t)lstrlenA(outBefore));
-        }
+        // Baseline "before" count for the post-unlock summary. In inject
+        // mode this is the real count the host captured right before the
+        // user clicked "Unlock All Commands" (see g_baselineCommandCount).
+        // A live shimGetMethods() call here would always read 0 since
+        // consoleMethods isn't populated yet while threads are still frozen.
+        // Proxy mode has no "before" state at all — it's unlocked from the
+        // moment it loads — so this stays 0 and the summary format below
+        // omits the "(was X, +Y unlocked)" part entirely in that case
+        int countBefore = g_proxyMode ? 0 : g_baselineCommandCount;
 
         g_suspendedForUnlock = false;
         DWORD selfTid = GetCurrentThreadId();
 
         // Re-run init while still frozen — consoleMethods may already be
-        // populated if the game's static initializers ran before our inject.
-        // If it resolves here we skip the post-resume re-init entirely.
+        // populated if the game's static initializers ran before our inject
+        // If it resolves here we skip the post-resume re-init entirely
         logToFile("[unlock] attempting init while still frozen");
         bool resolvedWhileFrozen = false;
         for (int attempt = 0; attempt < 10; ++attempt)
@@ -1536,7 +1583,7 @@ static DWORD WINAPI workerThread(LPVOID)
             static char frozenWaitMsg[64];
             wsprintfA(frozenWaitMsg, "[unlock] frozen init attempt %d, consoleMethods still empty", attempt + 1);
             logToFile(frozenWaitMsg);
-            // Thaw briefly so static initializers can run, then re-freeze.
+            // Thaw briefly so static initializers can run, then re-freeze
             {
                 HANDLE hSnapThaw = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
                 if (hSnapThaw != INVALID_HANDLE_VALUE)
@@ -1577,7 +1624,7 @@ static DWORD WINAPI workerThread(LPVOID)
         }
 
         // Now resume — either we resolved while frozen, or we need the game
-        // to run its static initializers so post-resume init can find the vector.
+        // to run its static initializers so post-resume init can find the vector
         HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
         if (hSnap != INVALID_HANDLE_VALUE)
         {
@@ -1597,12 +1644,12 @@ static DWORD WINAPI workerThread(LPVOID)
         logToFile("[worker] all threads resumed — game proceeds with patches active");
 
         // Snapshot the baseline count now (before the background thread reads it)
-        // so the "Commands after unlock: X (was Y)" message is accurate.
+        // so the "Commands after unlock: X (was Y)" message is accurate
         int countBeforeResume = countBefore;
 
         // Kick off a background thread to handle post-resume init and poll for
         // method-count stability. The worker continues straight to READY so the
-        // output handler and ConsoleOverlay are registered without delay.
+        // output handler and ConsoleOverlay are registered without delay
         struct PollCtx {
             bool resolvedWhileFrozen;
             int  countBefore;
@@ -1617,7 +1664,7 @@ static DWORD WINAPI workerThread(LPVOID)
             if (!ctx->resolvedWhileFrozen)
             {
                 // Post-resume init — wait for the game's static initializers to
-                // populate consoleMethods, then re-resolve.
+                // populate consoleMethods, then re-resolve
                 logToFile("[unlock] re-running init post-resume to re-resolve consoleMethods");
                 for (int attempt = 0; attempt < 120; ++attempt)
                 {
@@ -1641,7 +1688,7 @@ static DWORD WINAPI workerThread(LPVOID)
                 }
             }
 
-            // Wait for the game to finish registering all its settings groups.
+            // Wait for the game to finish registering all its settings groups
             int countAfter = 0;
             int stable = 0;
             int totalPolls = 0;
@@ -1651,11 +1698,11 @@ static DWORD WINAPI workerThread(LPVOID)
 
             // On some games (e.g. NFS Payback) the consoleMethods vec is
             // populated lazily — it's empty while frozen and only fills once
-            // the game's render/init threads have run for a bit post-resume.
+            // the game's render/init threads have run for a bit post-resume
             // The post-resume init loop above exits because getMethods()=0,
-            // then the poll loop stabilises on 0 and declares done too early.
+            // then the poll loop stabilises on 0 and declares done too early
             // Fix: if we're still at 0 after kZeroRetryAfter ticks, fire a
-            // fresh resetForReinit+init to re-resolve against the now-live vec.
+            // fresh resetForReinit+init to re-resolve against the now-live vec
             const int kZeroRetryAfter = 6; // 3s — enough for Payback's loader
             bool zeroPollRetryDone = false;
 
@@ -1665,8 +1712,8 @@ static DWORD WINAPI workerThread(LPVOID)
                 ++totalPolls;
                 int c = shimGetMethods();
 
-                // If still zero after kZeroRetryAfter ticks, re-run init once.
-                // This handles games that populate consoleMethods lazily post-resume.
+                // If still zero after kZeroRetryAfter ticks, re-run init once
+                // This handles games that populate consoleMethods lazily post-resume
                 if (c == 0 && !zeroPollRetryDone && totalPolls >= kZeroRetryAfter)
                 {
                     logToFile("[unlock] getMethods still 0, re-running init (lazy vec game)");
@@ -1691,17 +1738,33 @@ static DWORD WINAPI workerThread(LPVOID)
             }
 
             static char afterMsg[128];
-            wsprintfA(afterMsg, "OUTPUT:[Unlock]|Commands after unlock: %d (was %d, +%d unlocked)",
-                countAfter, ctx->countBefore, countAfter - ctx->countBefore);
-            logToFile(afterMsg + 8);
+            if (g_proxyMode)
+            {
+                wsprintfA(afterMsg, "OUTPUT:[Unlock]|Commands after unlock: %d", countAfter);
+            }
+            else
+            {
+                wsprintfA(afterMsg, "OUTPUT:[Unlock]|Commands after unlock: %d (was %d, +%d unlocked)",
+                    countAfter, ctx->countBefore, countAfter - ctx->countBefore);
+            }
             pipeWriteRaw(afterMsg, (uint32_t)lstrlenA(afterMsg));
+
+            // Dedicated control packet — signals the host that the unlocked
+            // command count has finished stabilizing and it's now safe to
+            // request the full command list. Using an explicit packet type
+            // here (rather than having the host pattern-match the display
+            // text above) avoids depending on exact wording and sidesteps
+            // the tag-based debug/result classification that text line
+            // goes through on the host
+            static const char kStableMsg[] = "UNLOCK_STABLE:1";
+            pipeWriteRaw(kStableMsg, (uint32_t)(sizeof(kStableMsg) - 1));
             return 0;
-            }, &s_pollCtx, 0, nullptr);
+            }, & s_pollCtx, 0, nullptr);
 
         if (hPollThread) CloseHandle(hPollThread);
     }
 
-    // ── Register output handler ───────────────────────────────────────────────
+    // Register output handler
     {
         FrostbiteConsole::setLogCallback(nullptr);
         static char readyBuf[64];
@@ -1720,63 +1783,174 @@ static DWORD WINAPI workerThread(LPVOID)
         logToFile("[worker] not ready, skipping output handler");
     }
 
-    // ── ConsoleOverlay init ───────────────────────────────────────────────────
-    static LONG s_overlayInitOnce = 0;
-    if (InterlockedCompareExchange(&s_overlayInitOnce, 1, 0) == 0)
-    {
-        for (int overlayAttempt = 0; overlayAttempt < 10; ++overlayAttempt)
+    // ConsoleOverlay init — run on a background thread so READY: and the
+        // command loop (including __LIST__ / __LIST_VARS__) are not blocked
+        // waiting for D3D resolution, which can take up to 10 seconds
+    HANDLE hOverlayInitThread = CreateThread(nullptr, 0, [](LPVOID) -> DWORD
         {
-            if (overlayAttempt > 0)
+            for (int overlayAttempt = 0; overlayAttempt < 10; ++overlayAttempt)
             {
-                Sleep(1000);
-                static char retryMsg[64];
-                wsprintfA(retryMsg, "[worker] retrying ConsoleOverlay init (attempt %d/10)", overlayAttempt + 1);
-                logToFile(retryMsg);
+                if (overlayAttempt > 0)
+                {
+                    Sleep(1000);
+                    static char retryMsg[64];
+                    wsprintfA(retryMsg, "[worker] retrying ConsoleOverlay init (attempt %d/10)", overlayAttempt + 1);
+                    logToFile(retryMsg);
+                }
+                logToFile("[worker] initializing ConsoleOverlay");
+                bool overlayOk = false;
+                __try
+                {
+                    ConsoleOverlay::initialize();
+                    logToFile("[worker] ConsoleOverlay initialized OK");
+                    overlayOk = true;
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER)
+                {
+                    char overlayErr[64];
+                    wsprintfA(overlayErr, "[worker] ConsoleOverlay::initialize EXCEPTION=0x%08lX",
+                        GetExceptionCode());
+                    logToFile(overlayErr);
+                }
+                if (overlayOk) break;
             }
-            logToFile("[worker] initializing ConsoleOverlay");
-            bool overlayOk = false;
-            __try
+            return 0;
+        }, nullptr, 0, nullptr);
+    if (hOverlayInitThread) CloseHandle(hOverlayInitThread);
+
+    bool firstConnect = true;
+    do
+    {
+        if (!firstConnect && !g_proxyMode)
+        {
+            // Clean up the old pipe instance before re-arming.
+            // Shut down the overlay FIRST so its Present hook stops calling
+            // g_pipeOutputHandler before we deregister the output handler.
+            __try { ConsoleOverlay::shutdown(); }
+            __except (EXCEPTION_EXECUTE_HANDLER) {}
+            logToFile("[worker] overlay shut down for re-arm");
+
+            if (FrostbiteConsole::isReady())
             {
-                ConsoleOverlay::initialize();
-                logToFile("[worker] ConsoleOverlay initialized OK");
-                overlayOk = true;
+                logToFile("[worker] removing output handler before re-arm");
+                shimRemoveHandler();
             }
-            __except (EXCEPTION_EXECUTE_HANDLER)
+            DisconnectNamedPipe(g_hPipe);
+            CloseHandle(g_hPipe);
+            g_hPipe = INVALID_HANDLE_VALUE;
+            logToFile("[worker] host detached — re-arming pipe for next attach");
+
+            bool pipeReady = false;
+            while (InterlockedCompareExchange(&g_running, 1, 1) == 1)
             {
-                char overlayErr[64];
-                wsprintfA(overlayErr, "[worker] ConsoleOverlay::initialize EXCEPTION=0x%08lX",
-                    GetExceptionCode());
-                logToFile(overlayErr);
+                g_hPipe = CreateNamedPipeA(
+                    "\\\\.\\pipe\\FBConsoleBridge",
+                    PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+                    PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+                    1, 65536, 65536, 5000, nullptr);
+
+                if (g_hPipe == INVALID_HANDLE_VALUE)
+                {
+                    DWORD gle = GetLastError();
+                    logDec("[worker] re-arm CreateNamedPipe failed GLE=", gle);
+                    if (gle == ERROR_PIPE_BUSY || gle == ERROR_ACCESS_DENIED)
+                    {
+                        logToFile("[worker] pipe not released yet, retrying in 500ms");
+                        Sleep(500);
+                        continue;
+                    }
+                    logToFile("[worker] unrecoverable pipe error — thread exiting");
+                    goto worker_exit;
+                }
+
+                logToFile("[worker] re-armed pipe, waiting for host");
+                if (!ConnectNamedPipe(g_hPipe, nullptr))
+                {
+                    DWORD gle = GetLastError();
+                    if (gle != ERROR_PIPE_CONNECTED)
+                    {
+                        logDec("[worker] re-arm ConnectNamedPipe failed GLE=", gle);
+                        CloseHandle(g_hPipe);
+                        g_hPipe = INVALID_HANDLE_VALUE;
+                        Sleep(200);
+                        continue;
+                    }
+                }
+                logToFile("[worker] host reconnected");
+                pipeReady = true;
+                break;
             }
-            if (overlayOk) break;
+
+            if (!pipeReady)
+                goto worker_exit;
+
+            FrostbiteConsole::setLogCallback([](const char* line) { logToFile(line); });
+            if (FrostbiteConsole::isReady())
+            {
+                logToFile("[worker] re-registering output handler for new session");
+                shimAddHandler();
+            }
+            {
+                int cmdCount = shimGetMethods();
+                static char readyBuf[64];
+                wsprintfA(readyBuf, "READY:%d", cmdCount);
+                pipeWriteStr(readyBuf);
+                logToFile(readyBuf);
+            }
+
+            // Re-initialize the overlay for the new session — background thread
+                        // so the command loop is not blocked waiting for D3D resolution
+            HANDLE hOverlayReInitThread = CreateThread(nullptr, 0, [](LPVOID) -> DWORD
+                {
+                    for (int overlayAttempt = 0; overlayAttempt < 10; ++overlayAttempt)
+                    {
+                        if (overlayAttempt > 0)
+                        {
+                            Sleep(1000);
+                            static char retryMsg[64];
+                            wsprintfA(retryMsg, "[worker] retrying ConsoleOverlay re-init (attempt %d/10)", overlayAttempt + 1);
+                            logToFile(retryMsg);
+                        }
+                        logToFile("[worker] re-initializing ConsoleOverlay for new session");
+                        bool overlayOk = false;
+                        __try
+                        {
+                            ConsoleOverlay::initialize();
+                            logToFile("[worker] ConsoleOverlay re-initialized OK");
+                            overlayOk = true;
+                        }
+                        __except (EXCEPTION_EXECUTE_HANDLER)
+                        {
+                            char overlayErr[64];
+                            wsprintfA(overlayErr, "[worker] ConsoleOverlay::initialize EXCEPTION=0x%08lX",
+                                GetExceptionCode());
+                            logToFile(overlayErr);
+                        }
+                        if (overlayOk) break;
+                    }
+                    return 0;
+                }, nullptr, 0, nullptr);
+            if (hOverlayReInitThread) CloseHandle(hOverlayReInitThread);
         }
-    }
-    else
-    {
-        logToFile("[worker] ConsoleOverlay already initialized by earlier load — skipping");
-    }
+        firstConnect = false;
 
-    // ─────────────────────────────────────────────────────────────────────────
+        logToFile("[worker] entering command loop");
 
-    logToFile("[worker] entering command loop");
-
-    // ── Command loop ──────────────────────────────────────────────────────────
-    while (InterlockedCompareExchange(&g_running, 1, 1) == 1)
-    {
-        uint32_t pktLen = pipeReadRaw(g_readBuf, sizeof(g_readBuf));
-        if (pktLen == 0)
+        while (InterlockedCompareExchange(&g_running, 1, 1) == 1)
         {
-            logDec("[worker] pipeRead returned 0 GLE=", GetLastError());
-            break;
-        }
+            uint32_t pktLen = pipeReadRaw(g_readBuf, sizeof(g_readBuf));
+            if (pktLen == 0)
+            {
+                logDec("[worker] pipeRead returned 0 GLE=", GetLastError());
+                break;
+            }
 
-        {
-            static char preview[129];
-            int cl = pktLen < 128 ? (int)pktLen : 128;
-            CopyMemory(preview, g_readBuf, cl);
-            preview[cl] = '\0';
-            logToFile("[worker] pkt:");
-            logToFile(preview);
+            {
+                static char preview[129];
+                int cl = pktLen < 128 ? (int)pktLen : 128;
+                CopyMemory(preview, g_readBuf, cl);
+                preview[cl] = '\0';
+                logToFile("[worker] pkt:");
         }
 
         if (pktLen <= 4 ||
@@ -1795,7 +1969,7 @@ static DWORD WINAPI workerThread(LPVOID)
             batchBegin();
             batchAppend("METHODS:0", 9);
 
-            // Enumerate directly from the resolved vector — no game lock held.
+            // Enumerate directly from the resolved vector — no game lock held
             int count = 0;
             const FrostbiteConsole::ConsoleMethod* const* methods =
                 FrostbiteConsole::getMethods(count);
@@ -1814,7 +1988,7 @@ static DWORD WINAPI workerThread(LPVOID)
 
             if (methods && count > 0 && count < 100000)
             {
-                // stride is not needed — name is always a raw const char* at +0x08.
+                // stride is not needed — name is always a raw const char* at +0x08
 
                 static char lineBuf[512];
                 for (int i = 0; i < count; ++i)
@@ -1830,8 +2004,8 @@ static DWORD WINAPI workerThread(LPVOID)
                     //   +0x18  description (const char*) — .rdata pointer, may be null
                     const uint8_t* raw = reinterpret_cast<const uint8_t*>(m);
 
-                    // name is a raw const char* at +0x08.
-                    // May point into any module, heap, or arena — not just the exe.
+                    // name is a raw const char* at +0x08
+                    // May point into any module, heap, or arena — not just the exe
                     uint64_t namePtr = 0;
                     if (!FrostbiteConsole::safeRead64(
                         const_cast<uint8_t*>(raw + 0x08), &namePtr)) continue;
@@ -1845,7 +2019,7 @@ static DWORD WINAPI workerThread(LPVOID)
                     const char* name = reinterpret_cast<const char*>(static_cast<uintptr_t>(namePtr));
 
                     // Name must start with a letter or underscore, be at least 2 chars,
-                    // and contain only printable ASCII (no parens, no hex digits as names).
+                    // and contain only printable ASCII (no parens, no hex digits as names)
                     uint8_t c0u = static_cast<uint8_t>(name[0]);
                     if (!isalpha(c0u) && c0u != '_') continue;
                     if (name[1] == '\0') continue;
@@ -1931,7 +2105,7 @@ static DWORD WINAPI workerThread(LPVOID)
                 }
             }
 
-            // ── Instance methods (WorldRender, audio, etc.) ──────────────────
+            // Instance methods (WorldRender, audio, etc.)
             {
                 int instCount = 0, instStride = 0;
                 const uint8_t* instBase = reinterpret_cast<const uint8_t*>(
@@ -1996,8 +2170,8 @@ static DWORD WINAPI workerThread(LPVOID)
             g_expectingOutput = true;
             shimExecute(s_execCmd);
             g_expectingOutput = false;
-            // gameOutputHandler fires during shimExecute and sends OUTPUT: packets.
-            // Now send the RESULT: terminator so the host knows execution is complete.
+            // gameOutputHandler fires during shimExecute and sends OUTPUT: packets
+            // Now send the RESULT: terminator so the host knows execution is complete
             static const char resultEnd[] = "RESULT:";
             pipeWriteRaw(resultEnd, 7);
             logToFile("[worker] cmd done");
@@ -2006,10 +2180,13 @@ static DWORD WINAPI workerThread(LPVOID)
 
     logToFile("[worker] loop exited");
 
+    } while (!g_proxyMode && InterlockedCompareExchange(&g_running, 1, 1) == 1);
+
+worker_exit:
     // In proxy mode keep the thread alive so the overlay Present hook keeps
     // firing. The command loop exits immediately (pipeReadRaw returns 0 with
     // no pipe), so we need this to prevent the thread from tearing down the
-    // overlay right after init.
+    // overlay right after init
     if (g_proxyMode)
     {
         logToFile("[worker] proxy standalone idle loop — overlay active");
@@ -2032,9 +2209,7 @@ static DWORD WINAPI workerThread(LPVOID)
     return 0;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // findGameDir
-// ─────────────────────────────────────────────────────────────────────────────
 static void findGameDir()
 {
     HMODULE mods[1] = {};
@@ -2055,9 +2230,7 @@ static void findGameDir()
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // DllMain
-// ─────────────────────────────────────────────────────────────────────────────
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
 {
     switch (reason)
@@ -2071,7 +2244,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
         // do nothing — Qt's D3D init loads dxgi.dll from the local output
         // directory, which picks up our proxy. Without this guard every
         // Qt startup spawns a worker thread and creates the pipe, causing
-        // ERROR_PIPE_BUSY when the real inject happens.
+        // ERROR_PIPE_BUSY when the real inject happens
         {
             char exePath[MAX_PATH] = {};
             HMODULE mods[1] = {};
@@ -2086,10 +2259,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
 
         findGameDir();
 
-        // Proxy detection: DLL lives in the game directory = loaded as dxgi.dll proxy.
-        // In proxy mode we skip the pipe entirely and run unlock+overlay standalone.
+        // Proxy detection: DLL lives in the game directory = loaded as dxgi.dll proxy
+        // In proxy mode we skip the pipe entirely and run unlock+overlay standalone
         // The InitfsTools.exe early-return above already ensures we never reach here
-        // when loaded by the tool process.
+        // when loaded by the tool process
         {
             char dllPath[MAX_PATH] = {};
             GetModuleFileNameA(hModule, dllPath, MAX_PATH);
@@ -2099,12 +2272,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
             {
                 g_proxyMode = true;
                 g_suspendedForUnlock = true;
-                // No flag file needed in proxy mode — always unlock.
+                // No flag file needed in proxy mode — always unlock
             }
         }
 
-        // Truncate log file fresh on each inject
-        if (g_gameDir[0])
+        // Truncate log file fresh on each inject (only when disk logging is enabled)
+        if (g_enableDiskLog && g_gameDir[0])
         {
             char logPath[MAX_PATH];
             lstrcpyA(logPath, g_gameDir);
@@ -2117,19 +2290,17 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
         logToFile("=== FBConsoleBridge DLL_PROCESS_ATTACH ===");
         logToFile(g_gameDir[0] ? g_gameDir : "(gameDir unknown)");
 
-        // ── Startup unlock — mirrors Kyber's InitializeGamePatches() ─────────
+        // Startup unlock
         // If the host wrote FBConsole_unlock.flag next to the DLL, apply both
         // patches immediately (before the game registers its settings groups)
-        // and then delete the flag so the next restart is clean.
+        // and then delete the flag so the next restart is clean
         //
-        // Patch 1: Nop(0x140235C2E, 6)  — Enable All Console Commands
-        //          (identical to what Kyber hard-codes)
+        // Patch 1: Nop(0x140235C2E, 6) — Enable All Console Commands
         // Patch 2: Hook registerSettingsGroup to force exposeToConsole=true
-        //          (identical to Kyber's SettingsManagerAddHk)
         bool flagExists = false;
         {
-            // Locate the DLL's own directory to find the flag file.
-            // The DLL sits next to initfstools.exe, not in the game dir.
+            // Locate the DLL's own directory to find the flag file
+            // The DLL sits next to initfstools.exe, not in the game dir
             char dllDir[MAX_PATH] = {};
             if (GetModuleFileNameA(hModule, dllDir, MAX_PATH))
             {
@@ -2148,6 +2319,25 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
             if (flagExists)
             {
                 g_suspendedForUnlock = true;
+
+                // Read the baseline command count the host wrote into the flag
+                // file before restarting — this is the real "before" number
+                {
+                    HANDLE hFlag = CreateFileA(flagPath, GENERIC_READ, FILE_SHARE_READ,
+                        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+                    if (hFlag != INVALID_HANDLE_VALUE)
+                    {
+                        char buf[32] = {};
+                        DWORD r = 0;
+                        if (ReadFile(hFlag, buf, sizeof(buf) - 1, &r, nullptr) && r > 0)
+                        {
+                            buf[r] = '\0';
+                            g_baselineCommandCount = parseIntA(buf);
+                        }
+                        CloseHandle(hFlag);
+                    }
+                }
+
                 logToFile("[startup] FBConsole_unlock.flag found — will apply patches after init resolves");
 
                 // Delete the flag now so subsequent launches are clean regardless
@@ -2160,12 +2350,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
             }
         }
 
-        // ── Early patch application ───────────────────────────────────────────
-                // If the unlock flag was set, apply the console unlock patches RIGHT NOW
-                // in DLL_PROCESS_ATTACH before any game code runs. shimApplyUnlock only
-                // needs the module to be mapped — it does its own pattern scan and does
-                // not depend on FrostbiteConsole::init(). This ensures patches are active
-                // before the game's static initializers register any settings groups.
+        // Early patch application
+        // If the unlock flag was set, apply the console unlock patches RIGHT NOW
+        // in DLL_PROCESS_ATTACH before any game code runs. shimApplyUnlock only
+        // needs the module to be mapped — it does its own pattern scan and does
+        // not depend on FrostbiteConsole::init(). This ensures patches are active
+        // before the game's static initializers register any settings groups
         if (g_suspendedForUnlock)
         {
             logToFile("[DllMain] applying unlock patches immediately at attach");
@@ -2176,7 +2366,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
             if (earlyUnlock != 1)
             {
                 // Pattern not found yet (too early for this image) — fall back
-                // to the worker thread path which retries after init resolves.
+                // to the worker thread path which retries after init resolves
                 logToFile("[DllMain] early patch failed, worker thread will retry");
             }
         }

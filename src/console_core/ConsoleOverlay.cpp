@@ -1,8 +1,5 @@
 // ConsoleOverlay.cpp
-// ─────────────────────────────────────────────────────────────────────────────
-// Only compiled into the injected DLL (FB_CONSOLE_OVERLAY_DLL_BUILD).
-// Excluded from the Qt host build entirely.
-//
+// 
 // Rendering pipeline:
 //   VTable hook on IDXGISwapChain::Present (no MinHook needed)
 //   GDI bitmap font atlas baked at init time, uploaded as D3D11 R8 texture
@@ -12,12 +9,7 @@
 // Detection:
 //   probeIngameConsolePresent() scans the game module for the "> \0...\0"
 //   string signature that only exists when IngameConsoleImpl is compiled in
-//   (FB_RETAIL_DEBUG_RENDERER). If found, we skip injecting our overlay.
-//
-// Hardcoded addresses (Garden Warfare, confirm first):
-//   g_dxRendererInstance = 0x141FEB230
-//   HWND static          = 0x141C28E08
-// ─────────────────────────────────────────────────────────────────────────────
+//   (FB_RETAIL_DEBUG_RENDERER). If found, we skip injecting our overlay
 
 #define FB_CONSOLE_OVERLAY_DLL_BUILD
 #include "ConsoleOverlay.h"
@@ -48,19 +40,22 @@
 #include <d3d11on12.h>
 #include <dxgi1_4.h>
 
-// Declared in DLLmain.cpp — signals that the overlay is mid-execute so the
-// shared output handler does not gate its output behind g_expectingOutput.
+// Declared in dxgi.cpp — signals that the overlay is mid-execute so the
+// shared output handler does not gate its output behind g_expectingOutput
 extern volatile bool g_overlayExecuting;
 
-// ─────────────────────────────────────────────────────────────────────────────
+// Declared in dxgi.cpp — controls whether logging is persisted to
+// FBConsoleBridge_log.txt on disk. False by default
+extern const bool g_enableDiskLog;
+
 // Logging
-// ─────────────────────────────────────────────────────────────────────────────
 static void overlayLog(const char* msg)
 {
     // OutputDebugString removed: when loaded by the tool process under VS the
     // debugger output window would receive all overlay log traffic, which is
-    // completely unrelated to what the DLL is doing inside the actual game process.
-    // All overlay logging goes to the disk log only.
+    // completely unrelated to what the DLL is doing inside the actual game process
+
+    if (!g_enableDiskLog) return;
 
     char exePath[MAX_PATH] = {};
     HMODULE mods[1] = {};
@@ -102,7 +97,6 @@ static void overlayLogFmt(const char* fmt, ...)
     overlayLog(buf);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Dynamic address resolution
 //
 // k_dxRendererInstance:
@@ -112,7 +106,7 @@ static void overlayLogFmt(const char* fmt, ...)
 //     0F 85 ?? ?? ?? ??         jne ...
 //   The displacement in the cmp resolves to the singleton storage address.
 //   This pattern is the renderer init guard and is consistent across Frostbite
-//   titles (GW1, GW2, BF4, NFS Heat, MEA, etc.).
+//   titles (GW1, GW2, BF4, NFS Heat, MEA, etc.)
 //
 // k_hwndStatic:
 //   Scan the main module's executable pages for the game window HWND store,
@@ -123,8 +117,7 @@ static void overlayLogFmt(const char* fmt, ...)
 //     0F 84 ?? ?? ?? ??         je ...  (bail on null)
 //   Then scan forward from that point for:
 //     48 89 35 ?? ?? ?? ??      mov [RIP+rel], rsi
-//   That store's target is the HWND static address.
-// ─────────────────────────────────────────────────────────────────────────────
+//   That store's target is the HWND static address
 
 static uint8_t** g_dxRendererInstanceAddr = nullptr;
 static HWND* g_hwndStaticAddr = nullptr;
@@ -158,12 +151,16 @@ static ID3D12Resource* g_d3d12BackBuffers[k_maxSwapBuffers] = {};
 static D3D12_CPU_DESCRIPTOR_HANDLE g_d3d12RTVHandles[k_maxSwapBuffers] = {};
 static UINT                       g_d3d12BufferCount = 0;
 static bool                       g_d3d12ResourcesReady = false;
+// Track whether each back buffer is currently in RENDER_TARGET state
+// (true) or PRESENT state (false). Avoids invalid transition barriers
+// when the game leaves a buffer in an unexpected state between frames.
+static bool g_d3d12BufferInRTState[k_maxSwapBuffers] = {};
 
 static uint8_t** g_dxRendererBaseSlot = nullptr;
 static uint32_t   g_dxRendererFieldOffset = 0;
 
-// Scan one memory page for a RIP-relative LEA targeting needle.
-// Separated from resolveAddresses so __try is legal (no object unwinding).
+// Scan one memory page for a RIP-relative LEA targeting needle
+// Separated from resolveAddresses so __try is legal (no object unwinding)
 static bool scanPageForLEA(uint8_t* pageStart, uint8_t* pageEnd,
     uint8_t* needle, uint8_t** outInsn)
 {
@@ -210,7 +207,7 @@ static void resolveAddresses()
     size_t   modSize = mi.SizeOfImage;
     uint8_t* modEnd = modBase + modSize;
 
-    // ── Helper: scan [base, base+size) for a literal string ──────────────────
+    // Helper: scan [base, base+size) for a literal string
     auto findStr = [](uint8_t* base, size_t size, const char* needle) -> uint8_t*
         {
             size_t nlen = strlen(needle);
@@ -221,10 +218,10 @@ static void resolveAddresses()
             return nullptr;
         };
 
-    // ── Helper: find LEA Rxx,[RIP+rel] whose target == needle anywhere in
-    //   [searchBase, searchBase+searchSize) executable pages ──────────────────
+    // Helper: find LEA Rxx,[RIP+rel] whose target == needle anywhere in
+    // [searchBase, searchBase+searchSize) executable pages
     // Scan a single 4KB page with SEH; returns true if the 7-byte LEA pattern
-    // targeting needle was found and *outInsn is set. Used by findLEAtoTarget.
+    // targeting needle was found and *outInsn is set. Used by findLEAtoTarget
     auto scanPageForLEA = [](uint8_t* pageStart, uint8_t* pageEnd,
         uint8_t* needle, uint8_t** outInsn) -> bool
         {
@@ -256,7 +253,7 @@ static void resolveAddresses()
             uint8_t* end = searchBase + searchSize;
 
             // Walk VQ regions rather than 4KB pages — one VirtualQuery call
-            // per committed region (typically 64KB–2MB) instead of one per page.
+            // per committed region (typically 64KB–2MB) instead of one per page
             uint8_t* cursor = reinterpret_cast<uint8_t*>(
                 reinterpret_cast<uintptr_t>(searchBase) & ~(uintptr_t)0xFFF);
             while (cursor < end)
@@ -271,15 +268,15 @@ static void resolveAddresses()
                 uint8_t* pStart = (rBase < searchBase) ? searchBase : rBase;
                 uint8_t* pEnd = (rEnd > end) ? end : rEnd;
 
-                // Only scan committed readable regions — skip guard/noaccess/free.
+                // Only scan committed readable regions — skip guard/noaccess/free
                 // EA-AC marks code pages PAGE_EXECUTE_READ or PAGE_READONLY; both
-                // are readable so the LEA scan works on either.
+                // are readable so the LEA scan works on either
                 if (mbi.State == MEM_COMMIT &&
                     !(mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)) &&
                     pEnd > pStart)
                 {
                     // Still scan in 4KB sub-pages under __try so a faulting
-                    // GPU-mapped or DXGI-internal page doesn't abort the whole region.
+                    // GPU-mapped or DXGI-internal page doesn't abort the whole region
                     for (uint8_t* page = reinterpret_cast<uint8_t*>(
                         reinterpret_cast<uintptr_t>(pStart) & ~(uintptr_t)0xFFF);
                         page < pEnd; page += 0x1000)
@@ -299,7 +296,7 @@ static void resolveAddresses()
             return nullptr;
         };
 
-    // ── Helper: walk backward from insideFunc to find the function prologue ──
+    // Helper: walk backward from insideFunc to find the function prologue
     auto walkBack = [&](uint8_t* insideFunc) -> uint8_t*
         {
             for (int back = 1; back < 128 * 1024; ++back)
@@ -323,7 +320,7 @@ static void resolveAddresses()
                 if (b0 == 0x48 && b1 == 0x8B && b2 == 0xC4) ok = true;
                 if (!ok) continue;
                 // EA-AC strips execute bits from code pages; accept any committed
-                                // readable page — the SEH-based scan already handled fault safety.
+                // readable page — the SEH-based scan already handled fault safety
                 MEMORY_BASIC_INFORMATION mbi = {};
                 if (!VirtualQuery(cand, &mbi, sizeof(mbi))) continue;
                 if (mbi.State != MEM_COMMIT) continue;
@@ -333,16 +330,13 @@ static void resolveAddresses()
             return nullptr;
         };
 
-    // ── Scan 1: DxRenderer singleton ─────────────────────────────────────────
-        //
-        // Anchor: "RenderDevice" string in .rdata
-        // Method: collect ALL LEA Rxx,[RIP+rel] instructions targeting the string,
-        //         walk each back to its function prologue, scan forward for a
-        //         singleton store whose slot contains a non-null heap pointer.
-        //         Multiple constructors may register under the same "RenderDevice"
-        //         key (e.g. NFS Payback has two: one that populates 0x14382C260
-        //         and one that populates 0x14382C5B8 — only the latter is live).
-        //         We try every LEA until we find a non-null slot.
+    // Scan 1: DxRenderer singleton
+    // Anchor: "RenderDevice" string in .rdata
+    // Method: collect ALL LEA Rxx,[RIP+rel] instructions targeting the string,
+    // walk each back to its function prologue, scan forward for a
+    // singleton store whose slot contains a non-null heap pointer
+    // Multiple constructors may register under the same "RenderDevice"
+    // We try every LEA until we find a non-null slot
     {
         uint8_t* strAddr = findStr(modBase, modSize, "RenderDevice");
         uint8_t* leaInsn = nullptr;
@@ -355,7 +349,7 @@ static void resolveAddresses()
             overlayLogFmt("resolveAddresses: 'RenderDevice' string at %p", (void*)strAddr);
 
             // Collect all LEAs targeting the string — different constructors
-            // each have their own LEA. We try them all in order.
+            // each have their own LEA. We try them all in order
             std::vector<uint8_t*> allLeaInsns;
             {
                 uint8_t* search = modBase;
@@ -388,12 +382,12 @@ static void resolveAddresses()
 
                 overlayLogFmt("resolveAddresses: DxRenderer init fn at %p", (void*)fnStart);
 
-                // Scan forward up to 4KB for a singleton store pattern.
+                // Scan forward up to 4KB for a singleton store pattern
                 // Accept: 4C 89 3D (mov [RIP+rel32], r15)
                 //         48 89 35 (mov [RIP+rel32], rsi)
                 //         48 89 3D (mov [RIP+rel32], rdi)
                 // Do not accept 48 89 05 (mov [RIP+rel32], rax) which writes
-                // temporary intermediate values earlier in the same function.
+                // temporary intermediate values earlier in the same function
                 uint8_t* scan = fnStart;
                 uint8_t* scanEnd = fnStart + 4096;
                 if (scanEnd > modEnd) scanEnd = modEnd;
@@ -414,13 +408,13 @@ static void resolveAddresses()
                     MEMORY_BASIC_INFORMATION mbi = {};
                     if (!VirtualQuery(target, &mbi, sizeof(mbi))) continue;
                     if (mbi.State != MEM_COMMIT) continue;
-                    // Do NOT reject executable slots — EA-AC/GW2 maps its entire
-                    // image (including .data globals) as PAGE_EXECUTE_READ.
+                    // Do NOT reject executable slots — EA-AC maps its entire
+                    // image (including .data globals) as PAGE_EXECUTE_READ
                     if (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)) continue;
 
-                    // If the slot is null, skip — a later constructor (e.g. NFS
-                    // Payback's 0x141AB3500) may write to a different slot that
-                    // IS populated. Continue to the next store pattern.
+                    // If the slot is null, skip — a later constructor
+                    // may write to a different slot that
+                    // IS populated. Continue to the next store pattern
                     uint8_t** candidate = reinterpret_cast<uint8_t**>(target);
                     if (!*candidate)
                     {
@@ -430,7 +424,7 @@ static void resolveAddresses()
                     }
 
                     // Sanity: the DxRenderer object lives on the heap —
-                    // its pointer must land in committed non-executable memory.
+                    // its pointer must land in committed non-executable memory
                     uint8_t* dr = *candidate;
                     MEMORY_BASIC_INFORMATION drMbi = {};
                     if (!VirtualQuery(dr, &drMbi, sizeof(drMbi))) continue;
@@ -448,10 +442,10 @@ static void resolveAddresses()
         }
 
         // Fallback A: some Frostbite titles store the DxRenderer as a field inside a
-                // larger manager object. The manager is stored via 48 89 3D (mov [RIP+rel32], rdi)
-                // near the "RenderDevice" LEA. Scan forward from the LEA for that pattern, read
-                // the manager pointer, then scan manager+[0..0x800] for a COM pointer whose
-                // vtable lands in an exec region (the DxRenderer).
+        // larger manager object. The manager is stored via 48 89 3D (mov [RIP+rel32], rdi)
+        // near the "RenderDevice" LEA. Scan forward from the LEA for that pattern, read
+        // the manager pointer, then scan manager+[0..0x800] for a COM pointer whose
+        // vtable lands in an exec region (the DxRenderer)
         if (!g_dxRendererInstanceAddr && leaInsn)
         {
             uint8_t* scan = leaInsn;
@@ -516,34 +510,31 @@ static void resolveAddresses()
         }
 
         // Fallback B: The DxRenderer is returned from the init function and stored
-        // as a field inside a larger engine object (GW2/EA-AC pattern).
+        // as a field inside a larger engine object
         // Strategy:
-        //   1. Find the LEA of "RenderDevice" string inside any function (the caller).
+        //   1. Find the LEA of "RenderDevice" string inside any function (the caller)
         //   2. In that caller, find a 4C 89 3D store (mov [RIP+rel32], r15) that
-        //      writes the engine object pointer to a global — that global is the base.
+        //      writes the engine object pointer to a global — that global is the base
         //   3. Also in the caller, after the call that returns the DxRenderer, find a
         //      49 89 [87|8F|97|9F|A7|AF|B7|BF] disp32 (mov [r15+disp32], rXX) store
-        //      — that disp32 is the field offset of the DxRenderer inside the object.
+        //      — that disp32 is the field offset of the DxRenderer inside the object
         //   4. g_dxRendererInstanceAddr = &(*(base_global) + field_offset)
-        //      i.e. a pointer-to-pointer into the engine object's field slot.
+        //      i.e. a pointer-to-pointer into the engine object's field slot
         if (!g_dxRendererInstanceAddr && leaInsn)
         {
             // The leaInsn we found is inside the init function. We need the CALLER
-            // that contains the "RenderDevice" LEA used to register the sub-object.
+            // that contains the "RenderDevice" LEA used to register the sub-object
             // Scan the entire module for any LEA to the "RenderDevice" string,
-            // then find the one that is NOT inside the init function (it's in the caller).
+            // then find the one that is NOT inside the init function (it's in the caller)
             uint8_t* initFn = walkBack(leaInsn);
             uint8_t* initFnEnd = initFn ? (initFn + 4096) : nullptr;
             if (initFnEnd && initFnEnd > modEnd) initFnEnd = modEnd;
 
-            // Collect ALL LEAs to the RenderDevice string (there may be 3+).
-                        // The one we already found (inside initFn) is skipped.
-                        // We try each remaining one as a "caller" — the right one is the
-                        // function that contains the definitive 4C 89 3D singleton stores
-                        // (i.e. mov [RIP+rel], r15 with a non-module heap value in the slot).
-                        // GW2/EA-AC has the real init at a completely different address from
-                        // the registration function, so we must try all candidates.
-// Diagnostic: probe why findLEAtoTarget misses the LEA at modBase+0x88DA79.
+            // Collect ALL LEAs to the RenderDevice string (there may be 3+)
+            // The one we already found (inside initFn) is skipped.
+            // We try each remaining one as a "caller" — the right one is the
+            // function that contains the definitive 4C 89 3D singleton stores
+            // (i.e. mov [RIP+rel], r15 with a non-module heap value in the slot)
             {
                 // VQ the region containing that page
                 uint8_t* testPage = modBase + 0x88D000;
@@ -612,10 +603,10 @@ static void resolveAddresses()
                     search = found + 7;
                 }
             }
-            // For GW2/EA-AC the init function itself contains both the engine-object
+            // For EA-AC the init function itself contains both the engine-object
             // 4C 89 3D store and the 49 89 BF DxRenderer field store, so it must be
             // tried as a candidate. Sort any LEA inside initFn to the front so it is
-            // tried first — for other titles no LEA falls inside initFn, no-op.
+            // tried first — for other titles no LEA falls inside initFn, no-op
             if (initFn && initFnEnd)
             {
                 std::stable_partition(callerLeaCandidates.begin(), callerLeaCandidates.end(),
@@ -731,7 +722,7 @@ static void resolveAddresses()
                     if (baseSlot)
                     {
                         // Read the base object pointer so we can validate each candidate
-                        // field by dereferencing it and checking for a DXGI/D3D11 vtable.
+                        // field by dereferencing it and checking for a DXGI/D3D11 vtable
                         uint64_t baseVal = 0;
                         FrostbiteConsole::safeRead64(baseSlot, &baseVal);
                         uint8_t* baseObj = baseVal
@@ -771,8 +762,8 @@ static void resolveAddresses()
                             }
 
                             // Validate: dereference base[disp] and check if the
-                            // resulting pointer's first qword is a vtable in dxgi or d3d11.
-                            // This is the strongest signal that we have the right field.
+                            // resulting pointer's first qword is a vtable in dxgi or d3d11
+                            // This is the strongest signal that we have the right field
                             bool validated = false;
                             if (baseObj && postCall)
                             {
@@ -818,8 +809,8 @@ static void resolveAddresses()
                                 }
                             }
 
-                            // Priority: validated postCall > unvalidated postCall > non-postCall.
-                            // Among equal quality, prefer smaller disp.
+                            // Priority: validated postCall > unvalidated postCall > non-postCall
+                            // Among equal quality, prefer smaller disp
                             bool better = false;
                             if (!bestFs)
                                 better = true;
@@ -862,7 +853,7 @@ static void resolveAddresses()
                         // Reject false-positive engine-field results: if the field offset
                         // was found without a post-call anchor AND a tentative direct
                         // singleton exists whose value differs from this base slot's value,
-                        // this is likely a different object — skip it and keep searching.
+                        // this is likely a different object — skip it and keep searching
                         bool rejectFalsePositive = false;
                         if (!fieldIsPostCall && tentativeDirectSlot && *tentativeDirectSlot)
                         {
@@ -898,9 +889,9 @@ static void resolveAddresses()
                                 (void*)baseSlot);
                         }
                     }
-                } // end for callerLeaCandidates
+                }
 
-                // If no engine-field candidate was found, promote the tentative direct singleton.
+                // If no engine-field candidate was found, promote the tentative direct singleton
                 if (!foundEngineField && !g_dxRendererBaseSlot && tentativeDirectSlot)
                 {
                     g_dxRendererInstanceAddr = tentativeDirectSlot;
@@ -908,21 +899,20 @@ static void resolveAddresses()
                         "promoting tentative direct singleton addr=%p",
                         (void*)tentativeDirectSlot);
                 }
-            } // end else (callerLeaCandidates not empty)
-        } // end if (!g_dxRendererInstanceAddr && leaInsn)  [FallbackB]
+            }
+        }
 
         if (!g_dxRendererInstanceAddr && !g_dxRendererBaseSlot)
             overlayLog("resolveAddresses: WARNING — DxRenderer instance not found");
-    } // end Scan 1 block
+    }
 
-    // ── Scan 2: HWND static ───────────────────────────────────────────────────
-    //
+    // Scan 2: HWND static
     // Anchor: "parentHwnd" string in .rdata
-    // Method: find LEA Rxx,[RIP+rel] → walk back to prologue → scan forward
-    //         for FF 15 (call [CreateWindowExA]) followed by 48 8B F0
-    //         (mov rsi, rax) → then scan forward up to 256 bytes for
-    //         48 89 35 ?? ?? ?? ?? (mov [RIP+rel32], rsi) — the HWND store.
-    //         This sequence is consistent across Frostbite titles.
+    // Method: find LEA Rxx,[RIP+rel] -> walk back to prologue -> scan forward
+    // for FF 15 (call [CreateWindowExA]) followed by 48 8B F0
+    // (mov rsi, rax) -> then scan forward up to 256 bytes for
+    // 48 89 35 ?? ?? ?? ?? (mov [RIP+rel32], rsi) — the HWND store
+    // This sequence is consistent across Frostbite titles
     {
         uint8_t* strAddr = findStr(modBase, modSize, "parentHwnd");
         if (!strAddr)
@@ -969,10 +959,10 @@ static void resolveAddresses()
                         if (scan[0] != 0xFF || scan[1] != 0x15) continue;
 
                         // After the 6-byte call, accept any of:
-                                                //   48 8B F0  (mov rsi, rax) — load form — GW1/Rivals/BF4
-                                                //   48 8B F8  (mov rdi, rax) — load form — GW2/EA-AC
-                                                //   48 89 C6  (mov rsi, rax) — store form — NFS 2016
-                                                //   48 89 C7  (mov rdi, rax) — store form — alternate
+                                                //   48 8B F0  (mov rsi, rax) — load form
+                                                //   48 8B F8  (mov rdi, rax) — load form
+                                                //   48 89 C6  (mov rsi, rax) — store form
+                                                //   48 89 C7  (mov rdi, rax) — store form
                                                 //   49 89 C6  (mov r14, rax) — REX.B store form
                         bool movRsi = (scan[6] == 0x48 && scan[7] == 0x8B && scan[8] == 0xF0)
                             || (scan[6] == 0x48 && scan[7] == 0x89 && scan[8] == 0xC6);
@@ -996,9 +986,9 @@ static void resolveAddresses()
 
                         // Scan forward up to 256 bytes for the HWND store.
                         // Accept all three RIP-relative mov-register-to-memory forms:
-                        //   48 89 35 ?? ?? ?? ??  mov [RIP+rel32], rsi  — GW1/Rivals
-                        //   48 89 3D ?? ?? ?? ??  mov [RIP+rel32], rdi  — GW2/EA-AC
-                        //   4C 89 35 ?? ?? ?? ??  mov [RIP+rel32], r14  — alternate
+                        //   48 89 35 ?? ?? ?? ??  mov [RIP+rel32], rsi
+                        //   48 89 3D ?? ?? ?? ??  mov [RIP+rel32], rdi
+                        //   4C 89 35 ?? ?? ?? ??  mov [RIP+rel32], r14
                         uint8_t* inner = scan + 9;
                         uint8_t* innerEnd = inner + 256;
                         if (innerEnd > modEnd) innerEnd = modEnd;
@@ -1033,10 +1023,10 @@ static void resolveAddresses()
         }
 
         // Fallback: scan all non-executable committed pages in the module for
-                // a pointer-sized value that IsWindow() confirms is a valid HWND.
-                // This handles games (e.g. NFS Payback) where the HWND is stored as a
-                // field inside a manager object rather than in a dedicated RIP-relative
-                // static, so no "mov [RIP+rel32], rsi" pattern exists to find.
+        // a pointer-sized value that IsWindow() confirms is a valid HWND
+        // This handles games (e.g. NFS Payback) where the HWND is stored as a
+        // field inside a manager object rather than in a dedicated RIP-relative
+        // static, so no "mov [RIP+rel32], rsi" pattern exists to find
         if (!g_hwndStaticAddr)
         {
             overlayLog("resolveAddresses: HWND static not found via pattern — trying IsWindow scan");
@@ -1091,8 +1081,8 @@ static void resolveAddresses()
 }
 
 // Walk all DXGI adapters/outputs to find the swap chain whose output
-// device matches our HWND, then derive device+context from it.
-// This is offset-free and works on any Frostbite title.
+// device matches our HWND, then derive device+context from it
+// This is offset-free and works on any Frostbite title
 static bool resolveD3DFromDXGI(HWND hwnd)
 {
     IDXGIFactory1* factory = nullptr;
@@ -1108,7 +1098,7 @@ static bool resolveD3DFromDXGI(HWND hwnd)
     uint8_t* dr = nullptr;
     // Engine-field (deferred two-level dereference) takes priority — it is the result
     // of a validated post-call store pattern and is more reliable than the tentative
-    // direct singleton which may be a false-positive candidate from an earlier caller.
+    // direct singleton which may be a false-positive candidate from an earlier caller
     if (g_dxRendererBaseSlot && *g_dxRendererBaseSlot)
     {
         uint8_t* base = *g_dxRendererBaseSlot;
@@ -1134,7 +1124,7 @@ static bool resolveD3DFromDXGI(HWND hwnd)
         dr = *g_dxRendererInstanceAddr;
     }
     // Module bounds — needed for the .data scan in the SwapChain fallback
-        // and for the D3D12 null-dr scan below.
+    // and for the D3D12 null-dr scan below
     uint8_t* modBase = nullptr;
     uint8_t* modEnd = nullptr;
     {
@@ -1155,14 +1145,14 @@ static bool resolveD3DFromDXGI(HWND hwnd)
     {
         overlayLog("resolveD3DFromDXGI: DxRenderer pointer is null — attempting D3D12 swap-chain scan");
 
-        // ── D3D12 fallback ────────────────────────────────────────────────────
-        // Dragon Age: The Veilguard (and other D3D12-only Frostbite titles) do
+        // D3D12 fallback
+        // D3D12-only Frostbite titles do
         // not expose a DxRenderer singleton findable by the "RenderDevice" LEA
         // heuristic. Instead, scan the game module's non-executable data pages
         // for an IDXGISwapChain whose vtable lives in dxgi.dll, then use
         // D3D11On12CreateDevice to stand up a D3D11 wrapper device/context on
         // top of the game's D3D12 command queue. The rest of the overlay (shaders,
-        // font atlas, present hook) is unchanged.
+        // font atlas, present hook) is unchanged
 
         HMODULE hDXGIscan = GetModuleHandleA("dxgi.dll");
         HMODULE hD3D12scan = GetModuleHandleA("d3d12.dll");
@@ -1174,16 +1164,16 @@ static bool resolveD3DFromDXGI(HWND hwnd)
         // entire committed process address space instead.
         // Guard: vtable must be in dxgi.dll, object must QI as IDXGISwapChain3
         // (flip-model interface always supported by D3D12 swap chains), and the
-        // swap chain must have a back-buffer count >= 2 (rules out dummy objects).
+        // swap chain must have a back-buffer count >= 2 (rules out dummy objects)
         {
-            // Prefer IDXGISwapChain3 — all D3D12 flip-model swap chains support it.
-                // We fall back to IDXGISwapChain if QI for 3 fails.
+            // Prefer IDXGISwapChain3 — all D3D12 flip-model swap chains support it
+            // We fall back to IDXGISwapChain if QI for 3 fails
             MEMORY_BASIC_INFORMATION mbi2 = {};
             uint8_t* cursor = reinterpret_cast<uint8_t*>(0x10000);
             uint8_t* limit = reinterpret_cast<uint8_t*>(0x00007FFFFFFFFFFFllu);
 
             // Cache dxgi.dll address range so the vtable check is a fast
-            // range compare instead of a GetModuleHandleEx call per pointer.
+            // range compare instead of a GetModuleHandleEx call per pointer
             uint8_t* dxgiBase = nullptr;
             uint8_t* dxgiEnd = nullptr;
             if (hDXGIscan)
@@ -1206,7 +1196,7 @@ static bool resolveD3DFromDXGI(HWND hwnd)
                 // Only scan committed, non-executable, readable private or
                 // mapped pages. Skip image-backed (MEM_IMAGE), guard, noaccess.
                 // MEM_IMAGE pages are DLL/EXE mappings — swap chains are never
-                // stored there, and skipping them cuts scan time significantly.
+                // stored there, and skipping them cuts scan time significantly
                 bool candidate =
                     (mbi2.State == MEM_COMMIT) &&
                     !(mbi2.Protect & (PAGE_NOACCESS | PAGE_GUARD)) &&
@@ -1218,7 +1208,7 @@ static bool resolveD3DFromDXGI(HWND hwnd)
                 {
                     // Scan page-by-page under __try — GPU-mapped and certain
                     // DXGI-internal regions report as readable via VirtualQuery
-                    // but fault on access.
+                    // but fault on access
                     for (uint8_t* pageBase = rBase2;
                         pageBase < rEnd2 && !foundSC;
                         pageBase += 0x1000)
@@ -1238,7 +1228,7 @@ static bool resolveD3DFromDXGI(HWND hwnd)
 
                                 // Vtable pointer check — fast range compare
                                 // against cached dxgi.dll bounds; falls back to
-                                // GetModuleHandleEx only if bounds are unavailable.
+                                // GetModuleHandleEx only if bounds are unavailable
                                 uint64_t vtbl2 = 0;
                                 if (!FrostbiteConsole::safeRead64(
                                     reinterpret_cast<void*>(static_cast<uintptr_t>(val2)),
@@ -1265,7 +1255,7 @@ static bool resolveD3DFromDXGI(HWND hwnd)
                                 IUnknown* unk2 = reinterpret_cast<IUnknown*>(
                                     static_cast<uintptr_t>(val2));
 
-                                // Try IDXGISwapChain3 first (D3D12 flip-model).
+                                // Try IDXGISwapChain3 first (D3D12 flip-model)
                                 IDXGISwapChain3* sc3 = nullptr;
                                 if (SUCCEEDED(unk2->QueryInterface(
                                     __uuidof(IDXGISwapChain3),
@@ -1350,16 +1340,16 @@ static bool resolveD3DFromDXGI(HWND hwnd)
 
         // Scan the game's data pages for the DIRECT command queue the swap
         // chain was created with. We identify it by vtable in d3d12.dll and
-        // D3D12_COMMAND_LIST_TYPE_DIRECT reported by GetDesc().
+        // D3D12_COMMAND_LIST_TYPE_DIRECT reported by GetDesc()
         ID3D12CommandQueue* d12queue = nullptr;
         {
             MEMORY_BASIC_INFORMATION mqmbi = {};
-            // Dragon Age: The Veilguard stores the command queue pointer inside a
+            // Some games stores the command queue pointer inside a
             // heap-allocated engine object, not inside the game module's .data
             // section. Scan the full process address space (same strategy used above
             // for the swap chain) so D3D12-only titles are covered. Other games that
             // reach this path via the DxRenderer-null branch already have no queue
-            // in the module image anyway, so widening the scan is always correct.
+            // in the module image anyway, so widening the scan is always correct
             uint8_t* cursor = reinterpret_cast<uint8_t*>(0x10000);
             uint8_t* limit = reinterpret_cast<uint8_t*>(0x00007FFFFFFFFFFFllu);
             for (; cursor < limit && !d12queue; )
@@ -1392,14 +1382,14 @@ static bool resolveD3DFromDXGI(HWND hwnd)
                                 if (val3 >= reinterpret_cast<uintptr_t>(modBase) &&
                                     val3 < reinterpret_cast<uintptr_t>(modEnd)) continue;
 
-                                // Gate on vtable module membership before any COM call.
-                                // Both dereferences and the QI are inside this __try frame.
+                                // Gate on vtable module membership before any COM call
+                                // Both dereferences and the QI are inside this __try frame
                                 uint64_t vtbl3 = 0;
                                 if (!FrostbiteConsole::safeRead64(
                                     reinterpret_cast<void*>(static_cast<uintptr_t>(val3)),
                                     &vtbl3) || !vtbl3) continue;
 
-                                // Fast range check against cached d3d12.dll bounds.
+                                // Fast range check against cached d3d12.dll bounds
                                 {
                                     static uint8_t* s_d3d12Base = nullptr;
                                     static uint8_t* s_d3d12End = nullptr;
@@ -1439,7 +1429,7 @@ static bool resolveD3DFromDXGI(HWND hwnd)
 
                                 // Verify the vtable's first slot is itself a committed
                                 // executable address — catches objects whose vtable pointer
-                                // resolved to d3d12.dll by coincidence but is malformed.
+                                // resolved to d3d12.dll by coincidence but is malformed
                                 uint64_t vtblSlot0 = 0;
                                 if (!FrostbiteConsole::safeRead64(
                                     reinterpret_cast<void*>(static_cast<uintptr_t>(vtbl3)),
@@ -1498,14 +1488,14 @@ static bool resolveD3DFromDXGI(HWND hwnd)
 
         // Store the game's queue directly. We will inject our command list
         // via ExecuteCommandLists on this queue — no D3D11On12, no second device,
-        // no resource ownership conflict.
+        // no resource ownership conflict
         g_isD3D12Mode = true;
         g_d3d12Device = d12dev;   // keep ref
         g_d3d12Queue = d12queue;  // keep ref — game's queue, we submit on it
 
         // For the D3D11 overlay path (shaders, font, vb) we create a plain
         // D3D11 device on the same adapter — completely independent, never
-        // touches the swap chain or D3D12 resources.
+        // touches the swap chain or D3D12 resources
         IDXGIDevice* dxgiDev = nullptr;
         IDXGIAdapter* adapter = nullptr;
         if (SUCCEEDED(d12dev->QueryInterface(__uuidof(IDXGIDevice),
@@ -1576,7 +1566,7 @@ static bool resolveD3DFromDXGI(HWND hwnd)
     HMODULE hD3D11 = GetModuleHandleA("d3d11.dll");
 
     // GetModuleHandleA("dxgi.dll") returns our own proxy when loaded as dxgi.dll
-    // from the game directory. Load the real system dxgi by full path instead.
+    // from the game directory. Load the real system dxgi by full path instead
     HMODULE hDXGI = nullptr;
     {
         char sysDir[MAX_PATH] = {};
@@ -1663,7 +1653,7 @@ static bool resolveD3DFromDXGI(HWND hwnd)
         };
 
     // Helper: does this value look like a DXGI COM object (vtable in dxgi.dll)?
-    // Used by Pass3 and Pass4 to gate QueryInterface calls safely.
+    // Used by Pass3 and Pass4 to gate QueryInterface calls safely
     auto isDXGICOMObject = [&](uint64_t val) -> bool
         {
             if (!val || val < 0x10000ULL || val > 0x00007FFFFFFFFFFFllu) return false;
@@ -1679,7 +1669,7 @@ static bool resolveD3DFromDXGI(HWND hwnd)
                 &hMod) && hMod && hMod == hDXGI;
         };
 
-    // Pass 1: scan first 640 bytes of the DxRenderer object directly.
+    // Pass 1: scan first 640 bytes of the DxRenderer object directly
     overlayLogFmt("resolveD3DFromDXGI: Pass1 scanning dr=%p (range=640B)", (void*)dr);
     for (size_t off = 0; off + 8 <= 640; off += 8)
     {
@@ -1694,18 +1684,17 @@ static bool resolveD3DFromDXGI(HWND hwnd)
     overlayLogFmt("resolveD3DFromDXGI: after Pass1 sc=%p dev=%p ctx=%p",
         (void*)swapChain, (void*)device, (void*)context);
 
-    // GW2/EA-AC pattern: the primary scan found a slot (g_dxRendererInstanceAddr) but
+    // EA-AC pattern: the primary scan found a slot (g_dxRendererInstanceAddr) but
     // it points to the engine singleton, not the DxRenderer sub-object. If Pass1 found
     // nothing and we have no engine-field path, retry resolution via FallbackB by
     // attempting a two-level dereference: scan the engine object for a sub-object whose
-    // first 640 bytes contain a DXGI/D3D11 COM pointer.
+    // first 640 bytes contain a DXGI/D3D11 COM pointer
     if (!swapChain && !device && !context && g_dxRendererInstanceAddr && !g_dxRendererBaseSlot)
     {
         overlayLog("resolveD3DFromDXGI: Pass1 empty — scanning engine object for D3D objects");
         uint8_t* engineObj = dr;
 
-        // First: scan the engine object itself directly for Device/Context/SwapChain.
-        // GW2 stores Device and Context directly on the engine singleton.
+        // First: scan the engine object itself directly for Device/Context/SwapChain
         overlayLog("resolveD3DFromDXGI: direct engine object scan (16KB)");
         for (size_t off = 0; off + 8 <= 16384 && !(swapChain && device && context); off += 8)
         {
@@ -1718,10 +1707,10 @@ static bool resolveD3DFromDXGI(HWND hwnd)
         overlayLogFmt("resolveD3DFromDXGI: after direct engine scan sc=%p dev=%p ctx=%p",
             (void*)swapChain, (void*)device, (void*)context);
 
-        // Second: scan every sub-object pointer in the engine object.
+        // Second: scan every sub-object pointer in the engine object
         // Call tryIdentifyCOMPtr on each value inside each sub-object —
         // this finds SwapChain, Device, and Context across all sub-objects,
-        // not just the first one that happens to have a DXGI pointer.
+        // not just the first one that happens to have a DXGI pointer
         for (size_t off = 0; off + 8 <= 16384 && !(swapChain && device && context); off += 8)
         {
             uint64_t subPtr = 0;
@@ -1762,11 +1751,10 @@ static bool resolveD3DFromDXGI(HWND hwnd)
     }
 
     // Pass2: scan only the first 512 bytes of DxRenderer for a nested Screen
-    // pointer, then scan 256 bytes of that sub-object for a DXGI SwapChain.
-    // GW1: dr+0x38->+0xF0. Rivals: dr+0x38->+0xB0.
-    // The entire inner body is wrapped in __try so any fault is contained.
-    // Only sub-objects in non-executable committed memory are entered.
-    // Only values whose vtable is in dxgi.dll are QI'd.
+    // pointer, then scan 256 bytes of that sub-object for a DXGI SwapChain
+    // The entire inner body is wrapped in __try so any fault is contained
+    // Only sub-objects in non-executable committed memory are entered
+    // Only values whose vtable is in dxgi.dll are QI'd
     if (!swapChain)
     {
         uintptr_t drBase = reinterpret_cast<uintptr_t>(dr);
@@ -1818,7 +1806,7 @@ static bool resolveD3DFromDXGI(HWND hwnd)
             overlayLog("resolveD3DFromDXGI: Pass2 exhausted");
     }
 
-    // Derive context from device if not found directly.
+    // Derive context from device if not found directly
     if (device && !context)
     {
         device->GetImmediateContext(&context);
@@ -1830,10 +1818,10 @@ static bool resolveD3DFromDXGI(HWND hwnd)
         }
     }
 
-    // Pass4: scan the vendor screen objects stored at dr+0xAC8/0xAD0/0xAD8.
-    // These are populated by the vendor-specific init functions (AMD/NVIDIA/Intel)
-    // called from 0x141AB4320. The swap chain is stored inside one of these.
-    // Use isDXGICOMObject to gate QI calls safely.
+    // Pass4: scan the vendor screen objects stored at dr+0xAC8/0xAD0/0xAD8
+    // These are populated by the vendor-specific init functions
+    // called from 0x141AB4320. The swap chain is stored inside one of these
+    // Use isDXGICOMObject to gate QI calls safely
     if (!swapChain && dr)
     {
         overlayLog("resolveD3DFromDXGI: Pass4 scanning vendor screen objects");
@@ -1925,11 +1913,11 @@ static bool resolveD3DFromDXGI(HWND hwnd)
     }
 
     // SwapChain not found by direct scan. Use IDXGIDevice->GetAdapter->GetParent
-        // to reach the factory, then scan the factory's vtable for CreateSwapChain's
-        // internal list. Simpler: scan ALL heap allocations reachable from the
-        // IDXGIAdapter for a DXGI swap chain COM object.
-        // Most reliable: scan the game module's .data section for any pointer that
-        // QI's successfully as IDXGISwapChain using the device we already have.
+    // to reach the factory, then scan the factory's vtable for CreateSwapChain's
+    // internal list. Simpler: scan ALL heap allocations reachable from the
+    // IDXGIAdapter for a DXGI swap chain COM object
+    // Most reliable: scan the game module's .data section for any pointer that
+    // QI's successfully as IDXGISwapChain using the device we already have
     if (!swapChain && device)
     {
         IDXGIDevice* dxgiDev = nullptr;
@@ -1950,7 +1938,7 @@ static bool resolveD3DFromDXGI(HWND hwnd)
         }
 
         // Strategy 1: scan the DxRenderer object in 64KB chunks beyond the
-        // first 4KB, up to 256KB total.
+        // first 4KB, up to 256KB total
         overlayLog("resolveD3DFromDXGI: scanning dr[4KB..256KB] for SwapChain");
         for (size_t off = 4096; off + 8 <= 256 * 1024 && !swapChain; off += 8)
         {
@@ -1983,7 +1971,7 @@ static bool resolveD3DFromDXGI(HWND hwnd)
         // Strategy 2: scan the game module's non-executable data pages for any
         // pointer that QI's as IDXGISwapChain. This catches the case where the
         // swap chain pointer is stored in a global or a separate manager object
-        // not reachable from the DxRenderer struct directly.
+        // not reachable from the DxRenderer struct directly
         if (!swapChain)
         {
             overlayLog("resolveD3DFromDXGI: scanning game .data for SwapChain pointer");
@@ -2066,19 +2054,17 @@ static HWND resolveHwnd()
     return *g_hwndStaticAddr;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // IngameConsole detection
 //
-// Mirrors ConsoleBridge::probeIngameConsole from FrostbiteConsole.cpp.
 // Scans the main module's non-executable committed pages for the byte pattern:
 //   3E 20 00          "> \0"
 //   [0-4 pad bytes]
 //   2E 2E 2E 00       "...\0"
 //
-// Present  → real IngameConsoleImpl compiled in → we skip our overlay.
-// Absent   → dummy stub (game shipped without FB_RETAIL_DEBUG_RENDERER) →
-//            we inject our own overlay.
-// ─────────────────────────────────────────────────────────────────────────────
+// Present  -> real IngameConsoleImpl compiled in -> we skip our overlay
+// Absent   -> dummy stub (game shipped without FB_RETAIL_DEBUG_RENDERER) ->
+//            we inject our own overlay
+
 static bool s_probeResult = false;
 static bool s_probeComplete = false;
 
@@ -2160,9 +2146,7 @@ static bool doProbeIngameConsole()
     return false;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Vertex / shader
-// ─────────────────────────────────────────────────────────────────────────────
 struct Vertex
 {
     float x, y;          // NDC
@@ -2195,9 +2179,7 @@ float4 PSMain(VSOut v) : SV_TARGET
 }
 )hlsl";
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Font atlas constants
-// ─────────────────────────────────────────────────────────────────────────────
 static constexpr int k_firstChar = 32;
 static constexpr int k_lastChar = 126;
 static constexpr int k_numChars = k_lastChar - k_firstChar + 1;
@@ -2206,9 +2188,7 @@ static constexpr int k_cellH = 16;
 static constexpr int k_atlasW = k_numChars * k_cellW;
 static constexpr int k_atlasH = k_cellH;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Console layout constants (mirrors IngameConsoleImpl::Constants)
-// ─────────────────────────────────────────────────────────────────────────────
+// Console layout constants
 static constexpr int   k_responseCount = 25;
 static constexpr int   k_lineSpacingPx = 16;
 static constexpr float k_marginLeft = 30.0f;
@@ -2218,9 +2198,7 @@ static constexpr float k_consoleWidthPct = 0.70f;  // 70% of screen width
 static constexpr float k_bgAlpha = 0.82f;
 static constexpr int   k_maxVerts = 16384;
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Module-level D3D + overlay state (all in anonymous namespace)
-// ─────────────────────────────────────────────────────────────────────────────
 namespace
 {
     // D3D objects
@@ -2253,6 +2231,7 @@ namespace
     // Console state
     bool                    g_visible = true;   // open on inject for first test
     bool                    g_initialized = false;
+    bool                    s_bannerShown = false;
     std::mutex              g_mtx;
     std::deque<std::string> g_responses;
     std::string             g_inputLine;
@@ -2292,9 +2271,7 @@ namespace
 
 } // anonymous namespace
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Autocomplete helpers
-// ─────────────────────────────────────────────────────────────────────────────
 static std::vector<std::string> g_methodNames; // populated once on first use
 static std::vector<std::string> g_methodDescs; // parallel: description string for each entry
 
@@ -2428,9 +2405,7 @@ static void initOrigGetAsyncKeyState()
             GetProcAddress(hUser32, "GetAsyncKeyState"));
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // D3D state backup/restore — prevents corrupting the game's renderer state
-// ─────────────────────────────────────────────────────────────────────────────
 struct D3DStateBackup
 {
     ID3D11RenderTargetView* rtv = nullptr;
@@ -2488,15 +2463,13 @@ struct D3DStateBackup
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
 // RTV helpers
-// ─────────────────────────────────────────────────────────────────────────────
 
-// ── D3D12 overlay resource creation ──────────────────────────────────────────
+// D3D12 overlay resource creation
 // Called once from presentHook on the first frame. Creates the command
 // allocator, command list, root signature, PSO, vertex buffer, font texture,
-// and one RTV per swap-chain back buffer — all on the game's D3D12 device.
-// The game's command queue is used to execute our command list each frame.
+// and one RTV per swap-chain back buffer — all on the game's D3D12 device
+// The game's command queue is used to execute our command list each frame
 static bool createD3D12OverlayResources(IDXGISwapChain* sc)
 {
     if (g_d3d12ResourcesReady) return true;
@@ -2504,7 +2477,7 @@ static bool createD3D12OverlayResources(IDXGISwapChain* sc)
 
     overlayLog("createD3D12OverlayResources: start");
 
-    // ── Command allocator + list ──────────────────────────────────────────────
+    // Command allocator + list
     if (FAILED(g_d3d12Device->CreateCommandAllocator(
         D3D12_COMMAND_LIST_TYPE_DIRECT,
         __uuidof(ID3D12CommandAllocator),
@@ -2524,7 +2497,7 @@ static bool createD3D12OverlayResources(IDXGISwapChain* sc)
     }
     g_d3d12CmdList->Close();
 
-    // ── RTV descriptor heap ───────────────────────────────────────────────────
+    // RTV descriptor heap
     D3D12_DESCRIPTOR_HEAP_DESC rtvHD = {};
     rtvHD.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
     rtvHD.NumDescriptors = k_maxSwapBuffers;
@@ -2539,7 +2512,7 @@ static bool createD3D12OverlayResources(IDXGISwapChain* sc)
     g_d3d12RTVDescSize = g_d3d12Device->GetDescriptorHandleIncrementSize(
         D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
-    // ── SRV heap for font texture ─────────────────────────────────────────────
+    // SRV heap for font texture
     D3D12_DESCRIPTOR_HEAP_DESC srvHD = {};
     srvHD.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHD.NumDescriptors = 1;
@@ -2552,7 +2525,7 @@ static bool createD3D12OverlayResources(IDXGISwapChain* sc)
         return false;
     }
 
-    // ── Back buffers + RTVs ───────────────────────────────────────────────────
+    // Back buffers + RTVs
     DXGI_SWAP_CHAIN_DESC scd = {};
     sc->GetDesc(&scd);
     g_d3d12BufferCount = scd.BufferCount;
@@ -2571,9 +2544,11 @@ static bool createD3D12OverlayResources(IDXGISwapChain* sc)
         g_d3d12Device->CreateRenderTargetView(g_d3d12BackBuffers[i], nullptr, rtvHandle);
         g_d3d12RTVHandles[i] = rtvHandle;
         rtvHandle.ptr += g_d3d12RTVDescSize;
+        // Flip-model swap chains start in PRESENT state
+        g_d3d12BufferInRTState[i] = false;
     }
 
-    // ── Root signature: one SRV table + one inline sampler ───────────────────
+    // Root signature: one SRV table + one inline sampler
     {
         D3D12_DESCRIPTOR_RANGE srvRange = {};
         srvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -2624,7 +2599,7 @@ static bool createD3D12OverlayResources(IDXGISwapChain* sc)
         if (FAILED(hr)) { overlayLog("createD3D12OverlayResources: CreateRootSignature failed"); return false; }
     }
 
-    // ── Compile shaders and create PSO ────────────────────────────────────────
+    // Compile shaders and create PSO
     // Reuse k_shaderSrc — same HLSL, just compiled for SM5.0 D3D12
     {
         ID3DBlob* vsBlob = nullptr, * psBlob = nullptr, * err = nullptr;
@@ -2689,7 +2664,7 @@ static bool createD3D12OverlayResources(IDXGISwapChain* sc)
         if (FAILED(hr)) { overlayLog("createD3D12OverlayResources: CreatePSO failed"); return false; }
     }
 
-    // ── Upload-heap vertex buffer (CPU-writable each frame) ───────────────────
+    // Upload-heap vertex buffer (CPU-writable each frame)
     {
         D3D12_HEAP_PROPERTIES hp = {};
         hp.Type = D3D12_HEAP_TYPE_UPLOAD;
@@ -2710,7 +2685,7 @@ static bool createD3D12OverlayResources(IDXGISwapChain* sc)
         }
     }
 
-    // ── Font atlas texture (bake via GDI then upload) ─────────────────────────
+    // Font atlas texture (bake via GDI then upload)
     {
         // Bake the atlas into a CPU buffer using the same GDI path as D3D11
         HDC hdc = CreateCompatibleDC(nullptr);
@@ -2854,7 +2829,7 @@ static void createRTV()
     // In pure D3D12 mode the RTVs are managed by createD3D12OverlayResources
     // / presentHook directly on ID3D12Resource back buffers.  The D3D11 RTV
     // path is not used and GetBuffer would return a D3D12 resource that the
-    // D3D11 device cannot wrap without D3D11On12.
+    // D3D11 device cannot wrap without D3D11On12
     if (g_isD3D12Mode)
     {
         overlayLog("createRTV: D3D12 mode — skipping D3D11 RTV creation");
@@ -2863,9 +2838,9 @@ static void createRTV()
 
     if (g_isD3D12Mode && g_11on12Device)
     {
-        // In D3D12 mode the back buffer is an ID3D12Resource.
+        // In D3D12 mode the back buffer is an ID3D12Resource
         // We wrap it via ID3D11On12Device so our D3D11 render target view
-        // refers to it, then we can use the standard D3D11 render path.
+        // refers to it, then we can use the standard D3D11 render path
         ID3D12Resource* d12back = nullptr;
         if (FAILED(g_swapChain->GetBuffer(0, IID_PPV_ARGS(&d12back))) || !d12back)
         {
@@ -2911,7 +2886,7 @@ static void createRTV()
         return;
     }
 
-    // D3D11 path (unchanged)
+    // D3D11 path
     ID3D11Texture2D* back = nullptr;
     if (SUCCEEDED(g_swapChain->GetBuffer(0, IID_PPV_ARGS(&back))))
     {
@@ -2937,9 +2912,7 @@ static void releaseRTV()
     if (g_11on12WrappedRT) { g_11on12WrappedRT->Release(); g_11on12WrappedRT = nullptr; }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // GDI font atlas bake
-// ─────────────────────────────────────────────────────────────────────────────
 static bool bakeFontAtlas()
 {
     overlayLog("bakeFontAtlas: start");
@@ -2986,9 +2959,9 @@ static bool bakeFontAtlas()
 
     GdiFlush();
 
-    // Extract luminance (perceptual average of RGB) into grayscale R8 buffer.
+    // Extract luminance (perceptual average of RGB) into grayscale R8 buffer
     // Using Rec.709 luminance instead of a single channel preserves the full
-    // antialiasing coverage from ClearType without colour fringing artefacts.
+    // antialiasing coverage from ClearType without colour fringing artefacts
     std::vector<uint8_t> atlas(k_atlasW * k_atlasH);
     uint8_t* src = reinterpret_cast<uint8_t*>(bits);
     for (int i = 0; i < k_atlasW * k_atlasH; ++i)
@@ -3043,9 +3016,7 @@ static bool bakeFontAtlas()
     return true;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // D3D object creation/destruction
-// ─────────────────────────────────────────────────────────────────────────────
 static bool createD3DObjects()
 {
     overlayLog("createD3DObjects: compiling shaders");
@@ -3177,11 +3148,16 @@ static void destroyD3DObjects()
     if (g_d3d12Device) { g_d3d12Device->Release();  g_d3d12Device = nullptr; }
     g_d3d12ResourcesReady = false;
     g_isD3D12Mode = false;
+
+    // Clear the resolved pointers — they alias g_device/g_ctx/g_swapChain which
+    // were just Released above. Leaving them non-null causes resolveD3DFromDXGI
+    // to QI dangling COM objects on re-initialize, which crashes the game
+    g_resolvedSwapChain = nullptr;
+    g_resolvedDevice = nullptr;
+    g_resolvedContext = nullptr;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Geometry helpers
-// ─────────────────────────────────────────────────────────────────────────────
 static float ndcX(float px) { return  (px / (float)g_screenW) * 2.0f - 1.0f; }
 static float ndcY(float py) { return -(py / (float)g_screenH) * 2.0f + 1.0f; }
 
@@ -3217,7 +3193,7 @@ static float drawChar(float px, float py, char c,
 
 // Returns x after the last character.
 // If maxX > 0 the string is clipped to that pixel boundary — if it would
-// overflow, characters are drawn up to the limit and "..." is appended.
+// overflow, characters are drawn up to the limit and "..." is appended
 static float drawString(float px, float py, const char* str,
     float r, float g, float b, float a,
     float maxX = 0.f)
@@ -3275,15 +3251,13 @@ static float drawString(float px, float py, const char* str,
     return px;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Main render call — invoked from presentHook
-// ─────────────────────────────────────────────────────────────────────────────
 static void renderConsole()
 {
     // Geometry building requires visibility; the D3D11 upload/draw additionally
     // requires g_rtv and g_ctx.  In D3D12 mode g_ctx is a valid independent
     // D3D11 device context but g_rtv is null — we still need to build g_verts
-    // so presentHook can upload them via the D3D12 path.
+    // so presentHook can upload them via the D3D12 path
     if (!g_visible) return;
 
     const float left = k_marginLeft;
@@ -3300,6 +3274,7 @@ static void renderConsole()
 
     // Header bar (white background)
     drawRect(left, 30.f, left + 160.f, top, 1.f, 1.f, 1.f, 1.f);
+
     // Draw "Console" bold-simulated: two passes offset by 1px horizontally
     drawString(left + 8.f, 32.f, "Console", 0.f, 0.f, 0.f, 1.f);
     drawString(left + 8.f + 1.f, 32.f, "Console", 0.f, 0.f, 0.f, 1.f);
@@ -3320,8 +3295,8 @@ static void renderConsole()
     if (g_scrollOffset > maxScroll) g_scrollOffset = maxScroll;
     if (g_scrollOffset < 0)         g_scrollOffset = 0;
 
-    // offset=0  → live tail (newest k_responseCount lines)
-    // offset=N  → window shifted N lines toward older entries
+    // offset=0  -> live tail (newest k_responseCount lines)
+    // offset=N  -> window shifted N lines toward older entries
     int windowEnd = total - g_scrollOffset;
     if (windowEnd > total) windowEnd = total;
     if (windowEnd < 0)     windowEnd = 0;
@@ -3410,7 +3385,7 @@ static void renderConsole()
     if (g_cursorVis && g_selStart == -1)
         drawRect(curX, y + 2.f, curX + 2.f, y + k_cellH - 2.f, 1.f, 1.f, 1.f, 1.f);
 
-    // ── Suggestion dropdown ───────────────────────────────────────────────────
+    // Suggestion dropdown
     if (!g_suggestions.empty())
     {
         const int totalSugg = (int)g_suggestions.size();
@@ -3440,7 +3415,7 @@ static void renderConsole()
                 ? g_suggestionDescs[idx].c_str() : nullptr;
 
             // Reserve space on the right for the description so the command
-            // name doesn't collide with it.  descCols is in character cells.
+            // name doesn't collide with it.  descCols is in character cells
             float descX = 0.f;
             float nameMaxX = right - kSBW - 8.f;
             if (descStr)
@@ -3499,7 +3474,7 @@ static void renderConsole()
         }
     }
 
-    // ── Scrollbar ─────────────────────────────────────────────────────────────
+    // Scrollbar
     if (total > maxVisible)
     {
         const float kBarW = 4.f;
@@ -3524,9 +3499,9 @@ static void renderConsole()
             thumbBrightness, thumbBrightness, thumbBrightness, 0.9f);
     }
 
-    // ── Upload and draw (D3D11 path only) ─────────────────────────────────────
+    // Upload and draw (D3D11 path only)
     // In D3D12 mode g_rtv is null; presentHook reads g_verts directly and
-    // uploads them via the D3D12 command list.  Do not touch g_ctx here.
+    // uploads them via the D3D12 command list.  Do not touch g_ctx here
     if (!g_rtv || !g_ctx) return;
 
     if (g_verts.empty()) return;
@@ -3564,15 +3539,12 @@ static void renderConsole()
     g_ctx->Draw((UINT)drawCount, 0);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // GetRawInputData IAT patch
-//
-// Confirmed via x64dbg: Frostbite calls user32.GetRawInputData directly from
-// the main game module (pvz.main_win64_retail). We patch that IAT slot so our
+// Frostbite calls user32.GetRawInputData directly from
+// the main game module. We patch that IAT slot so our
 // hook runs instead. While the overlay is visible we zero out the RAWINPUT
-// buffer for keyboard packets, making the game see all keys as released.
-// Mouse packets are passed through untouched.
-// ─────────────────────────────────────────────────────────────────────────────
+// buffer for keyboard packets, making the game see all keys as released;
+// Mouse packets are passed through untouched
 using tGetRawInputData = UINT(WINAPI*)(HRAWINPUT, UINT, LPVOID, PUINT, UINT);
 static tGetRawInputData g_origGetRawInputData = nullptr;
 static tGetRawInputData g_realGetRawInputData = nullptr;
@@ -3586,9 +3558,9 @@ static UINT WINAPI hookedGetRawInputData(HRAWINPUT hRawInput,
     UINT ret = g_realGetRawInputData(hRawInput, uiCommand, pData, pcbSize, cbSizeHeader);
 
     // While overlay is open, suppress key-down (MAKE) events but let
-    // key-up (BREAK) events through so the game can clear its held-key state.
+    // key-up (BREAK) events through so the game can clear its held-key state
     // This means held keys unstick naturally the moment the physical key is
-    // released, rather than looping forever.
+    // released, rather than looping forever
     if (g_visible && uiCommand == RID_INPUT && pData && ret != (UINT)-1)
     {
         RAWINPUT* ri = reinterpret_cast<RAWINPUT*>(pData);
@@ -3598,12 +3570,12 @@ static UINT WINAPI hookedGetRawInputData(HRAWINPUT hRawInput,
             if (!isBreak)
             {
                 // Key-down: replace with a no-op break on a dummy key (VK 0xFF
-                // is reserved and ignored by all known input handlers).
+                // is reserved and ignored by all known input handlers)
                 memset(&ri->data.keyboard, 0, sizeof(ri->data.keyboard));
                 ri->data.keyboard.Flags = RI_KEY_BREAK;
                 ri->data.keyboard.VKey = 0xFF;
             }
-            // Key-up: pass through untouched so game clears its down-state.
+            // Key-up: pass through untouched so game clears its down-state
         }
     }
 
@@ -3633,9 +3605,9 @@ static bool installDInputHook()
         return false;
     }
 
-    // Resolve the real implementation via the win32u.dll forward.
+    // Resolve the real implementation via the win32u.dll forward
     // user32.GetRawInputData is a thin stub that forwards to
-    // win32u.NtUserGetRawInputData — call that directly to bypass our patch.
+    // win32u.NtUserGetRawInputData — call that directly to bypass our patch
     HMODULE hWin32u = GetModuleHandleA("win32u.dll");
     if (!hWin32u) hWin32u = LoadLibraryA("win32u.dll");
 
@@ -3648,8 +3620,8 @@ static bool installDInputHook()
             (void*)g_realGetRawInputData);
     }
 
-    // Fallback: if win32u isn't available, store the pre-patch pointer.
-    // This is safe because we store it before writing the patch bytes.
+    // Fallback: if win32u isn't available, store the pre-patch pointer
+    // This is safe because we store it before writing the patch bytes
     if (!g_realGetRawInputData)
     {
         g_realGetRawInputData = reinterpret_cast<tGetRawInputData>(
@@ -3699,15 +3671,13 @@ static void uninstallDInputHook()
     overlayLog("uninstallDInputHook: user32.GetRawInputData restored");
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // VTable hook install/uninstall
 // IDXGISwapChain vtable slots:
 //   slot  8 = Present
 //   slot 13 = ResizeBuffers
-// We hook both: Present to render, ResizeBuffers to release/recreate our RTV.
+// We hook both: Present to render, ResizeBuffers to release/recreate our RTV
 // DXGI requires zero outstanding back-buffer references before ResizeBuffers —
-// our RTV holds one, so we must release it before the call and recreate after.
-// ─────────────────────────────────────────────────────────────────────────────
+// our RTV holds one, so we must release it before the call and recreate after
 static HRESULT __stdcall presentHook(IDXGISwapChain* sc, UINT sync, UINT flags);
 static HRESULT __stdcall resizeBuffersHook(IDXGISwapChain* sc,
     UINT bufferCount, UINT width, UINT height,
@@ -3787,14 +3757,12 @@ static void uninstallPresentHook()
     overlayLog("uninstallPresentHook: restored");
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Present hook implementation
-// ─────────────────────────────────────────────────────────────────────────────
 static HRESULT __stdcall presentHook(IDXGISwapChain* sc, UINT sync, UINT flags)
 {
     if (g_isD3D12Mode)
     {
-        // ── Pure D3D12 overlay path ───────────────────────────────────────────
+        // Pure D3D12 overlay path
         // First frame: build all resources
         if (!g_d3d12ResourcesReady)
         {
@@ -3813,10 +3781,13 @@ static HRESULT __stdcall presentHook(IDXGISwapChain* sc, UINT sync, UINT flags)
             if (SUCCEEDED(sc->GetDesc(&scd)) &&
                 (scd.BufferDesc.Width != g_screenW || scd.BufferDesc.Height != g_screenH))
             {
-                overlayLogFmt("presentHook: D3D12 resize %ux%u→%ux%u",
+                overlayLogFmt("presentHook: D3D12 resize %ux%u->%ux%u",
                     g_screenW, g_screenH, scd.BufferDesc.Width, scd.BufferDesc.Height);
                 for (UINT i = 0; i < k_maxSwapBuffers; ++i)
+                {
                     if (g_d3d12BackBuffers[i]) { g_d3d12BackBuffers[i]->Release(); g_d3d12BackBuffers[i] = nullptr; }
+                    g_d3d12BufferInRTState[i] = false;
+                }
                 g_screenW = scd.BufferDesc.Width;
                 g_screenH = scd.BufferDesc.Height;
                 g_d3d12BufferCount = scd.BufferCount;
@@ -3828,11 +3799,14 @@ static HRESULT __stdcall presentHook(IDXGISwapChain* sc, UINT sync, UINT flags)
                         g_d3d12Device->CreateRenderTargetView(g_d3d12BackBuffers[i], nullptr, rtvH);
                     g_d3d12RTVHandles[i] = rtvH;
                     rtvH.ptr += g_d3d12RTVDescSize;
+                    // After resize, swap chain recycles buffers back to PRESENT state
+                    g_d3d12BufferInRTState[i] = false;
                 }
             }
         }
 
-        // Get current back buffer index
+        // Get current back buffer index — must be done after potential resize
+        // so the index is valid against the freshly acquired back buffers
         UINT bufIdx = 0;
         {
             IDXGISwapChain3* sc3 = nullptr;
@@ -3842,14 +3816,16 @@ static HRESULT __stdcall presentHook(IDXGISwapChain* sc, UINT sync, UINT flags)
                 bufIdx = sc3->GetCurrentBackBufferIndex(); sc3->Release();
             }
         }
+        // Clamp defensively — should never exceed BufferCount-1 but guard anyway
+        if (bufIdx >= k_maxSwapBuffers) bufIdx = 0;
 
         if (!g_d3d12BackBuffers[bufIdx] || !g_visible)
             return g_origPresent(sc, sync, flags);
 
-        // Build vertex geometry.  renderConsole() fills g_verts; because g_rtv
+        // Build vertex geometry. renderConsole() fills g_verts; because g_rtv
         // is null in D3D12 mode the D3D11 upload/draw block at the bottom of
         // renderConsole() is skipped automatically, leaving g_verts populated
-        // for us to consume here.
+        // for us to consume here
         renderConsole();
 
         if (!g_verts.empty())
@@ -3869,14 +3845,20 @@ static HRESULT __stdcall presentHook(IDXGISwapChain* sc, UINT sync, UINT flags)
             g_d3d12CmdAlloc->Reset();
             g_d3d12CmdList->Reset(g_d3d12CmdAlloc, g_d3d12PSO);
 
-            // Transition: PRESENT → RENDER_TARGET
-            D3D12_RESOURCE_BARRIER barrier = {};
-            barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barrier.Transition.pResource = g_d3d12BackBuffers[bufIdx];
-            barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            g_d3d12CmdList->ResourceBarrier(1, &barrier);
+            // Transition to RENDER_TARGET only if the buffer is currently in
+            // PRESENT state. Issuing a PRESENT->RT barrier on a buffer already
+            // in RT state causes DEVICE_HUNG on some drivers/fullscreen modes.
+            if (!g_d3d12BufferInRTState[bufIdx])
+            {
+                D3D12_RESOURCE_BARRIER toRT = {};
+                toRT.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                toRT.Transition.pResource = g_d3d12BackBuffers[bufIdx];
+                toRT.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+                toRT.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+                toRT.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                g_d3d12CmdList->ResourceBarrier(1, &toRT);
+                g_d3d12BufferInRTState[bufIdx] = true;
+            }
 
             // Set render target
             g_d3d12CmdList->OMSetRenderTargets(1, &g_d3d12RTVHandles[bufIdx], FALSE, nullptr);
@@ -3904,21 +3886,49 @@ static HRESULT __stdcall presentHook(IDXGISwapChain* sc, UINT sync, UINT flags)
 
             g_d3d12CmdList->DrawInstanced((UINT)drawCount, 1, 0, 0);
 
-            // Transition: RENDER_TARGET → PRESENT
-            barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-            g_d3d12CmdList->ResourceBarrier(1, &barrier);
+            // Transition back to PRESENT so the swap chain can flip the buffer.
+            // Mark as no longer in RT state so the next frame's guard is correct.
+            D3D12_RESOURCE_BARRIER toPresent = {};
+            toPresent.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            toPresent.Transition.pResource = g_d3d12BackBuffers[bufIdx];
+            toPresent.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+            toPresent.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+            toPresent.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            g_d3d12CmdList->ResourceBarrier(1, &toPresent);
+            g_d3d12BufferInRTState[bufIdx] = false;
 
             g_d3d12CmdList->Close();
 
             ID3D12CommandList* lists[] = { g_d3d12CmdList };
             g_d3d12Queue->ExecuteCommandLists(1, lists);
         }
+        else
+        {
+            // No geometry this frame — if the buffer got stuck in RT state
+            // (e.g. from a previous partial frame), recover it to PRESENT
+            // so the driver does not hang waiting for a valid present-state buffer
+            if (g_d3d12BufferInRTState[bufIdx])
+            {
+                g_d3d12CmdAlloc->Reset();
+                g_d3d12CmdList->Reset(g_d3d12CmdAlloc, nullptr);
+                D3D12_RESOURCE_BARRIER recover = {};
+                recover.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                recover.Transition.pResource = g_d3d12BackBuffers[bufIdx];
+                recover.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+                recover.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+                recover.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                g_d3d12CmdList->ResourceBarrier(1, &recover);
+                g_d3d12CmdList->Close();
+                ID3D12CommandList* lists[] = { g_d3d12CmdList };
+                g_d3d12Queue->ExecuteCommandLists(1, lists);
+                g_d3d12BufferInRTState[bufIdx] = false;
+            }
+        }
 
         return g_origPresent(sc, sync, flags);
     }
 
-    // ── D3D11 path (unchanged) ────────────────────────────────────────────────
+    // D3D11 path
     if (!g_rtv) createRTV();
 
     if (g_rtv)
@@ -3928,7 +3938,7 @@ static HRESULT __stdcall presentHook(IDXGISwapChain* sc, UINT sync, UINT flags)
         {
             if (scd.BufferDesc.Width != g_screenW || scd.BufferDesc.Height != g_screenH)
             {
-                overlayLogFmt("presentHook: resize %ux%u→%ux%u",
+                overlayLogFmt("presentHook: resize %ux%u->%ux%u",
                     g_screenW, g_screenH, scd.BufferDesc.Width, scd.BufferDesc.Height);
                 releaseRTV();
                 createRTV();
@@ -3950,10 +3960,10 @@ static HRESULT __stdcall resizeBuffersHook(IDXGISwapChain* sc,
 {
     overlayLogFmt("resizeBuffersHook: %ux%u fmt=%u — releasing RTV", width, height, (unsigned)newFormat);
 
-    // DXGI_ERROR_INVALID_CALL if any reference to the back buffer exists.
-    // D3D11 path: our RTV holds one reference.
-    // D3D12 path: our g_d3d12BackBuffers[] each hold one reference.
-    // Release all of them unconditionally before the call.
+    // DXGI_ERROR_INVALID_CALL if any reference to the back buffer exists
+    // D3D11 path: our RTV holds one reference
+    // D3D12 path: our g_d3d12BackBuffers[] each hold one reference
+    // Release all of them unconditionally before the call
     releaseRTV();
 
     if (g_isD3D12Mode)
@@ -3965,6 +3975,9 @@ static HRESULT __stdcall resizeBuffersHook(IDXGISwapChain* sc,
                 g_d3d12BackBuffers[i]->Release();
                 g_d3d12BackBuffers[i] = nullptr;
             }
+            // Buffer no longer exists; reset state so we don't try to
+            // transition a dangling resource on the next frame
+            g_d3d12BufferInRTState[i] = false;
         }
         g_d3d12BufferCount = 0;
         overlayLog("resizeBuffersHook: D3D12 back buffers released");
@@ -3982,7 +3995,7 @@ static HRESULT __stdcall resizeBuffersHook(IDXGISwapChain* sc,
             // created by createD3D12OverlayResources — if presentHook hasn't run
             // its first frame yet the heap/descriptors don't exist and we must
             // not touch them. presentHook will call createD3D12OverlayResources
-            // on its next frame which will GetBuffer and build the RTVs fresh.
+            // on its next frame which will GetBuffer and build the RTVs fresh
             if (g_d3d12ResourcesReady)
             {
                 DXGI_SWAP_CHAIN_DESC scd = {};
@@ -4009,7 +4022,7 @@ static HRESULT __stdcall resizeBuffersHook(IDXGISwapChain* sc,
             else
             {
                 // Resources not ready yet — let presentHook's first-frame
-                // createD3D12OverlayResources call handle everything.
+                // createD3D12OverlayResources call handle everything
                 overlayLog("resizeBuffersHook: D3D12 resources not ready yet — deferring to presentHook");
             }
         }
@@ -4022,14 +4035,12 @@ static HRESULT __stdcall resizeBuffersHook(IDXGISwapChain* sc,
     return hr;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // WndProc subclass
-// ─────────────────────────────────────────────────────────────────────────────
 static LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
-    // ── Tilde toggle — intercepted regardless of current visibility ───────────
-        // Must come before the !g_visible early-exit, otherwise the overlay can
-        // never be re-opened once closed.
+    // Tilde toggle — intercepted regardless of current visibility
+    // Must come before the !g_visible early-exit, otherwise the overlay can
+    // never be re-opened once closed
     if (msg == WM_CHAR)
     {
         wchar_t key = (wchar_t)wParam;
@@ -4044,21 +4055,21 @@ static LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     }
     if (msg == WM_KEYDOWN && wParam == VK_OEM_3) // VK_OEM_3 = the ` / ~ key
     {
-        // Some games translate before WM_CHAR arrives; eat the KEYDOWN too.
+        // Some games translate before WM_CHAR arrives; eat the KEYDOWN too
         // (WM_CHAR is still the authoritative toggle above.)
         if (!g_visible)
             return 0; // suppress the keydown so the game doesn't act on it
     }
 
-    // ── Raw mouse input — scroll wheel works even when game has mouse capture ──
-        // Delivered only when the game window is foreground (no RIDEV_INPUTSINK),
-        // so other apps are never affected when the user has alt-tabbed out.
+    // Raw mouse input — scroll wheel works even when game has mouse capture
+    // Delivered only when the game window is foreground (no RIDEV_INPUTSINK),
+    // so other apps are never affected when the user has alt-tabbed out
     if (msg == WM_INPUT)
     {
-        // Only scroll when console is visible AND the game window is foreground.
+        // Only scroll when console is visible AND the game window is foreground
         // The foreground check is the critical guard — without RIDEV_INPUTSINK
         // Windows should not deliver WM_INPUT when we are not foreground anyway,
-        // but we check explicitly as a safety net.
+        // but we check explicitly as a safety net
         if (g_visible && GetForegroundWindow() == hwnd)
         {
             UINT rawSize = 0;
@@ -4086,7 +4097,7 @@ static LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             }
         }
         // Always fall through — DefWindowProc must still process WM_INPUT
-        // to call CleanupRawInput internally, or you get a handle leak.
+        // to call CleanupRawInput internally, or you get a handle leak
         return CallWindowProcA(g_origWndProc, hwnd, msg, wParam, lParam);
     }
 
@@ -4094,7 +4105,7 @@ static LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     if (!g_visible)
         return CallWindowProcA(g_origWndProc, hwnd, msg, wParam, lParam);
 
-    // ── Eat all mouse input while open (scroll wheel handled separately) ──────
+    // Eat all mouse input while open (scroll wheel handled separately)
     if (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP ||
         msg == WM_RBUTTONDOWN || msg == WM_RBUTTONUP ||
         msg == WM_MBUTTONDOWN || msg == WM_MBUTTONUP ||
@@ -4103,7 +4114,7 @@ static LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         msg == WM_XBUTTONUP)
         return 0;
 
-    // ── Mouse wheel scrolling (WM_MOUSEWHEEL fallback) ───────────────────────
+    // Mouse wheel scrolling (WM_MOUSEWHEEL fallback)
     // Handled here as a fallback for cases where raw input is unavailable.
     if (msg == WM_MOUSEWHEEL)
     {
@@ -4117,7 +4128,7 @@ static LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         return 0;
     }
 
-    // ── Character input ───────────────────────────────────────────────────────
+    // Character input
     if (msg == WM_CHAR)
     {
         wchar_t key = (wchar_t)wParam;
@@ -4146,7 +4157,7 @@ static LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         return 0;
     }
 
-    // ── Key-down ──────────────────────────────────────────────────────────────
+    // Key-down
     if (msg == WM_KEYDOWN)
     {
         // Always let F12 through so the DLL can unload
@@ -4401,7 +4412,7 @@ static LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         return 0; // eat all WM_KEYDOWN while console is open
     }
 
-    // ── Eat key-up too — prevents the game acting on key releases ────────────
+    // Eat key-up too — prevents the game acting on key releases
     if (msg == WM_KEYUP || msg == WM_SYSKEYDOWN || msg == WM_SYSKEYUP)
     {
         if (wParam == VK_F12)
@@ -4413,9 +4424,7 @@ static LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     return CallWindowProcA(g_origWndProc, hwnd, msg, wParam, lParam);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Public API implementation
-// ─────────────────────────────────────────────────────────────────────────────
 namespace ConsoleOverlay
 {
 
@@ -4435,7 +4444,7 @@ namespace ConsoleOverlay
 
         overlayLog("=== ConsoleOverlay::initialize ===");
 
-        // ── Run detection first — abort immediately if game has its own console ───
+        // Run detection first — abort immediately if game has its own console
         if (probeIngameConsolePresent())
         {
             overlayLog("initialize: real IngameConsoleImpl detected — "
@@ -4444,30 +4453,30 @@ namespace ConsoleOverlay
         }
         overlayLog("initialize: no real IngameConsoleImpl — injecting overlay");
 
-        // ── Abort if exec command not yet resolved — overlay is useless without it ─
+        // Abort if exec command not yet resolved — overlay is useless without it
         if (!FrostbiteConsole::isReady())
         {
             overlayLog("initialize: exec command not resolved — skipping overlay");
             return;
         }
 
-        // ── Resolve dynamic addresses ─────────────────────────────────────────────
+        // Resolve dynamic addresses
         resolveAddresses();
 
-        // ── Grab D3D objects by scanning DxRenderer for COM interfaces ────────────
-            // Retry up to 120 times (60 seconds) — mirrors the consoleMethods retry loop
-            // in the worker thread. Addresses may not be populated yet if the game's
-            // renderer initializes after our DLL attaches.
+        // Grab D3D objects by scanning DxRenderer for COM interfaces
+        // Retry up to 120 times (60 seconds) — mirrors the consoleMethods retry loop
+        // in the worker thread. Addresses may not be populated yet if the game's
+        // renderer initializes after our DLL attaches
         {
             bool d3dResolved = false;
 
-            // Phase 1: normal resolve loop — up to 10 attempts (10 seconds).
+            // Phase 1: normal resolve loop — up to 10 attempts (10 seconds)
             for (int attempt = 0; attempt < 10 && !d3dResolved; ++attempt)
             {
                 if (attempt > 0)
                 {
                     // Re-run address resolution on each retry — the DxRenderer
-                    // singleton slot may have been null on the previous attempt.
+                    // singleton slot may have been null on the previous attempt
                     Sleep(1000);
                     g_dxRendererInstanceAddr = nullptr;
                     g_dxRendererBaseSlot = nullptr;
@@ -4490,7 +4499,7 @@ namespace ConsoleOverlay
 
             // Phase 2: if the normal path failed all 10 attempts, force the
             // DxRenderer pointer to null so resolveD3DFromDXGI takes the D3D12
-            // scan branch (which does not depend on the DxRenderer singleton).
+            // scan branch (which does not depend on the DxRenderer singleton)
             if (!d3dResolved)
             {
                 overlayLog("initialize: normal resolve failed after 10 attempts — trying D3D12 scan path once");
@@ -4529,7 +4538,7 @@ namespace ConsoleOverlay
 
         if (!installPresentHook()) { overlayLog("initialize: installPresentHook failed"); return; }
 
-        // ── Subclass WndProc ──────────────────────────────────────────────────────
+        // Subclass WndProc
         g_hwnd = resolveHwnd();
         if (g_hwnd)
         {
@@ -4540,9 +4549,9 @@ namespace ConsoleOverlay
                 (void*)g_hwnd, (void*)g_origWndProc);
 
             // Register for raw mouse input so scroll wheel is received even when
-                        // the game has mouse capture.  No RIDEV_INPUTSINK — we only want
-                        // delivery when the game window is the foreground window, so other
-                        // apps are not affected when the user alt-tabs.
+            // the game has mouse capture. No RIDEV_INPUTSINK — we only want
+            // delivery when the game window is the foreground window, so other
+            // apps are not affected when the user alt-tabs
             RAWINPUTDEVICE rid = {};
             rid.usUsagePage = 0x01;  // HID_USAGE_PAGE_GENERIC
             rid.usUsage = 0x02;  // HID_USAGE_GENERIC_MOUSE
@@ -4559,7 +4568,7 @@ namespace ConsoleOverlay
                 "keyboard input will not work");
         }
 
-        // ── Register output handler ───────────────────────────────────────────────
+        // Register output handler
         if (FrostbiteConsole::ConsoleBridge::instance().use3ArgHandler())
         {
             FrostbiteConsole::addOutputHandler3(&ConsoleOverlay::outputHandler);
@@ -4571,15 +4580,17 @@ namespace ConsoleOverlay
             overlayLog("initialize: output handler registered (4-arg/Skate path)");
         }
 
-        // ── Hook DirectInput keyboard device ─────────────────────────────────────
+        // Hook DirectInput keyboard device
         if (!installDInputHook())
             overlayLog("initialize: WARNING — DirectInput hook failed, game keys will not be blocked");
 
         // Show init message — will be visible when player first opens the overlay
+        if (!s_bannerShown)
         {
             std::lock_guard<std::mutex> lock(g_mtx);
             g_responses.push_back(std::string(1, kColorWhite) + "Console overlay initialized.");
             g_responses.push_back(std::string(1, kColorWhite) + "Press '~' to show/hide this console.");
+            s_bannerShown = true;
         }
 
         g_visible = true;
@@ -4618,12 +4629,19 @@ namespace ConsoleOverlay
             g_origWndProc = nullptr;
             overlayLog("shutdown: WndProc restored");
         }
+        g_hwnd = nullptr;
 
         uninstallPresentHook();
         destroyD3DObjects();
 
+        g_visible = false;
         g_initialized = false;
         overlayLog("=== ConsoleOverlay::shutdown COMPLETE ===");
+    }
+
+    bool isInitialized()
+    {
+        return g_initialized;
     }
 
     void __fastcall outputHandler(void* /*thisDiscarded*/,
@@ -4677,4 +4695,4 @@ namespace ConsoleOverlay
             g_responses.pop_front();
     }
 
-} // namespace ConsoleOverlay
+}

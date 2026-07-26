@@ -18,7 +18,7 @@ Function: executeBlazeRequest(requestArgs)
 Route Registration:
 - Pattern: /blaze/(.*)
 - Captures everything after /blaze/ as '_resource'
-- Example: /blaze/matchmaking/findGame → _resource = 'matchmaking/findGame'
+- Example: /blaze/matchmaking/findGame -> _resource = 'matchmaking/findGame'
 
 executeNativeShellModuleRequest():
 - Native engine function (implemented in C++)

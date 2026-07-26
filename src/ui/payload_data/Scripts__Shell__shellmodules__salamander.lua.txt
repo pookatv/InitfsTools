@@ -17,7 +17,7 @@ Function: executeSalamanderRequest(requestArgs)
 Route Registration:
 - Pattern: /salamander/(.*)
 - Captures everything after /salamander/ as '_resource'
-- Example: /salamander/game/start → _resource = 'game/start'
+- Example: /salamander/game/start -> _resource = 'game/start'
 
 Salamander:
 Internal codename for Command & Conquer Generals 2 project.

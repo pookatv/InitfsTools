@@ -81,7 +81,7 @@ New Features:
   * Maps quality level names to console command strings
   * Error handling for invalid/missing settings
   * log:info() for applied settings
-- Module consolidation: Graphics replaces Mesh/Shaders/Textures (6→4 modules)
+- Module consolidation: Graphics replaces Mesh/Shaders/Textures (6->4 modules)
 - deviceSettings.consoleOverrides support for platform-specific tweaks
 - allowCommandlineSettings gate for security
 Quality System:
@@ -437,7 +437,7 @@ New Feature:
   * if present, skips Graphics.lua loading entirely
   * Allows testing console-fixed graphics on PC builds
 Log Level Change:
-- log:info → log:debug for quality settings
+- log:info -> log:debug for quality settings
 - Reduces log spam in production builds
 Use Case:
 PGA Tour had strict console certification requirements
@@ -1483,7 +1483,7 @@ Why Remove Sound Configuration:
 Dead Space (2023) uses Frostbite's next-gen audio:
 - Fully data-driven (no script configuration needed)
 - CPU detection was causing issues:
-  * Old code: Low-end CPU → reduced audio voices
+  * Old code: Low-end CPU -> reduced audio voices
   * Problem: Modern CPUs misidentified, audio quality degraded
   * Solution: Use default audio settings from ddf/Game.cfg
 BYD = 'Beyond' (Motive Studios' Dead Space Remake project codename)
@@ -1659,7 +1659,7 @@ end
 2023 (FC 24)
 [notes]
 FIFA to FC rebranding with full platform support.
-EA Sports FC 24 Changes (FIFA → FC Rebranding):
+EA Sports FC 24 Changes (FIFA -> FC Rebranding):
 1. Level Name Conversion:
    - Checks if levelName == "fifa/fifagame/fifagame"
    - Converts to "fc/FCGame/FCGame"
@@ -1678,7 +1678,7 @@ EA Sports FC 24 Changes (FIFA → FC Rebranding):
 5. Enhanced Logging:
    - log:info() for quality application
    - Better telemetry for live service
-Why FIFA → FC Rebranding:
+Why FIFA -> FC Rebranding:
 EA's FIFA license expired end of 2022
 Rebranded to 'EA Sports FC' starting FC 24 (2023)
 Code must handle legacy content referencing 'FIFA'
@@ -1780,9 +1780,9 @@ BioWare Dragon Age Changes:
    - dice.getCurrentPlatformName() for precise platform identification
    - string.lower() for case-insensitive comparison
 3. Three-Way Graphics Loading:
-   a) iOS → GraphicsMobile.lua (mobile)
-   b) PS5/Xbox Series X → GraphicsConsole.lua (next-gen)
-   c) Everything else → Graphics.lua (PC/last-gen)
+   a) iOS -> GraphicsMobile.lua (mobile)
+   b) PS5/Xbox Series X -> GraphicsConsole.lua (next-gen)
+   c) Everything else -> Graphics.lua (PC/last-gen)
 4. BioWare Divergence Tracking:
    - FB-144775 JIRA ticket reference
    - Adamitskiy, Daniel (BioWare engineer)
@@ -1880,7 +1880,7 @@ end
 [notes]
 Nintendo Switch support and vendor ID detection.
 EA Sports FC 26 Changes (Latest):
-1. FIFA→FC Level Conversion (inherited from FC 24):
+1. FIFA->FC Level Conversion (inherited from FC 24):
    - string.lower(levelName) == "fifa/fifagame/fifagame"
    - Converts to "fc/FCGame/FCGame"
    - Two years of backwards compatibility
@@ -1889,9 +1889,9 @@ EA Sports FC 26 Changes (Latest):
    - AdapterVendor.Nintendo enum constant
    - != comparison (not equal)
 3. Conditional Graphics Loading:
-   a) iOS/Android → GraphicsMobile.lua
-   b) NOT Nintendo → Graphics.lua
-   c) Nintendo → Skip Graphics.lua entirely
+   a) iOS/Android -> GraphicsMobile.lua
+   b) NOT Nintendo -> Graphics.lua
+   c) Nintendo -> Skip Graphics.lua entirely
 4. FIFA Team Divergence:
    - ydemendeev (FIFA/FC engineer)
    - Dated 2023-07-13

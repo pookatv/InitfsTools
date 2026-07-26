@@ -53,9 +53,9 @@ end
 Reduced sound limits after Alpha - more conservative approach.
 
 Changes from Alpha/Beta:
-- High quality MaxAudibleSoundCount: 30 → 15 (50% reduction)
-- Low quality MaxAudibleSoundCount: 15 → 8 (47% reduction)
-- CPU load limits adjusted: High 50 (unchanged), Low 40 → 30
+- High quality MaxAudibleSoundCount: 30 -> 15 (50% reduction)
+- Low quality MaxAudibleSoundCount: 15 -> 8 (47% reduction)
+- CPU load limits adjusted: High 50 (unchanged), Low 40 -> 30
 
 High Quality (>0.8):
 - Audio.MaxAudibleSoundCount 15
@@ -109,7 +109,7 @@ Custom audio configuration with CPU load recovery system.
 
 Changes from Standard 2011-2015:
 - Added Audio.AudioCoreCpuLoadRecovery setting
-- High quality CPU limit: 50 → 70 (40% increase)
+- High quality CPU limit: 50 -> 70 (40% increase)
 - Low quality unchanged
 
 High Quality (>0.8):
@@ -174,8 +174,8 @@ end
 Complete audio API overhaul with obstruction testing.
 
 Critical Changes:
-- Audio.MaxAudibleSoundCount → Sound.MaxAudibleSoundCount (namespace change)
-- Audio.AudioCoreCpuLoadLimit → audio-rwac-cpu-load-limit (kebab-case naming)
+- Audio.MaxAudibleSoundCount -> Sound.MaxAudibleSoundCount (namespace change)
+- Audio.AudioCoreCpuLoadLimit -> audio-rwac-cpu-load-limit (kebab-case naming)
 - NEW: audio-max-obstruction-tests-per-frame
 
 High Quality (>0.8):
@@ -190,7 +190,7 @@ Low Quality (≤0.8):
 
 Technical Explanation:
 
-Namespace Change (Audio → Sound):
+Namespace Change (Audio -> Sound):
 Suggests Army of Two used different Frostbite audio backend or earlier fork
 
 Kebab-Case Naming (audio-rwac-cpu-load-limit):
@@ -295,9 +295,9 @@ Dramatic shift to maximum audio quality - no quality-based branching.
 
 Revolutionary Changes:
 - No high/low quality distinction - single configuration for all
-- MaxAudibleSoundCount: 15 → 200 (1,233% increase!)
-- AudioCoreCpuLoadLimit: 50 → 100 (100% increase)
-- Logging: log:info → log:debug
+- MaxAudibleSoundCount: 15 -> 200 (1,233% increase!)
+- AudioCoreCpuLoadLimit: 50 -> 100 (100% increase)
+- Logging: log:info -> log:debug
 
 Settings (All Quality Levels):
 - Audio.MaxAudibleSoundCount 200
@@ -331,8 +331,8 @@ Return to quality-based branching with conservative limits.
 
 Changes from 2015 Battlefront:
 - Reverted to high/low quality distinction
-- MaxAudibleSoundCount: 200 → 15 high / 8 low (massive reduction)
-- AudioCoreCpuLoadLimit: 100 → 50 high / 30 low (back to 2011-2015 values)
+- MaxAudibleSoundCount: 200 -> 15 high / 8 low (massive reduction)
+- AudioCoreCpuLoadLimit: 100 -> 50 high / 30 low (back to 2011-2015 values)
 - Retained log:debug
 
 High Quality (>0.8):

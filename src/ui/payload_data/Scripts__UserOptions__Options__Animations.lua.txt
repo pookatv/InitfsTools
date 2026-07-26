@@ -151,7 +151,7 @@ end
 Quality-first approach standardized across entire EA portfolio.
 
 Changes from 2013:
-- Logging changed: log:info → log:debug (reduces console verbosity)
+- Logging changed: log:info -> log:debug (reduces console verbosity)
 - All other values identical to 2013 version
 
 Distance Values: 10,000m for all six LOD levels (LOD disabled)

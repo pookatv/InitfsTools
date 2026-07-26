@@ -368,8 +368,6 @@ void Converter::obfuscateInitfsFromPlainData(
     const std::string& outputFile,
     const std::vector<uint8_t>& key)
 {
-    Logger::log("[ObfuscateInitfsFromPlainData] %s -> %s",
-        originalEncryptedFile.c_str(), outputFile.c_str());
 
     if (key.size() != 16)
         throw std::runtime_error("AES key must be exactly 16 bytes");
@@ -468,8 +466,6 @@ void Converter::writeBF3ObfuscatedInitfs(
     DbObjectPtr obj,
     const std::string& outputPath)
 {
-    Logger::log("[WriteBF3ObfuscatedInitfs] %s -> %s",
-        sourcePath.c_str(), outputPath.c_str());
 
     std::ifstream in(sourcePath, std::ios::binary);
     if (!in) throw std::runtime_error("Cannot open: " + sourcePath);
@@ -527,8 +523,6 @@ void Converter::writePvzObfuscatedInitfs(
     DbObjectPtr obj,
     const std::string& outputPath)
 {
-    Logger::log("[WritePvzObfuscatedInitfs] %s -> %s",
-        sourcePath.c_str(), outputPath.c_str());
 
     std::ifstream in(sourcePath, std::ios::binary);
     if (!in) throw std::runtime_error("Cannot open: " + sourcePath);

@@ -374,7 +374,7 @@ end
 BugSentry crash reporting control + cosmetics optimization.
 
 Major Changes:
-- GameTime → SimulationTime.ForceUseSleepTimer
+- GameTime -> SimulationTime.ForceUseSleepTimer
 - Appearance.LoadPresetItemsEnable false added to thin-client
 - Window.StartFocused false in testing
 - BugSentry.IsEnabledDebug control with ExceptionHandlingTestingEnabled override

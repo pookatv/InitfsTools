@@ -15,7 +15,7 @@
 #include <QTimer>
 
 // ============================================================
-// Supported languages (Qt locale prefix → LibreTranslate code)
+// Supported languages (Qt locale prefix -> LibreTranslate code)
 // ============================================================
 const QHash<QString, QString>& RuntimeTranslator::supportedLangs()
 {
@@ -54,8 +54,8 @@ QStringList RuntimeTranslator::knownUiStrings()
         "Filter Payloads", "Sort Payloads",
         "All", "All Platforms",
         "(no extension)",
-        "Default", "A → Z", "Z → A",
-        "Biggest → Smallest", "Smallest → Biggest",
+        "Default", "A -> Z", "Z -> A",
+        "Biggest -> Smallest", "Smallest -> Biggest",
 
         // ---- Header labels ----
         "Payload List:", "Payload Contents:",

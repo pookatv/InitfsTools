@@ -4,9 +4,7 @@
 #include <iostream>
 #include <string>
 
-// ─── Patchable target — fixed 260-char buffer at a known offset ───────────────
-// Your build tool binary-searches for the MAGIC marker and overwrites the name.
-// Buffer is wide (wchar_t) to pass directly to CreateProcessW.
+// Patchable target — fixed 260-char buffer at a known offset
 
 #pragma section(".patch", read, write)
 __declspec(allocate(".patch"))
@@ -17,7 +15,7 @@ volatile wchar_t g_exeName[260] = {
     L's',L'k',L'a',L't',L'e',L'.',L'e',L'x',L'e',L'\0'
 };
 
-// ─── Error handler ────────────────────────────────────────────────────────────
+// Error handler
 
 static void HandleFailure(const std::wstring& exePath, const std::wstring& args)
 {
@@ -25,10 +23,9 @@ static void HandleFailure(const std::wstring& exePath, const std::wstring& args)
 
     std::string errorMsg;
     if (lastError == 2)
-        errorMsg = "\n\nSolution:\n\nReinstall the game. If that won't help then "
-        "change game install directory in live editor settings.";
+        errorMsg = "Try reinstalling the game.";
     else if (lastError == 740)
-        errorMsg = "\n\nSolution:\n\nDon't run the game as admin.";
+        errorMsg = "Do not run the game as admin.";
 
     std::wcout << L"[-] CreateProcess failed, error code " << lastError << L"\n[-] ";
     std::wcout << std::wstring(errorMsg.begin(), errorMsg.end()) << L"\n";
@@ -46,12 +43,12 @@ static void HandleFailure(const std::wstring& exePath, const std::wstring& args)
     MessageBoxA(nullptr, errorMsg.c_str(), "Launcher failed", MB_ICONERROR);
 }
 
-// ─── Entry point ─────────────────────────────────────────────────────────────
+// Entry point
 
 int main(int argc, const char** argv)
 {
     std::cout << "[+] Fake EA Anticheat Launcher is running the game without the EA Anticheat\n";
-    std::cout << "[+] Bypassing the Anticheat\n";
+    std::cout << "[+] Bypassing the Anticheat - Online functions will be disabled\n";
 
     // Skip the 8-wchar MAGIC prefix to get the actual exe name
     std::wstring exeName(const_cast<wchar_t*>(g_exeName) + 8);
@@ -74,20 +71,19 @@ int main(int argc, const char** argv)
     si.cb = sizeof(si);
     PROCESS_INFORMATION pi = {};
 
-    // lpApplicationName = NULL, full quoted path goes in lpCommandLine only.
-        // This matches lol.exe exactly — confirmed from IDA (xor ecx,ecx at call site).
+    // lpApplicationName = NULL, full quoted path goes in lpCommandLine only
     std::wstring cmdLine = L"\"" + exeName + L"\"";
     if (!args.empty()) { cmdLine += L" "; cmdLine += args; }
 
     BOOL success = CreateProcessW(
-        nullptr,            // lpApplicationName = NULL (confirmed: xor ecx,ecx)
+        nullptr,            // lpApplicationName = NULL
         cmdLine.data(),     // lpCommandLine
-        nullptr,            // lpProcessAttributes (confirmed: xor r8d,r8d)
-        nullptr,            // lpThreadAttributes (confirmed: xor r9d,r9d)
-        FALSE,              // bInheritHandles (confirmed: r15d = 0)
-        0,                  // dwCreationFlags = 0 (confirmed: r15d)
-        nullptr,            // lpEnvironment (confirmed: r15)
-        nullptr,            // lpCurrentDirectory = NULL (confirmed: r15)
+        nullptr,            // lpProcessAttributes
+        nullptr,            // lpThreadAttributes
+        FALSE,              // bInheritHandles
+        0,                  // dwCreationFlags = 0
+        nullptr,            // lpEnvironment
+        nullptr,            // lpCurrentDirectory = NULL
         &si,
         &pi
     );
@@ -97,9 +93,9 @@ int main(int argc, const char** argv)
         std::wcout << L"[+] OK, PID: " << pi.dwProcessId << L"\n";
         std::wcout << L"[+] exe: " << exeName << L"\n";
         std::wcout << L"[+] cmd: " << cmdLine << L"\n";
-        Sleep(0x700);               // confirmed: Sleep(1792ms), no WaitForSingleObject
-        CloseHandle(pi.hProcess);   // confirmed: hProcess closed first
-        CloseHandle(pi.hThread);    // confirmed: hThread closed second
+        Sleep(0x700);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
     }
     else
     {
