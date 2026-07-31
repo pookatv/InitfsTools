@@ -6,8 +6,6 @@ featuring multi-format decryption support, a command dictionary, type extractor,
 
 Note: If an InitFS file asks you for an AES key, I will not provide it. A quick google search may help.
 
-Massive thank you to the original FrostyToolsuite team, you can check them here: https://github.com/CadeEvs/FrostyToolsuite
-
 ## Features
 - **InitFS Modding** - Load, modify, and save InitFS files across all Frostbite Engine games
 - **Diff Check** - Compare differences between two InitFS files, with export support
@@ -29,6 +27,14 @@ Massive thank you to the original FrostyToolsuite team, you can check them here:
 - Finish InitfsTools Wiki (help wanted!)
 - Implement localization support for the UI
 - Implement "GoTo" default commands
+
+## Credits
+Pookatv - Project lead
+Twig6943 - Linux support and build improvements
+Andersson799 - DLL functions
+Nuuby - Console functions
+
+Massive thank you to the original FrostyToolsuite team, you can check them here: https://github.com/CadeEvs/FrostyToolsuite
 
 ## License
 The Content, Name, Code, and all assets are licensed under a Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
