@@ -29,10 +29,10 @@ Note: If an InitFS file asks you for an AES key, I will not provide it. A quick 
 - Implement "GoTo" default commands
 
 ## Credits
-Pookatv - Project lead
-Twig6943 - Linux support and build improvements
-Andersson799 - DLL functions
-Nuuby - Console functions
+- Pookatv - Project lead
+- Twig6943 - Linux support and build improvements
+- Andersson799 - DLL functions
+- Nuuby - Console functions
 
 Massive thank you to the original FrostyToolsuite team, you can check them here: https://github.com/CadeEvs/FrostyToolsuite
 
