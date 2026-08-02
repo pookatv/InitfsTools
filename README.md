@@ -1,16 +1,16 @@
 <img width="128" height="128" src="./resources/app.ico" />
 
-# Frostbite InitFS Tools
-The ultimate toolsuite for all things InitFS related, 
+# Frostbite InitFs Tools
+The ultimate toolsuite for all things InitFs related, 
 featuring multi-format decryption support, a command dictionary, type extractor, diff checker, and more...
 
-Note: If an InitFS file asks you for an AES key, I will not provide it. A quick google search may help.
+Note: If an InitFs file asks you for an AES key, I will not provide it. A quick google search may help.
 
 ## Features
-- **InitFS Modding** - Load, modify, and save InitFS files across all Frostbite Engine games
-- **Diff Check** - Compare differences between two InitFS files, with export support
+- **InitFs Modding** - Load, modify, and save InitFs files across all Frostbite Engine games
+- **Diff Check** - Compare differences between two InitFs files, with export support
 - **Type Extractor** - Extract all types and commands from a game executable or FrostyEditor SDK DLL
-- **Command Dictionary** - Generate and browse a full list of console commands extracted from raw InitFS files
+- **Command Dictionary** - Generate and browse a full list of console commands extracted from raw InitFs files
 - **Reference Library** - Browse and view base and custom payloads from various Frostbite titles
 - **Preset Manager** - Browse and insert user-saved presets containing sets of useful commands
 - **Console Injector** - Hooks into a game's console, unlocks all commands, and executes them remotely
