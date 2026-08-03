@@ -1,7 +1,7 @@
 <img width="128" height="128" src="./resources/app.ico" />
 
 # Frostbite InitFs Tools
-The ultimate toolsuite for all things InitFs related, 
+The ultimate tool suite for all things InitFs related, 
 featuring multi-format decryption support, a command dictionary, type extractor, diff checker, and more...
 
 Note: If an InitFs file asks you for an AES key, I will not provide it. A quick google search may help.
@@ -13,7 +13,7 @@ Note: If an InitFs file asks you for an AES key, I will not provide it. A quick 
 - **Command Dictionary** - Generate and browse a full list of console commands extracted from raw InitFs files
 - **Reference Library** - Browse and view base and custom payloads from various Frostbite titles
 - **Preset Manager** - Browse and insert user-saved presets containing sets of useful commands
-- **Console Injector** - Hooks into a game's console, unlocks all commands, and executes them remotely
+- **Console Injector** - Hooks into a game's console, unlocks all commands, and executes them remotely/in-game
 
 <img width="2100" height="1240" src="./docs/assets/showcase.webp" />
 
@@ -23,7 +23,7 @@ Note: If an InitFs file asks you for an AES key, I will not provide it. A quick 
 - Implement Battlefield Hardline support (Type Extractor)
 - Fully implement Dead Space and Need For Speed Heat support for live value reading
 - Finish DictionaryWindow logic to support more dev commands (Dictionary)
-- Fix an issue where the Recent InitFS file text uses the wrong styling
+- Fix an issue where the Recent InitFs file text uses the wrong styling
 - Finish InitfsTools Wiki (help wanted!)
 - Implement localization support for the UI
 - Implement "GoTo" default commands
@@ -34,7 +34,7 @@ Note: If an InitFs file asks you for an AES key, I will not provide it. A quick 
 - Andersson799 - DLL functions
 - Nuuby - Console functions
 
-Massive thank you to the original FrostyToolsuite team, you can check them here: https://github.com/CadeEvs/FrostyToolsuite
+Massive thank you to the original FrostyToolsuite team; you can check them here: https://github.com/CadeEvs/FrostyToolsuite
 
 ## License
 The Content, Name, Code, and all assets are licensed under a Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.
