@@ -61,6 +61,9 @@
 #include <QStyledItemDelegate>
 #include <QPainter>
 #include <QSet>
+#include <QTimer>
+#include <QTextEdit>
+#include <QTextBlock>
 
 #ifdef Q_OS_WIN
 #  include <dwmapi.h>
@@ -73,6 +76,9 @@
 
 // Static instance pointer
 ConsoleWindow* ConsoleWindow::s_instance = nullptr;
+
+// Forward declaration — defined later in this file, used by appendOutputLine
+static QString stripConsoleResultPrefix(const QString& raw);
 
 // PipeReaderThread
 // Owns a background QThread that reads packets from the DLL's named pipe and
@@ -87,18 +93,47 @@ public:
 
     void beginSilentList() { m_silentListDepth++; }
 
+    // Splits the "<seq>:" field immediately following a fixed "RESULT:" or
+    // "OUTPUT:" prefix. Returns the parsed seq (-1 if absent/malformed) and
+    // advances *pos past the separating colon
+    static int extractSeqField(const std::string& packet, size_t& pos)
+    {
+        size_t p = pos;
+        bool neg = false;
+        if (p < packet.size() && packet[p] == '-')
+        {
+            neg = true;
+            ++p;
+        }
+        if (p >= packet.size() || !std::isdigit((unsigned char)packet[p]))
+            return -1;
+        int seq = 0;
+        while (p < packet.size() && std::isdigit((unsigned char)packet[p]))
+        {
+            seq = seq * 10 + (packet[p] - '0');
+            ++p;
+        }
+        if (p >= packet.size() || packet[p] != ':')
+            return -1;
+        pos = p + 1;
+        return neg ? -seq : seq;
+    }
+
     static bool parsePacket(const std::string& packet,
         QString& outLine, bool& outResult, bool& outError,
-        bool& outDebug)
+        bool& outDebug, int& outSeq)
     {
         outResult = false;
         outError = false;
         outDebug = false;
         outLine = QString();
+        outSeq = -1;
 
         if (packet.size() >= 7 && packet.compare(0, 7, "RESULT:") == 0)
         {
-            std::string text = packet.substr(7);
+            size_t pos = 7;
+            outSeq = extractSeqField(packet, pos);
+            std::string text = packet.substr(pos);
             if (text.find("Unknown console command") != std::string::npos)
                 outError = true;
             else
@@ -110,9 +145,11 @@ public:
 
         if (packet.size() >= 7 && packet.compare(0, 7, "OUTPUT:") == 0)
         {
-            size_t pipe = packet.find('|', 7);
-            std::string tag = (pipe != std::string::npos) ? packet.substr(7, pipe - 7) : std::string();
-            std::string text = (pipe != std::string::npos) ? packet.substr(pipe + 1) : packet.substr(7);
+            size_t pos = 7;
+            outSeq = extractSeqField(packet, pos);
+            size_t pipe = packet.find('|', pos);
+            std::string tag = (pipe != std::string::npos) ? packet.substr(pos, pipe - pos) : std::string();
+            std::string text = (pipe != std::string::npos) ? packet.substr(pipe + 1) : packet.substr(pos);
 
             const bool bracketTag = !tag.empty() && tag[0] == '[';
             const bool timestampedEmpty = tag.empty() && text.size() >= 3 &&
@@ -172,6 +209,14 @@ private:
                             wnd->m_bridge.readerThread->deleteLater();
                             wnd->m_bridge.readerThread = nullptr;
                         }
+                        // Don't leave a value scan waiting on a packet that will
+                        // never arrive — cancel it and let its caller unwind
+                        if (wnd->m_valueScanRunning)
+                        {
+                            auto onDone = wnd->m_valueScanOnDone;
+                            wnd->cancelValueScan();
+                            if (onDone) onDone();
+                        }
                         if (wnd->m_suppressDisconnectOverlay)
                             return; // deliberate teardown as part of the Unlock restart flow
                         wnd->appendOutputLine(
@@ -179,6 +224,7 @@ private:
                             false, true, false);
                         wnd->m_commandNames.clear();
                         wnd->m_commandDescs.clear();
+                        wnd->invalidateValueCache();
                         wnd->m_complModel->clear();
                         wnd->resetCmdCountLabel();
                         wnd->m_txtInput->setEnabled(false);
@@ -299,11 +345,7 @@ private:
                 {
                     m_listLines.append(entryName);
                     m_listDescs.append(entryDesc);
-                    // Only echo to the log when the user typed "list" themselves.
-                    // Silent/internal list runs (on connect, or after an unlock
-                    // restart) no longer print per-entry lines at all — the
-                    // full list is available on demand via the "N commands"
-                    // link instead, so the debug log stays clean too
+                    // Only echo to the log when the user typed "list" themselves
                     if (m_silentListDepth == 0)
                     {
                         QMetaObject::invokeMethod(m_wnd,
@@ -337,10 +379,12 @@ private:
             // Legacy OUTPUT: lines during collection
             if (packet.size() >= 7 && packet.compare(0, 7, "OUTPUT:") == 0)
             {
-                size_t pipe = packet.find('|', 7);
+                size_t pos = 7;
+                extractSeqField(packet, pos); // never scan-scoped here, discard
+                size_t pipe = packet.find('|', pos);
                 std::string text = (pipe != std::string::npos)
                     ? packet.substr(pipe + 1)
-                    : packet.substr(7);
+                    : packet.substr(pos);
                 const char* p = text.c_str();
                 int         n = (int)text.size();
                 QString entry = QString::fromUtf8(p, n).trimmed();
@@ -402,33 +446,55 @@ private:
 
         if (packet.size() >= 14 && packet.compare(0, 14, "UNLOCK_STABLE:") == 0)
         {
-            // Explicit signal from the DLL's poll thread that the unlocked
-            // command count has stabilized — safe to request the full list now
+            // The re-triggered __LIST__/__LIST_VARS__ pair below needs the
+            // same silent treatment the initial pair got via
+            // startReading(self, 2) — otherwise every individual
+            // METHOD:/VAR: entry gets echoed to the visible log instead of
+            // being collected quietly
+            beginSilentList();
+            beginSilentList();
+
+            // Explicit, authoritative signal from the DLL's poll thread that
+            // the unlocked command count has stabilized — always honored,
+            // regardless of m_awaitingUnlockListTrigger's current state
             QMetaObject::invokeMethod(m_wnd, [wnd = m_wnd]()
                 {
-                    if (!wnd->m_awaitingUnlockListTrigger)
-                        return;
                     wnd->m_awaitingUnlockListTrigger = false;
                     wnd->m_pendingListAnnouncements = 2;
-                    wnd->m_pendingListAnnouncementPrefix = QStringLiteral("[Unlock]");
+                    if (wnd->m_pendingListAnnouncementPrefix.isEmpty())
+                        wnd->m_pendingListAnnouncementPrefix = QStringLiteral("[Unlock]");
                     std::string listCmd("__LIST__");
                     std::string varsCmd("__LIST_VARS__");
-                    wnd->m_bridge.sendCommand(listCmd);
-                    wnd->m_bridge.sendCommand(varsCmd);
+                    wnd->m_bridge.sendCommand(listCmd, wnd->nextCmdSeq());
+                    wnd->m_bridge.sendCommand(varsCmd, wnd->nextCmdSeq());
                 }, Qt::QueuedConnection);
             return;
+        }
+
+        // A bare RESULT: packet (list assembly is already handled above, so
+        // by this point m_collectingList is guaranteed false) marks the
+        // definitive end of one command's response stream — the DLL sends
+        // exactly one of these per executed command, empty or not, whether
+        // or not it produced any output
+        if (packet.size() >= 7 && packet.compare(0, 7, "RESULT:") == 0)
+        {
+            size_t pos = 7;
+            int seq = extractSeqField(packet, pos);
+            QMetaObject::invokeMethod(m_wnd, "onValueScanResultTerminator",
+                Qt::QueuedConnection, Q_ARG(int, seq));
         }
 
         bool    isResult = false;
         bool    isError = false;
         bool    isDebug = false;
+        int     seq = -1;
         QString line;
-        if (parsePacket(packet, line, isResult, isError, isDebug) && !line.isEmpty())
+        if (parsePacket(packet, line, isResult, isError, isDebug, seq) && !line.isEmpty())
         {
             QMetaObject::invokeMethod(m_wnd,
-                [wnd = m_wnd, line, isResult, isError, isDebug]()
+                [wnd = m_wnd, line, isResult, isError, isDebug, seq]()
                 {
-                    wnd->appendOutputLine(line, isResult, isError, isDebug);
+                    wnd->appendOutputLine(line, isResult, isError, isDebug, seq);
                 },
                 Qt::QueuedConnection);
         }
@@ -544,7 +610,7 @@ ConsoleWindow::ConsoleWindow(MainWindow* mainWindow, QWidget* parent)
 
     buildUi();
 
-    m_lblStatus->setText(QStringLiteral("Not attached — click 'Attach To Process'"));
+    m_lblStatus->setText(QStringLiteral("Not attached — click 'Attach To Active Game'"));
 }
 
 // Destructor
@@ -557,12 +623,6 @@ ConsoleWindow::~ConsoleWindow()
     m_bridge.disconnect();
     if (m_bridge.readerThread)
     {
-        // The pipe is already closed above, so readPacket() will unblock
-        // and run() will exit quickly. We must NOT call wait() here from
-        // the main thread while the reader's queued lambda may also be
-        // trying to post to the main thread — that is a deadlock
-        // deleteLater() is safe: Qt will defer the delete until after any
-        // queued lambdas from this thread have been dispatched
         m_bridge.readerThread->deleteLater();
         m_bridge.readerThread = nullptr;
     }
@@ -590,7 +650,7 @@ void ConsoleWindow::buildUi()
                 return b;
             };
 
-        m_btnInject = makeBtn(QStringLiteral("Attach To Process"), 140);
+        m_btnInject = makeBtn(QStringLiteral("Attach To Active Game"), 140);
 
         auto* btnDetach = new QPushButton(QStringLiteral("Detach"), this);
         btnDetach->setFixedHeight(26);
@@ -627,6 +687,7 @@ void ConsoleWindow::buildUi()
                 }
                 m_commandNames.clear();
                 m_commandDescs.clear();
+                invalidateValueCache();
                 m_complModel->clear();
                 resetCmdCountLabel();
                 m_txtInput->setEnabled(false);
@@ -647,6 +708,7 @@ void ConsoleWindow::buildUi()
         m_chkDebug->setFixedHeight(26);
         m_chkDebug->setCursor(Qt::PointingHandCursor);
         m_chkDebug->setChecked(false);
+        m_chkDebug->installEventFilter(this);
         connect(m_chkDebug, &QCheckBox::toggled, this, [this](bool checked)
             {
                 m_showDebug = checked;
@@ -655,9 +717,9 @@ void ConsoleWindow::buildUi()
 
         m_lblCmdCount = new QLabel(this);
         m_lblCmdCount->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
-        m_lblCmdCount->setTextInteractionFlags(Qt::TextBrowserInteraction);
+        m_lblCmdCount->setTextInteractionFlags(Qt::NoTextInteraction);
         m_lblCmdCount->setOpenExternalLinks(false);
-        connect(m_lblCmdCount, &QLabel::linkActivated, this, &ConsoleWindow::onShowCommandList);
+        m_lblCmdCount->installEventFilter(this);
 
         m_btnUnlock = new QPushButton(QStringLiteral("Unlock All Commands"), this);
         m_btnUnlock->setFixedHeight(26);
@@ -699,7 +761,44 @@ void ConsoleWindow::buildUi()
         m_txtLog->setReadOnly(true);
         m_txtLog->setLineWrapMode(QPlainTextEdit::NoWrap);
         m_txtLog->setMaximumBlockCount(8000);
-        m_txtLog->setFont(QFont(QStringLiteral("Consolas"), 9));
+
+        // High-quality text rendering
+        {
+            QFont logFont(QStringLiteral("Consolas"), 9);
+            logFont.setStyleStrategy(static_cast<QFont::StyleStrategy>(
+                QFont::PreferAntialias | QFont::PreferQuality));
+            m_txtLog->setFont(logFont);
+        }
+
+        if (m_txtLog->viewport())
+        {
+            m_txtLog->viewport()->setMouseTracking(true);
+            m_txtLog->viewport()->installEventFilter(this);
+        }
+
+        // Themed right-click menu
+        m_txtLog->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(m_txtLog, &QPlainTextEdit::customContextMenuRequested,
+            this, [this](const QPoint& pos)
+            {
+                QMenu* menu = new QMenu(nullptr);
+                menu->setWindowFlags(Qt::Popup);
+                if (m_main) menu->setStyle(m_main->menuStyle());
+                menu->setAttribute(Qt::WA_DeleteOnClose);
+
+                auto* copy = menu->addAction(QIcon::fromTheme(QStringLiteral("edit-copy")),
+                    QStringLiteral("Copy"));
+                copy->setShortcut(QKeySequence::Copy);
+                copy->setEnabled(!m_txtLog->textCursor().selectedText().isEmpty());
+                connect(copy, &QAction::triggered, m_txtLog, &QPlainTextEdit::copy);
+
+                auto* selAll = menu->addAction(QIcon::fromTheme(QStringLiteral("edit-select-all")),
+                    QStringLiteral("Select All"));
+                selAll->setShortcut(QKeySequence::SelectAll);
+                connect(selAll, &QAction::triggered, m_txtLog, &QPlainTextEdit::selectAll);
+
+                menu->popup(m_txtLog->mapToGlobal(pos));
+            });
 
         fl->addWidget(m_txtLog);
         root->addWidget(m_logFrame, 1);
@@ -741,8 +840,6 @@ void ConsoleWindow::buildUi()
     }
 
     // Overlay (shown until connected)
-    // We stack it directly on top of the dialog using a zero-margin child widget
-    // sized to always cover the whole window via resizeEvent wiring in showOverlay
     m_overlay = new QWidget(this);
     m_overlay->setObjectName(QStringLiteral("cwOverlay"));
     m_overlay->setAttribute(Qt::WA_TransparentForMouseEvents, false);
@@ -762,7 +859,7 @@ void ConsoleWindow::buildUi()
 
     // Centre detach button — shown on top of the overlay when disconnected
     auto* centreRow = new QHBoxLayout;
-    auto* overlayBtn = new QPushButton(QStringLiteral("Attach To Process"), m_overlay);
+    auto* overlayBtn = new QPushButton(QStringLiteral("Attach To Active Game"), m_overlay);
     overlayBtn->setFixedSize(160, 44);
     overlayBtn->setCursor(Qt::PointingHandCursor);
     connect(overlayBtn, &QPushButton::clicked, this, &ConsoleWindow::onInjectToProcess);
@@ -797,14 +894,6 @@ void ConsoleWindow::buildUi()
     m_completer->setCompletionRole(Qt::DisplayRole);
     m_completer->setMaxVisibleItems(16);
     m_txtInput->setCompleter(m_completer);
-
-    // Installed after setCompleter() so this filter runs BEFORE the
-    // completer's own internal filter (Qt calls event filters in
-    // last-installed-first order). Otherwise the completer's filter sees
-    // Tab first, closes its popup, and lets the key event fall through —
-    // by the time our eventFilter() runs, popup()->isVisible() is already
-    // false, so our Tab-accepts-suggestion handling never fires and Qt's
-    // default focus-navigation grabs it instead (e.g. jumping to Send)
     m_txtInput->installEventFilter(this);
 
     // Widen the popup so the description column has room to render
@@ -862,16 +951,82 @@ void ConsoleWindow::onSendCommand()
     const char* p = utf8.constData();
     int         n = utf8.size();
     std::string cmd(p, n);
-    m_bridge.sendCommand(cmd);
+    m_bridge.sendCommand(cmd, nextCmdSeq());
 
     m_lblStatus->setText(QStringLiteral("OK"));
 }
 
 // appendOutputLine — always called on the Qt main thread
-void ConsoleWindow::appendOutputLine(const QString& line, bool isResult, bool isError, bool isDebug)
+void ConsoleWindow::appendOutputLine(const QString& line, bool isResult, bool isError, bool isDebug, int seq)
 {
+    // While a live-value scan is running, a seq-tagged OUTPUT: packet maps
+    // straight back to its command's row by construction — record it there
+    // regardless of whether that row is the one currently in flight or one
+    // we've already advanced past
+    if (m_valueScanRunning)
+    {
+        if (isDebug)
+        {
+            // Exception debug lines are DLL-internal status lines sent with
+            // seq=-1 (see pipeLogLine in dxgi.cpp), so — unlike normal
+            // OUTPUT: packets — they can't be attributed to a row by seq
+            if (m_valueScanIndex >= 0 && m_valueScanIndex < m_commandNames.size() &&
+                !m_valueScanIndexResolved &&
+                line.contains(QStringLiteral("EXCEPTION")))
+            {
+                const QString expectedCmd = QStringLiteral("cmd='") +
+                    m_commandNames.at(m_valueScanIndex) + QStringLiteral("'");
+                if (line.contains(expectedCmd, Qt::CaseInsensitive) &&
+                    m_valueScanIndex < m_cachedHasException.size())
+                {
+                    m_cachedHasException[m_valueScanIndex] = true;
+                }
+            }
+            return; // background noise unrelated to any command we're waiting on
+        }
+
+        const int index = seq - m_valueScanBaseSeq;
+        if (index < 0 || index >= m_cachedValues.size())
+            return; // not part of this scan (a DLL status line at seq=-1, or
+        // a manually-typed command sent from the console box)
+
+        // First captured line per row wins
+        if (index < m_cachedContentCaptured.size() && m_cachedContentCaptured[index])
+            return;
+        if (index < m_cachedContentCaptured.size())
+            m_cachedContentCaptured[index] = true;
+
+        const bool wasAlreadyResolved = (index < m_valueScanIndex) ||
+            (index == m_valueScanIndex && m_valueScanIndexResolved);
+
+        // "Unknown console command" responses are blanked out entirely —
+        // no value text — and flagged so the Command List dialog can render
+        // the command name red with a strikethrough instead of a real value
+        const bool isUnknownCmd = line.contains(QStringLiteral("Unknown console command"));
+        m_cachedValues[index] = isUnknownCmd ? QString() : stripConsoleResultPrefix(line);
+        m_cachedHasValue[index] = true;
+        if (index < m_cachedIsUnknown.size())
+            m_cachedIsUnknown[index] = isUnknownCmd;
+
+        if (wasAlreadyResolved)
+        {
+            // Row was already resolved (possibly as "no response") before
+            // this value showed up — patch it in place instead of going
+            // through the normal progress-counting onValue callback again
+            if (m_valueScanOnLateValue)
+                m_valueScanOnLateValue(index, m_cachedValues[index]);
+        }
+        // If not yet resolved, do nothing further — resolution (in
+        // onValueScanResultTerminator or the watchdog) will read
+        // m_cachedValues[index], which now already holds this value
+        return;
+    }
+
+    // Capture the timestamp once
+    const QString ts = QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss"));
+
     // Always store every entry so rebuildLog() can restore them on toggle
-    m_logEntries.append({ line, isResult, isError, isDebug });
+    m_logEntries.append({ line, isResult, isError, isDebug, ts });
 
     // Trim stored history to match QPlainTextEdit's block cap
     static constexpr int kCap = 8000;
@@ -883,12 +1038,46 @@ void ConsoleWindow::appendOutputLine(const QString& line, bool isResult, bool is
     if (isDebug && !m_showDebug)
         return;
 
-    renderLine(line, isResult, isError, isDebug);
+    renderLine(line, isResult, isError, isDebug, ts);
+}
+
+// onValueScanResultTerminator — fired once per command's guaranteed RESULT:
+// terminator packet from the DLL. This is the sole trigger for advancing a
+// live-value scan; see the comments in appendOutputLine() and
+// advanceValueScan() for why a content-based or timer-based advance is unsafe
+void ConsoleWindow::onValueScanResultTerminator(int seq)
+{
+    if (!m_valueScanRunning)
+        return;
+
+    const int index = seq - m_valueScanBaseSeq;
+
+    // Only the terminator for the index we're CURRENTLY waiting on advances
+    // the scan. A terminator for an older index (genuinely rare, and it
+    // carries no content anyway) is ignored — that index was already
+    // resolved one way or another
+    if (index != m_valueScanIndex || m_valueScanIndexResolved)
+        return;
+
+    m_valueScanIndexResolved = true;
+
+    const QString value = (index >= 0 && index < m_cachedValues.size())
+        ? m_cachedValues[index] : QString();
+    if (index >= 0 && index < m_cachedHasValue.size())
+        m_cachedHasValue[index] = true;
+
+    if (m_valueScanOnValue)
+        m_valueScanOnValue(index, value);
+
+    advanceValueScan();
 }
 
 // renderLine — writes one entry into the QPlainTextEdit with timestamp + colour
-// Called both from appendOutputLine and from rebuildLog
-void ConsoleWindow::renderLine(const QString& line, bool isResult, bool isError, bool isDebug)
+// Called both from appendOutputLine and from rebuildLog. The timestamp is
+// passed in (captured once, when the line first arrived) rather than
+// generated here, so rebuildLog() re-rendering an old entry never reprints
+// it stamped with the current time
+void ConsoleWindow::renderLine(const QString& line, bool isResult, bool isError, bool isDebug, const QString& ts)
 {
     QTextCursor cur = m_txtLog->textCursor();
     cur.movePosition(QTextCursor::End);
@@ -896,7 +1085,6 @@ void ConsoleWindow::renderLine(const QString& line, bool isResult, bool isError,
     const QColor tsCol = m_dark ? QColor(0x55, 0x55, 0x55) : QColor(0xa0, 0xa0, 0xa0);
 
     // Timestamp
-    const QString ts = QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss"));
     {
         QTextCharFormat tsFmt;
         tsFmt.setForeground(tsCol);
@@ -954,8 +1142,161 @@ void ConsoleWindow::rebuildLog()
     {
         if (e.isDebug && !m_showDebug)
             continue;
-        renderLine(e.line, e.isResult, e.isError, e.isDebug);
+        renderLine(e.line, e.isResult, e.isError, e.isDebug, e.timestamp);
     }
+}
+
+// scanAllCommandValues — silently executes every known command once, in
+// order, reporting each result as it arrives. Commands are sent one at a
+// time (never in flight simultaneously) since the pipe is a single
+// request/response channel per session — sending the next command before
+// the previous one's response arrives would make the responses ambiguous
+void ConsoleWindow::scanAllCommandValues(std::function<void(int, const QString&)> onValue,
+    std::function<void()> onDone,
+    std::function<void(int, const QString&)> onLateValue)
+{
+    if (m_valueScanRunning)
+        return; // one scan at a time
+
+    if (m_commandNames.isEmpty() ||
+        m_bridge.hPipe == INVALID_HANDLE_VALUE ||
+        !m_bridge.readerThread || !m_bridge.readerThread->isRunning())
+    {
+        if (onDone) onDone();
+        return;
+    }
+
+    // (Re)initialize the live value buffer for this run. Reusing
+    // m_cachedValues/m_cachedHasValue (rather than separate scan-only
+    // members) means a value captured mid-scan is immediately the same
+    // data rebuildContent() renders from later, no separate copy step
+    if (m_cachedValues.size() != m_commandNames.size())
+    {
+        m_cachedValues.clear();
+        m_cachedValues.resize(m_commandNames.size());
+        m_cachedHasValue.clear();
+        m_cachedHasValue.resize(m_commandNames.size());
+        m_cachedIsUnknown.clear();
+        m_cachedIsUnknown.resize(m_commandNames.size());
+        m_cachedHasException.clear();
+        m_cachedHasException.resize(m_commandNames.size());
+        m_cachedContentCaptured.clear();
+        m_cachedContentCaptured.resize(m_commandNames.size());
+    }
+    else
+    {
+        std::fill(m_cachedValues.begin(), m_cachedValues.end(), QString());
+        std::fill(m_cachedHasValue.begin(), m_cachedHasValue.end(), false);
+        std::fill(m_cachedIsUnknown.begin(), m_cachedIsUnknown.end(), false);
+        std::fill(m_cachedHasException.begin(), m_cachedHasException.end(), false);
+        std::fill(m_cachedContentCaptured.begin(), m_cachedContentCaptured.end(), false);
+    }
+    m_valuesCached = false;
+
+    // Reserve a contiguous seq block up front — one per command — so index
+    // i is always sent as seq (m_valueScanBaseSeq + i). Reserving the whole
+    // block atomically means a manually-typed command sent from the console
+    // box mid-scan can never land inside this range
+    m_valueScanBaseSeq = (int)reserveCmdSeqBlock((unsigned int)m_commandNames.size());
+
+    m_valueScanRunning = true;
+    m_valueScanIndex = -1;
+    m_valueScanOnValue = std::move(onValue);
+    m_valueScanOnDone = std::move(onDone);
+    m_valueScanOnLateValue = std::move(onLateValue);
+    advanceValueScan();
+}
+
+void ConsoleWindow::cancelValueScan()
+{
+    m_valueScanRunning = false;
+    m_valueScanIndex = -1;
+    m_valueScanIndexResolved = false;
+    ++m_valueScanGeneration;   // invalidate any watchdog still in flight
+    m_valueScanOnValue = nullptr;
+    m_valueScanOnDone = nullptr;
+    m_valueScanOnLateValue = nullptr;
+    // m_valueScanBaseSeq deliberately left as-is
+}
+
+// invalidateValueCache — drops the cached "View Live Values" results
+void ConsoleWindow::invalidateValueCache()
+{
+    m_cachedValues.clear();
+    m_cachedHasValue.clear();
+    m_cachedIsUnknown.clear();
+    m_cachedHasException.clear();
+    m_cachedContentCaptured.clear();
+    m_valuesCached = false;
+}
+
+unsigned int ConsoleWindow::reserveCmdSeqBlock(unsigned int count)
+{
+    const unsigned int start = m_nextCmdSeq;
+    m_nextCmdSeq += count;
+    return start;
+}
+
+// advanceValueScan — sends the next queued command, or finishes the scan
+void ConsoleWindow::advanceValueScan()
+{
+    m_valueScanIndex++;
+    if (m_valueScanIndex >= m_commandNames.size())
+    {
+        auto onDone = m_valueScanOnDone;
+        cancelValueScan();
+        if (onDone) onDone();
+        return;
+    }
+
+    m_valueScanIndexResolved = false;
+
+    // Specific command override — Screenshot.Render triggers a real
+    // render/capture side effect when invoked, which an automated scan must
+    // never do. Skip it entirely
+    const int myIndex = m_valueScanIndex;
+    if (m_commandNames.at(myIndex).compare(
+        QStringLiteral("Screenshot.Render"), Qt::CaseInsensitive) == 0)
+    {
+        m_valueScanIndexResolved = true;
+        if (myIndex < m_cachedHasValue.size()) m_cachedHasValue[myIndex] = true;
+        if (myIndex < m_cachedValues.size()) m_cachedValues[myIndex] = QString();
+        if (myIndex < m_cachedContentCaptured.size()) m_cachedContentCaptured[myIndex] = true;
+
+        if (m_valueScanOnValue)
+            m_valueScanOnValue(myIndex, QString());
+
+        advanceValueScan();
+        return;
+    }
+
+    const int seq = m_valueScanBaseSeq + m_valueScanIndex;
+    const QByteArray utf8 = m_commandNames.at(m_valueScanIndex).toUtf8();
+    std::string cmd(utf8.constData(), utf8.size());
+    m_bridge.sendCommand(cmd, (unsigned int)seq);
+
+    // Failsafe watchdog only
+    constexpr int kValueScanWatchdogMs = 5000;
+    const int myGeneration = ++m_valueScanGeneration;
+    QTimer::singleShot(kValueScanWatchdogMs, this, [this, myGeneration, myIndex]()
+        {
+            if (!m_valueScanRunning ||
+                m_valueScanGeneration != myGeneration ||
+                m_valueScanIndex != myIndex ||
+                m_valueScanIndexResolved)
+                return; // real terminator already arrived, or scan cancelled/moved on
+
+            m_valueScanIndexResolved = true;
+            if (myIndex >= 0 && myIndex < m_cachedHasValue.size())
+                m_cachedHasValue[myIndex] = true;
+
+            const QString value = (myIndex >= 0 && myIndex < m_cachedValues.size())
+                ? m_cachedValues[myIndex] : QString();
+
+            if (m_valueScanOnValue)
+                m_valueScanOnValue(myIndex, value);
+            advanceValueScan();
+        });
 }
 
 // Command-count label — plain text vs. pending vs. clickable-link states
@@ -979,50 +1320,112 @@ void ConsoleWindow::setCmdCountReady(int count)
     m_lblCmdCount->setCursor(Qt::PointingHandCursor);
 }
 
-// onShowCommandList — popup listing every known command/var, selectable and copyable
+// stripConsoleResultPrefix
+static QString stripConsoleResultPrefix(const QString& raw)
+{
+    const QString s = raw.trimmed();
+    static const QString kPrefix = QStringLiteral("Win32 result:");
+    if (s.startsWith(kPrefix, Qt::CaseInsensitive))
+        return s.mid(kPrefix.size());
+    return s;
+}
+
+// onShowCommandList
 void ConsoleWindow::onShowCommandList(const QString& /*link*/)
 {
-    QDialog dlg(this);
-    dlg.setWindowTitle(QStringLiteral("Command List (") +
+    // Already open — just bring it forward instead of stacking a duplicate
+    if (m_cmdListDialog)
+    {
+        m_cmdListDialog->show();
+        m_cmdListDialog->raise();
+        m_cmdListDialog->activateWindow();
+        return;
+    }
+
+    QDialog* dlg = new QDialog(this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->setWindowFlags(Qt::Window | Qt::WindowMinMaxButtonsHint | Qt::WindowCloseButtonHint);
+    dlg->setWindowTitle(QStringLiteral("Command List (") +
         QString::number(m_commandNames.size()) + QStringLiteral(")"));
-    dlg.resize(560, 640);
+    dlg->resize(560, 640);
 
-    auto* layout = new QVBoxLayout(&dlg);
+    m_cmdListDialog = dlg;
+    connect(dlg, &QObject::destroyed, this, [this]()
+        {
+            m_cmdListDialog = nullptr;
+        });
 
-    auto* txt = new QPlainTextEdit(&dlg);
+    auto* layout = new QVBoxLayout(dlg);
+
+    auto* txt = new QPlainTextEdit(dlg);
     txt->setReadOnly(true);
     txt->setLineWrapMode(QPlainTextEdit::NoWrap);
-    txt->setFont(QFont(QStringLiteral("Consolas"), 9));
 
-    QString content;
-    content.reserve(m_commandNames.size() * 32);
-    for (int i = 0; i < m_commandNames.size(); ++i)
     {
-        if (i > 0)
-            content += QLatin1Char('\n');
-        content += m_commandNames.at(i);
+        QFont listFont(QStringLiteral("Consolas"), 9);
+        listFont.setStyleStrategy(static_cast<QFont::StyleStrategy>(
+            QFont::PreferAntialias | QFont::PreferQuality));
+        txt->setFont(listFont);
     }
-    txt->setPlainText(content);
+
+    if (txt->viewport())
+    {
+        txt->viewport()->setMouseTracking(true);
+        txt->viewport()->installEventFilter(this);
+    }
+
+    // Themed right-click menu
+    txt->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(txt, &QPlainTextEdit::customContextMenuRequested, dlg,
+        [this, txt](const QPoint& pos)
+        {
+            static const QIcon kCopyIcon = QIcon::fromTheme(QStringLiteral("edit-copy"));
+            static const QIcon kSelAllIcon = QIcon::fromTheme(QStringLiteral("edit-select-all"));
+
+            QMenu* menu = new QMenu(nullptr);
+            menu->setWindowFlags(Qt::Popup);
+            if (m_main) menu->setStyle(m_main->menuStyle());
+            menu->setAttribute(Qt::WA_DeleteOnClose);
+
+            auto* copy = menu->addAction(kCopyIcon, QStringLiteral("Copy"));
+            copy->setShortcut(QKeySequence::Copy);
+            copy->setEnabled(!txt->textCursor().selectedText().isEmpty());
+            connect(copy, &QAction::triggered, txt, &QPlainTextEdit::copy);
+
+            auto* selAll = menu->addAction(kSelAllIcon, QStringLiteral("Select All"));
+            selAll->setShortcut(QKeySequence::SelectAll);
+            connect(selAll, &QAction::triggered, txt, &QPlainTextEdit::selectAll);
+
+            menu->popup(txt->mapToGlobal(pos));
+        });
+
     layout->addWidget(txt, 1);
 
     auto* btnRow = new QHBoxLayout;
-    auto* btnCopyAll = new QPushButton(QStringLiteral("Copy All"), &dlg);
+    auto* btnCopyAll = new QPushButton(QStringLiteral("Copy All"), dlg);
     btnCopyAll->setCursor(Qt::PointingHandCursor);
-    connect(btnCopyAll, &QPushButton::clicked, &dlg, [txt]()
-        { QApplication::clipboard()->setText(txt->toPlainText()); });
 
-    auto* btnClose = new QPushButton(QStringLiteral("Close"), &dlg);
+    auto* chkLiveValues = new QCheckBox(QStringLiteral("View Live Values"), dlg);
+    chkLiveValues->setCursor(Qt::PointingHandCursor);
+
+    // Progress / status line
+    auto* lblScanStatus = new QLabel(dlg);
+    lblScanStatus->setVisible(false);
+
+    auto* btnClose = new QPushButton(QStringLiteral("Close"), dlg);
     btnClose->setCursor(Qt::PointingHandCursor);
-    connect(btnClose, &QPushButton::clicked, &dlg, &QDialog::accept);
+    connect(btnClose, &QPushButton::clicked, dlg, &QDialog::accept);
 
     btnRow->addWidget(btnCopyAll);
+    btnRow->addWidget(chkLiveValues);
+    btnRow->addWidget(lblScanStatus);
     btnRow->addStretch(1);
     btnRow->addWidget(btnClose);
     layout->addLayout(btnRow);
 
     if (m_dark)
     {
-        dlg.setStyleSheet(QStringLiteral(
+        dlg->setStyleSheet(QStringLiteral(
             "QDialog { background-color: #1e1e1e; }"
             "QPlainTextEdit {"
             "  background-color: #121212; color: #f0f0f0;"
@@ -1034,10 +1437,257 @@ void ConsoleWindow::onShowCommandList(const QString& /*link*/)
             "  border: 1px solid #555; border-radius: 3px; padding: 4px 10px;"
             "}"
             "QPushButton:hover  { background-color: #0078d7; color: white; border-color: #0078d7; }"
-            "QPushButton:pressed { background-color: #005fa3; }"));
+            "QPushButton:pressed { background-color: #005fa3; }"
+            "QCheckBox { color: #f0f0f0; spacing: 6px; }"
+            "QLabel { color: #9a9a9a; }"));
+    }
+    else
+    {
+        lblScanStatus->setStyleSheet(QStringLiteral("QLabel { color: #666; }"));
     }
 
-    dlg.exec();
+    // ---- Live-value state ----
+    if (m_cachedValues.size() != m_commandNames.size())
+    {
+        m_cachedValues.clear();
+        m_cachedValues.resize(m_commandNames.size());
+        m_cachedHasValue.clear();
+        m_cachedHasValue.resize(m_commandNames.size());
+        m_cachedIsUnknown.clear();
+        m_cachedIsUnknown.resize(m_commandNames.size());
+        m_cachedHasException.clear();
+        m_cachedHasException.resize(m_commandNames.size());
+        m_cachedContentCaptured.clear();
+        m_cachedContentCaptured.resize(m_commandNames.size());
+        m_valuesCached = false;
+    }
+
+    const QColor nameColor = m_dark ? QColor(0xf0, 0xf0, 0xf0) : QColor(0x1e, 0x1e, 0x1e);
+    const QColor valueColor = m_dark ? QColor(240, 220, 90) : QColor(150, 120, 0); // yellow
+    const QColor noResponseColor = m_colErrFg; // red — command threw an exception
+    // Orange — command returned with no value and no exception
+    const QColor inactiveColor = m_dark ? QColor(0xd9, 0x8a, 0x2b) : QColor(0xb8, 0x6a, 0x00);
+
+    // patchRow — rewrites exactly one row (block) of the command list,
+    // addressed directly via findBlockByNumber() rather than by
+    // sequentially walking a cursor
+    auto patchRow = [txt, nameColor, valueColor, noResponseColor, inactiveColor, this](int index)
+        {
+            if (index < 0 || index >= m_commandNames.size()) return;
+
+            QTextBlock block = txt->document()->findBlockByNumber(index);
+            if (!block.isValid()) return;
+
+            QTextCursor cur(block);
+            cur.select(QTextCursor::LineUnderCursor);
+
+            const bool got = index < m_cachedHasValue.size() && m_cachedHasValue[index];
+            const bool haveValue = got && index < m_cachedValues.size() && !m_cachedValues[index].isEmpty();
+            const bool isUnknown = got && index < m_cachedIsUnknown.size() && m_cachedIsUnknown[index];
+            const bool hadException = index < m_cachedHasException.size() && m_cachedHasException[index];
+
+            QTextCharFormat nameFmt;
+            nameFmt.setForeground(nameColor);
+            QTextCharFormat valueFmt;
+            valueFmt.setForeground(valueColor);
+            QTextCharFormat noRespFmt;
+            noRespFmt.setForeground(noResponseColor);
+            QTextCharFormat inactiveFmt;
+            inactiveFmt.setForeground(inactiveColor);
+            QTextCharFormat unknownFmt;
+            unknownFmt.setForeground(noResponseColor);
+            unknownFmt.setFontStrikeOut(true);
+
+            const QTextCharFormat blankFmt = isUnknown ? unknownFmt
+                : (got && !haveValue ? (hadException ? noRespFmt : inactiveFmt) : nameFmt);
+            cur.setCharFormat(blankFmt);
+            cur.insertText(m_commandNames.at(index));
+
+            if (haveValue && !isUnknown)
+            {
+                cur.setCharFormat(nameFmt);
+                cur.insertText(QStringLiteral(" "));
+                cur.setCharFormat(valueFmt);
+                cur.insertText(m_cachedValues[index]);
+            }
+        };
+
+    // Full rebuild — reads from the cache
+    auto rebuildContent = [txt, nameColor, valueColor, noResponseColor, inactiveColor, this](bool showValues)
+        {
+            const int scrollPos = txt->verticalScrollBar()->value();
+            txt->clear();
+
+            QTextCharFormat nameFmt;
+            nameFmt.setForeground(nameColor);
+            QTextCharFormat valueFmt;
+            valueFmt.setForeground(valueColor);
+            QTextCharFormat noRespFmt;
+            noRespFmt.setForeground(noResponseColor);
+            QTextCharFormat inactiveFmt;
+            inactiveFmt.setForeground(inactiveColor);
+            QTextCharFormat unknownFmt;
+            unknownFmt.setForeground(noResponseColor);
+            unknownFmt.setFontStrikeOut(true);
+
+            QTextCursor cur(txt->document());
+            cur.movePosition(QTextCursor::Start);
+
+            for (int i = 0; i < m_commandNames.size(); ++i)
+            {
+                if (i > 0)
+                    cur.insertText(QStringLiteral("\n"));
+
+                const bool got = showValues && i < m_cachedHasValue.size() && m_cachedHasValue[i];
+                const bool noResponse = got && i < m_cachedValues.size() && m_cachedValues[i].isEmpty();
+                const bool isUnknown = got && i < m_cachedIsUnknown.size() && m_cachedIsUnknown[i];
+                const bool hadException = i < m_cachedHasException.size() && m_cachedHasException[i];
+
+                const QTextCharFormat blankFmt = isUnknown ? unknownFmt
+                    : (noResponse ? (hadException ? noRespFmt : inactiveFmt) : nameFmt);
+                cur.setCharFormat(blankFmt);
+                cur.insertText(m_commandNames.at(i));
+
+                if (got && !noResponse && !isUnknown)
+                {
+                    cur.setCharFormat(nameFmt);
+                    cur.insertText(QStringLiteral(" "));
+                    cur.setCharFormat(valueFmt);
+                    cur.insertText(m_cachedValues[i]);
+                }
+            }
+
+            // Defensive trim — guarantee the document ends with exactly
+            // m_commandNames.size() blocks, never a trailing empty one
+            QTextDocument* doc = txt->document();
+            while (doc->blockCount() > m_commandNames.size() &&
+                doc->lastBlock().text().isEmpty())
+            {
+                QTextCursor trimCur(doc->lastBlock());
+                trimCur.movePosition(QTextCursor::EndOfBlock);
+                trimCur.movePosition(QTextCursor::PreviousCharacter, QTextCursor::KeepAnchor);
+                trimCur.removeSelectedText();
+            }
+
+            txt->verticalScrollBar()->setValue(scrollPos);
+        };
+
+    // Populate the list for the first time — reuses the exact same
+    // rendering path the live-value toggle uses later, so styling (and the
+    // trailing-blank-line trim above) is consistent from the very first
+    // paint instead of a separate hand-rolled loop that could drift out of
+    // sync with it
+    rebuildContent(false);
+
+    // Runs the one-time scan
+    auto runScan = [this, patchRow, chkLiveValues, lblScanStatus, rebuildContent]()
+        {
+            auto progress = std::make_shared<int>(0);
+            const int total = m_commandNames.size();
+
+            chkLiveValues->setEnabled(false);
+            lblScanStatus->setVisible(true);
+            lblScanStatus->setText(QStringLiteral("Scanning values… 0 / %1").arg(total));
+
+            scanAllCommandValues(
+                // Official resolution of a row (terminator or watchdog) —
+                // fires exactly once per index, drives progress counting
+                [progress, total, lblScanStatus, patchRow](int index, const QString& /*result*/)
+                {
+                    ++(*progress);
+                    lblScanStatus->setText(QStringLiteral("Scanning values… %1 / %2")
+                        .arg(*progress).arg(total));
+                    patchRow(index);
+                },
+                [this, progress, total, rebuildContent, chkLiveValues, lblScanStatus]()
+                {
+                    chkLiveValues->setEnabled(true);
+                    m_valuesCached = (*progress > 0);
+                    // One final full render from the cache so formatting stays
+                    // correct even if the checkbox was toggled mid-scan
+                    rebuildContent(chkLiveValues->isChecked());
+
+                    if (*progress == 0)
+                    {
+                        lblScanStatus->setText(QStringLiteral(
+                            "Couldn't scan values — not connected to the game."));
+                    }
+                    else
+                    {
+                        lblScanStatus->setText(QStringLiteral("Captured %1 / %2 values.")
+                            .arg(*progress).arg(total));
+                        QTimer::singleShot(2500, lblScanStatus, [lblScanStatus]()
+                            { lblScanStatus->setVisible(false); });
+                    }
+                },
+                // A value showing up for a row already resolved as "no
+                // response" — patch it in place, no progress-counter change
+                [patchRow](int index, const QString& /*value*/)
+                {
+                    patchRow(index);
+                });
+        };
+
+    connect(chkLiveValues, &QCheckBox::toggled, dlg,
+        [this, dlg, rebuildContent, runScan, chkLiveValues](bool checked)
+        {
+            if (checked)
+            {
+                // Warn once per ConsoleWindow session — scanning executes every
+                // known command, and some of those have side effects the game
+                // won't recover from on its own
+                if (!m_liveValuesWarningShown)
+                {
+                    const auto ret = QMessageBox::warning(
+                        dlg,
+                        QStringLiteral("View Live Values"),
+                        QStringLiteral(
+                            "Scanning live values executes every console command once.\n\n"
+                            "Some commands have side effects that will leave the game in a "
+                            "broken state; these will be marked in red and should never be executed. "
+                            "If you proceed, you may need to restart the "
+                            "game for it to function properly again.\n\n"
+                            "Continue?"),
+                        QMessageBox::Yes | QMessageBox::No,
+                        QMessageBox::No);
+
+                    if (ret != QMessageBox::Yes)
+                    {
+                        // Revert the checkbox without re-entering this handler
+                        chkLiveValues->blockSignals(true);
+                        chkLiveValues->setChecked(false);
+                        chkLiveValues->blockSignals(false);
+                        return;
+                    }
+
+                    m_liveValuesWarningShown = true;
+                }
+
+                if (!m_valuesCached)
+                    runScan();
+                else
+                    rebuildContent(true); // reuse cached values, no re-scan, no pipe traffic
+            }
+            else
+            {
+                rebuildContent(false); // hide values, keep them cached
+            }
+        });
+
+    connect(btnCopyAll, &QPushButton::clicked, dlg, [txt]()
+        { QApplication::clipboard()->setText(txt->toPlainText()); });
+
+    // Cancel any in-flight scan the instant the dialog starts closing, and
+    // drop the "already scanned" flag so the *next* time this dialog is
+    // opened, checking "View Live Values" triggers a fresh scan rather than
+    // reusing stale results
+    connect(dlg, &QDialog::finished, dlg, [this]()
+        {
+            cancelValueScan();
+            m_valuesCached = false;
+        });
+
+    dlg->show();
 }
 
 // onMethodListReceived — called on Qt main thread after __LIST__ completes
@@ -1093,16 +1743,13 @@ void ConsoleWindow::onMethodListReceived(const QStringList& methods, const QStri
             Qt::UserRole + 1);
         m_complModel->appendRow(item);
     }
-    setCmdCountReady(m_commandNames.size());
 
-    // The initial connect sequence runs __LIST__ then __LIST_VARS__ silently
-    // (m_pendingListAnnouncements is primed to 2 right before those are sent)
-    // Wait for both to finish so the announced count reflects the real,
-    // fully-merged command list rather than the count baked into READY:,
-    // which is captured before the enumeration has actually happened
+    if (!m_awaitingUnlockListTrigger)
+        setCmdCountReady(m_commandNames.size());
+
     if (m_pendingListAnnouncements > 0)
     {
-        if (--m_pendingListAnnouncements == 0)
+        if (--m_pendingListAnnouncements == 0 && !m_awaitingUnlockListTrigger)
         {
             appendOutputLine(
                 m_pendingListAnnouncementPrefix + QStringLiteral(" ") +
@@ -1214,11 +1861,14 @@ void ConsoleWindow::onInjectToProcess()
         const QString msg =
             QStringLiteral("[Inject] Process not found: ") +
             QString::fromUtf8(b.constData(), b.size()) +
-            QStringLiteral("\n[Inject] Launch the game first, then click Attach again.");
+            QStringLiteral("\n[Inject] Launch the game first, then click the attach button again.");
         appendOutputLine(msg, false, true);
         m_overlayDisconnMsg->setText(msg.trimmed());
-        m_overlayDisconnMsg->setVisible(true);
-        showOverlay(false);   // re-raise overlay so the message is visible
+        // showOverlay(true) both raises the overlay AND sets the message
+        // visible in one call — showOverlay(false) would immediately
+        // re-hide the message we just set, since showOverlay() always
+        // does m_overlayDisconnMsg->setVisible(disconnected) itself
+        showOverlay(true);
         m_targetExePath.clear();
         return;
     }
@@ -1241,6 +1891,7 @@ void ConsoleWindow::onInjectToProcess()
     m_bridge.disconnect();
     m_commandNames.clear();
     m_commandDescs.clear();
+    invalidateValueCache();
     m_complModel->clear();
     resetCmdCountLabel();
     m_txtInput->setEnabled(false);
@@ -1255,11 +1906,10 @@ void ConsoleWindow::onInjectToProcess()
     if (!QFileInfo::exists(dllPath))
     {
         const QString msg = QStringLiteral(
-            "[Inject] dxgi.dll not found next to initfstools.exe");
+            "[Inject] dxgi.dll not found next to InitfsTools.exe");
         appendOutputLine(msg, false, true);
         m_overlayDisconnMsg->setText(msg);
-        m_overlayDisconnMsg->setVisible(true);
-        showOverlay(false);
+        showOverlay(true);
         m_btnInject->setEnabled(true);
         m_targetExePath.clear();
         return;
@@ -1362,8 +2012,9 @@ void ConsoleWindow::onInjectToProcess()
                             if (packet.size() >= 6 && packet.compare(0, 6, "READY:") == 0) { ready = packet; break; }
                             if (packet.size() >= 6 && packet.compare(0, 6, "ERROR:") == 0) { ready = packet; break; }
                             bool preResult = false, preError = false, preDebug = false;
+                            int  preSeq = -1; // pre-READY diagnostics are never scan-scoped, discarded
                             QString preLine;
-                            if (PipeReaderThread::parsePacket(packet, preLine, preResult, preError, preDebug) && !preLine.isEmpty())
+                            if (PipeReaderThread::parsePacket(packet, preLine, preResult, preError, preDebug, preSeq) && !preLine.isEmpty())
                             {
                                 QMetaObject::invokeMethod(self, [self, preLine, preResult, preError, preDebug]()
                                     { self->appendOutputLine(preLine, preResult, preError, preDebug); },
@@ -1414,22 +2065,21 @@ void ConsoleWindow::onInjectToProcess()
                                         false, false);
                                     self->m_lblStatus->setText(
                                         QStringLiteral("Connected (proxy) — ") + exeNameOnly);
+                                    // Re-arm the "View Live Values" warning for this new attach
+                                    self->m_liveValuesWarningShown = false;
                                     self->hideOverlay();
                                     self->m_btnInject->setVisible(false);
                                     self->m_txtInput->setEnabled(true);
                                     self->m_btnSend->setEnabled(true);
                                     self->m_txtInput->setPlaceholderText(
                                         QStringLiteral("Enter console command and press Enter…"));
-                                    // "X console commands registered" is printed once the
-                                    // silent list pair below actually finishes enumerating
-                                    self->m_pendingListAnnouncements = 2;
+                                    // Proxy mode always runs its unlock patch + poll cycle from
+                                    // the moment the DLL loaded (see g_suspendedForUnlock in
+                                    // dxgi.cpp), independent of when we happen to connect
                                     self->m_pendingListAnnouncementPrefix = QStringLiteral("[Inject]");
+                                    self->m_awaitingUnlockListTrigger = true;
                                     self->setCmdCountPending();
-                                    std::string listCmd("__LIST__");
-                                    std::string varsCmd("__LIST_VARS__");
-                                    self->m_bridge.sendCommand(listCmd);
-                                    self->m_bridge.sendCommand(varsCmd);
-                                    self->m_bridge.startReading(self, 2);
+                                    self->m_bridge.startReading(self, 0);
                                 }
                                 else
                                 {
@@ -1608,8 +2258,9 @@ void ConsoleWindow::onInjectToProcess()
                 }
                 // Pre-READY diagnostic packet — parse and display on the main thread
                 bool preResult = false, preError = false, preDebug = false;
+                int  preSeq = -1; // pre-READY diagnostics are never scan-scoped, discarded
                 QString preLine;
-                if (PipeReaderThread::parsePacket(packet, preLine, preResult, preError, preDebug) && !preLine.isEmpty())
+                if (PipeReaderThread::parsePacket(packet, preLine, preResult, preError, preDebug, preSeq) && !preLine.isEmpty())
                 {
                     QMetaObject::invokeMethod(self, [self, preLine, preResult, preError, preDebug]()
                         { self->appendOutputLine(preLine, preResult, preError, preDebug); },
@@ -1664,6 +2315,8 @@ void ConsoleWindow::onInjectToProcess()
                         self->m_btnUnlock->setText(
                             QStringLiteral("Unlock All Commands"));
                         self->m_btnUnlock->setEnabled(true);
+                        // Re-arm the "View Live Values" warning for this new attach
+                        self->m_liveValuesWarningShown = false;
                         self->hideOverlay();
                         self->m_btnInject->setVisible(false);
                         self->m_txtInput->setEnabled(true);
@@ -1677,8 +2330,8 @@ void ConsoleWindow::onInjectToProcess()
                         self->setCmdCountPending();
                         std::string listCmd("__LIST__");
                         std::string varsCmd("__LIST_VARS__");
-                        self->m_bridge.sendCommand(listCmd);
-                        self->m_bridge.sendCommand(varsCmd);
+                        self->m_bridge.sendCommand(listCmd, self->nextCmdSeq());
+                        self->m_bridge.sendCommand(varsCmd, self->nextCmdSeq());
                         self->m_bridge.startReading(self, 2);
                     }
                     else
@@ -1714,7 +2367,6 @@ void ConsoleWindow::onToggleUnlock()
     // Unlock requires a restart to take effect — the SettingsManagerAddHk
     // equivalent (capturing all hidden settings groups) only works if the
     // DLL is loaded before the game registers its settings at startup
-
     auto ret = QMessageBox::question(
         this,
         QStringLiteral("Unlock All Commands"),
@@ -1783,13 +2435,6 @@ void ConsoleWindow::onToggleUnlock()
         return found;
         };
 
-    // Don't re-derive the PID by name here — that's what was killing the
-    // wrong process. Some titles run a launcher/stub under the same exe
-    // name as the real game child (see the disambiguation logic in the
-    // auto-reinject thread). A fresh name scan can't tell them apart and
-    // may grab the stub instead of the process we're actually connected
-    // to, so TerminateProcess "succeeds" on a process nobody sees while
-    // the real game keeps running. Reuse the PID we already verified
     DWORD pid = (m_gamePid != 0) ? m_gamePid : findPid();
     if (pid == 0)
     {
@@ -1912,17 +2557,8 @@ void ConsoleWindow::onToggleUnlock()
 
     appendOutputLine(QStringLiteral("[Unlock] Game restarted. Waiting for process..."), false, false);
 
-    // Tear down existing pipe connection.
-    // disconnect() MUST come first — it closes the pipe handle, which is what
-    // unblocks the reader thread's blocking readPacket() call. quit() is a
-    // no-op here (PipeReaderThread has no event loop), so without closing the
-    // pipe first, wait() times out with the thread still alive and the
-    // subsequent delete aborts the process (QThread destroyed while running)
-    //
-    // This disconnect is deliberate — we're about to reinject — so suppress
-    // the reader thread's queued "pipe disconnected" handler. Otherwise it
-    // flashes the Attach-To-Process overlay while the game is restarting,
-    // even though the auto-reinject hasn't failed
+    // Tear down existing pipe connection
+    // disconnect() MUST come first
     m_suppressDisconnectOverlay = true;
     m_bridge.disconnect();
     if (m_bridge.readerThread)
@@ -2149,8 +2785,9 @@ void ConsoleWindow::onToggleUnlock()
                 if (packet.size() >= 6 && packet.compare(0, 6, "READY:") == 0) { ready = packet; break; }
                 if (packet.size() >= 6 && packet.compare(0, 6, "ERROR:") == 0) { ready = packet; break; }
                 bool preResult = false, preError = false, preDebug = false;
+                int  preSeq = -1; // pre-READY diagnostics are never scan-scoped, discarded
                 QString preLine;
-                if (PipeReaderThread::parsePacket(packet, preLine, preResult, preError, preDebug) && !preLine.isEmpty())
+                if (PipeReaderThread::parsePacket(packet, preLine, preResult, preError, preDebug, preSeq) && !preLine.isEmpty())
                 {
                     QMetaObject::invokeMethod(self, [self, preLine, preResult, preError, preDebug]()
                         { self->appendOutputLine(preLine, preResult, preError, preDebug); },
@@ -2187,6 +2824,8 @@ void ConsoleWindow::onToggleUnlock()
                     self->m_lblStatus->setText(
                         QStringLiteral("Connected (unlocked) — ") + exeNameCopy);
                     self->m_targetExePath = savedExePath;
+                    // Re-arm the "View Live Values" warning for this new attach
+                    self->m_liveValuesWarningShown = false;
 
                     // Unlock is now baked in at DLL load — no runtime toggle needed
                     self->m_unlockActive = true;
@@ -2219,8 +2858,8 @@ void ConsoleWindow::onToggleUnlock()
                 }, Qt::QueuedConnection);
         });
 
-        injectThread->start();
-        m_btnInject->setEnabled(false);
+    injectThread->start();
+    m_btnInject->setEnabled(false);
 }
 
 // Command history
@@ -2309,11 +2948,11 @@ void ConsoleWindow::PipeBridge::disconnect()
     if (hWriteEvent) { CloseHandle(hWriteEvent); hWriteEvent = nullptr; }
 }
 
-bool ConsoleWindow::PipeBridge::sendCommand(const std::string& cmd)
+bool ConsoleWindow::PipeBridge::sendCommand(const std::string& cmd, unsigned int seq)
 {
     if (!hWriteEvent) return false; // not connected
 
-    std::string packet = "CMD:" + cmd;
+    std::string packet = "CMD:" + std::to_string(seq) + ":" + cmd;
     uint32_t len = static_cast<uint32_t>(packet.size());
     DWORD w = 0;
     OVERLAPPED ov{};
@@ -2388,15 +3027,35 @@ bool ConsoleWindow::eventFilter(QObject* obj, QEvent* e)
             if (ke->key() == Qt::Key_Down) { historyDown(); return true; }
         }
     }
+
+    // Command-count label: a click anywhere in the widget opens the command
+    // list, as long as it's currently in its clickable ("N commands") state
+    if (obj == m_lblCmdCount && e->type() == QEvent::MouseButtonPress)
+    {
+        auto* me = static_cast<QMouseEvent*>(e);
+        if (me->button() == Qt::LeftButton &&
+            m_lblCmdCount->cursor().shape() == Qt::PointingHandCursor)
+        {
+            onShowCommandList(QString());
+            return true;
+        }
+    }
+
+    // Debug Log checkbox
+    if (obj == m_chkDebug && e->type() == QEvent::MouseButtonPress)
+    {
+        auto* me = static_cast<QMouseEvent*>(e);
+        if (me->button() == Qt::LeftButton)
+        {
+            m_chkDebug->toggle(); // flips checked state, emits toggled()
+            return true;
+        }
+    }
+
     return QDialog::eventFilter(obj, e);
 }
 
-// focusNextPrevChild — the real interception point for Tab/Shift+Tab.
-// QWidget::event() routes unhandled Tab/Backtab key presses through this
-// function to move keyboard focus to the next/previous widget in the
-// dialog's tab order (e.g. jumping to the Send button) — it fires
-// regardless of eventFilter installation order, which is why trying to
-// consume Key_Tab inside eventFilter() alone never reliably worked
+// focusNextPrevChild — interception point for Tab/Shift+Tab
 bool ConsoleWindow::focusNextPrevChild(bool next)
 {
     if (m_txtInput->hasFocus() &&

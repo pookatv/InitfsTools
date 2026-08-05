@@ -46,7 +46,7 @@ extern volatile bool g_overlayExecuting;
 
 // Declared in dxgi.cpp — controls whether logging is persisted to
 // FBConsoleBridge_log.txt on disk. False by default
-extern const bool g_enableDiskLog;
+extern bool g_enableDiskLog;
 
 // Logging
 static void overlayLog(const char* msg)
@@ -2107,31 +2107,65 @@ static bool doProbeIngameConsole()
         if (rBase < modBase) rBase = modBase;
         if (rEnd > modEnd)  rEnd = modEnd;
 
-        // Only non-executable committed readable pages
+        // Any committed, readable page — some games have it in executable
         bool readable = (mbi.State == MEM_COMMIT) &&
-            !(mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)) &&
-            !(mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ |
-                PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY));
+            !(mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD));
 
         if (readable && rEnd > rBase)
         {
             for (uint8_t* p = rBase; p + 8 <= rEnd; ++p)
             {
-                // "> \0"
-                if (p[0] != 0x3E || p[1] != 0x20 || p[2] != 0x00) continue;
-
-                // "...\0" within the next 1-4 bytes after the null
-                for (int slack = 0; slack <= 4 && p + 3 + slack + 4 <= rEnd; ++slack)
+                // Forward: "> \0...\0"
+                if (p[0] == 0x3E && p[1] == 0x20 && p[2] == 0x00)
                 {
-                    if (p[3 + slack] == 0x2E &&
-                        p[4 + slack] == 0x2E &&
-                        p[5 + slack] == 0x2E &&
-                        p[6 + slack] == 0x00)
+                    // "...\0" within the next 1-4 bytes after the null
+                    for (int slack = 0; slack <= 4 && p + 3 + slack + 4 <= rEnd; ++slack)
                     {
-                        overlayLogFmt("probeIngameConsole: signature found at %p"
-                            " — real IngameConsoleImpl present, overlay NOT needed",
-                            (void*)p);
-                        return true;
+                        if (p[3 + slack] == 0x2E &&
+                            p[4 + slack] == 0x2E &&
+                            p[5 + slack] == 0x2E &&
+                            p[6 + slack] == 0x00)
+                        {
+                            overlayLogFmt("probeIngameConsole: signature found (forward) at %p"
+                                " — real IngameConsoleImpl present, overlay NOT needed",
+                                (void*)p);
+                            return true;
+                        }
+                    }
+                }
+
+                // Swapped order: the two literals "..." and "> " are still each
+                // stored forward, but the linker placed "...\0" BEFORE "> \0" in
+                // memory instead of after it. Observed layout:
+                // 2E 2E 2E 00 3E 20 00 00  ("...\0" immediately followed by "> \0\0")
+                if (p[0] == 0x2E && p[1] == 0x2E && p[2] == 0x2E && p[3] == 0x00)
+                {
+                    for (int slack = 0; slack <= 4 && p + 9 + slack <= rEnd; ++slack)
+                    {
+                        if (p[4 + slack] == 0x3E &&
+                            p[5 + slack] == 0x20 &&
+                            p[6 + slack] == 0x00)
+                        {
+                            // Guard against a false positive where "..." and "> " are
+                            // just two unrelated null-terminated strings sitting back
+                            // to back in a string table — e.g. this exact core match
+                            // immediately followed by an unrelated "ingame|" tag string
+                            // ("...\0> \0\0ingame|\0LocalWindForceBa..."). The genuine
+                            // IngameConsoleImpl signature is always followed by binary
+                            // pointer/jump-table data (non-printable), never by another
+                            // readable string, e.g. "...\0> \0\0" + C0 75 BA 43 01 00 00 00
+                            // Reject if the byte right after the padded match is
+                            // printable ASCII, since that indicates a coincidental
+                            // string-table neighbor rather than the real signature
+                            uint8_t next = p[8 + slack];
+                            if (next >= 0x20 && next <= 0x7E)
+                                continue;
+
+                            overlayLogFmt("probeIngameConsole: signature found (swapped order) at %p"
+                                " — real IngameConsoleImpl present, overlay NOT needed",
+                                (void*)p);
+                            return true;
+                        }
                     }
                 }
             }
@@ -2231,8 +2265,19 @@ namespace
     // Console state
     bool                    g_visible = true;   // open on inject for first test
     bool                    g_initialized = false;
-    bool                    s_bannerShown = false;
+    static bool s_bannerShown = false;
     std::mutex              g_mtx;
+
+    // First-boot auto-hide: show the console briefly on initial injection, then
+    // fade it out and restore game input automatically — but only ever on the
+    // very first ConsoleOverlay::initialize() call, never on re-inits/reconnects
+    static bool             g_autoHidePending = false;      // true while counting down before the fade starts
+    static bool             g_autoHideFading = false;       // true while the fade-out animation is playing
+    static DWORD            g_autoHideStartTick = 0;        // tick count when the countdown began
+    static DWORD            g_autoHideFadeStartTick = 0;    // tick count when the fade began
+    static constexpr DWORD  k_autoHideDelayMs = 3000;       // how long to stay open before fading
+    static constexpr DWORD  k_autoHideFadeMs = 400;         // fade-out duration
+    static float            g_alphaMultiplier = 1.0f;       // global alpha scale applied by pushQuad, used for the fade
     std::deque<std::string> g_responses;
     std::string             g_inputLine;
     std::deque<std::string> g_history;
@@ -3165,8 +3210,9 @@ static void pushQuad(float x0, float y0, float x1, float y1,
     float u0, float v0, float u1, float v1,
     float r, float g, float b, float a)
 {
+    float aa = a * g_alphaMultiplier;
     auto v = [&](float x, float y, float u, float vv) {
-        g_verts.push_back({ ndcX(x), ndcY(y), u, vv, r, g, b, a });
+        g_verts.push_back({ ndcX(x), ndcY(y), u, vv, r, g, b, aa });
         };
     v(x0, y0, u0, v0); v(x1, y0, u1, v0); v(x1, y1, u1, v1);
     v(x0, y0, u0, v0); v(x1, y1, u1, v1); v(x0, y1, u0, v1);
@@ -3251,14 +3297,53 @@ static float drawString(float px, float py, const char* str,
     return px;
 }
 
+// Cancels the first-boot auto-hide countdown/fade the instant the user
+// interacts with the console
+static void cancelAutoHideIfActive()
+{
+    if (g_autoHidePending || g_autoHideFading)
+    {
+        g_autoHidePending = false;
+        g_autoHideFading = false;
+        g_alphaMultiplier = 1.0f;
+        overlayLog("auto-hide countdown aborted — user input detected");
+    }
+}
+
 // Main render call — invoked from presentHook
 static void renderConsole()
 {
     // Geometry building requires visibility; the D3D11 upload/draw additionally
-    // requires g_rtv and g_ctx.  In D3D12 mode g_ctx is a valid independent
+    // requires g_rtv and g_ctx. In D3D12 mode g_ctx is a valid independent
     // D3D11 device context but g_rtv is null — we still need to build g_verts
     // so presentHook can upload them via the D3D12 path
     if (!g_visible) return;
+
+    // First-boot auto-hide: after k_autoHideDelayMs with no input, start a
+    // smooth fade-out
+    DWORD nowTick = GetTickCount();
+
+    if (g_autoHidePending && (nowTick - g_autoHideStartTick >= k_autoHideDelayMs))
+    {
+        g_autoHidePending = false;
+        g_autoHideFading = true;
+        g_autoHideFadeStartTick = nowTick;
+    }
+
+    g_alphaMultiplier = 1.0f;
+    if (g_autoHideFading)
+    {
+        DWORD elapsed = nowTick - g_autoHideFadeStartTick;
+        if (elapsed >= k_autoHideFadeMs)
+        {
+            g_autoHideFading = false;
+            g_visible = false;
+            g_scrollOffset = 0;
+            overlayLog("console auto-hidden after first-boot preview");
+            return;
+        }
+        g_alphaMultiplier = 1.0f - ((float)elapsed / (float)k_autoHideFadeMs);
+    }
 
     const float left = k_marginLeft;
     const float top = k_marginTop;
@@ -4046,6 +4131,7 @@ static LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         wchar_t key = (wchar_t)wParam;
         if (key == L'`' || key == L'~')
         {
+            cancelAutoHideIfActive();
             g_visible = !g_visible;
             overlayLog(g_visible ? "console opened via tilde" : "console closed via tilde");
             // Snap back to live view on open and close
@@ -4115,7 +4201,7 @@ static LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         return 0;
 
     // Mouse wheel scrolling (WM_MOUSEWHEEL fallback)
-    // Handled here as a fallback for cases where raw input is unavailable.
+    // Handled here as a fallback for cases where raw input is unavailable
     if (msg == WM_MOUSEWHEEL)
     {
         std::lock_guard<std::mutex> lock(g_mtx);
@@ -4135,6 +4221,7 @@ static LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         // Skip control characters — handled in WM_KEYDOWN
         if (key >= L' ' && key < 127)
         {
+            cancelAutoHideIfActive();
             std::lock_guard<std::mutex> lock(g_mtx);
             // If text is selected, delete it first then insert
             if (g_selStart != -1)
@@ -4163,6 +4250,8 @@ static LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         // Always let F12 through so the DLL can unload
         if (wParam == VK_F12)
             return CallWindowProcA(g_origWndProc, hwnd, msg, wParam, lParam);
+
+        cancelAutoHideIfActive();
 
         std::lock_guard<std::mutex> lock(g_mtx);
 
@@ -4388,10 +4477,20 @@ static LRESULT CALLBACK overlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                 size_t countBefore = g_responses.size();
                 g_overlayExecuting = true;
                 std::string result = FrostbiteConsole::executeCommand(cmd.c_str());
+                bool crashed = FrostbiteConsole::lastExecuteCommandCrashed();
                 g_overlayExecuting = false;
                 g_mtx.lock();
 
-                if (!result.empty() && g_responses.size() == countBefore)
+                // A crashing command produces no game output and an empty
+                // result — same shape as a legitimate no-response command —
+                // so without this check the overlay silently shows nothing
+                // for the exact case the pipe-side log already flags in red
+                if (crashed)
+                {
+                    g_responses.push_back(std::string(1, kColorRed) +
+                        "ERROR: Command returned in a corrupted state and was unable to execute - game restart may be required.");
+                }
+                else if (!result.empty() && g_responses.size() == countBefore)
                 {
                     char tag = kColorGreen;
                     if (result.find("Unknown console command") != std::string::npos)
@@ -4585,6 +4684,10 @@ namespace ConsoleOverlay
             overlayLog("initialize: WARNING — DirectInput hook failed, game keys will not be blocked");
 
         // Show init message — will be visible when player first opens the overlay
+                // Capture whether this is the true first boot BEFORE flipping s_bannerShown,
+                // since initialize() can be called again later (pipe reconnects, re-arm after
+                // a session ends) and the auto-hide preview must only ever run once
+        bool isFirstBoot = !s_bannerShown;
         if (!s_bannerShown)
         {
             std::lock_guard<std::mutex> lock(g_mtx);
@@ -4595,6 +4698,14 @@ namespace ConsoleOverlay
 
         g_visible = true;
         g_initialized = true;
+
+        if (isFirstBoot)
+        {
+            g_autoHidePending = true;
+            g_autoHideFading = false;
+            g_autoHideStartTick = GetTickCount();
+            overlayLog("first-boot auto-hide countdown started (3s)");
+        }
 
         overlayLog("=== ConsoleOverlay::initialize COMPLETE — press ~ to open ===");
     }

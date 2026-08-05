@@ -129,24 +129,51 @@ static volatile bool g_expectingOutput = false;
 // Set by ConsoleOverlay when it calls executeCommand so the output handler
 // does not silently drop game output during overlay-initiated executions
 volatile bool g_overlayExecuting = false;
+
 static HANDLE  g_thread = nullptr;
 static HMODULE g_hModule = nullptr;
 static char    g_gameDir[MAX_PATH] = {};
+static char    g_currentCmdText[64 * 1024] = {};
+static DWORD   g_execThreadId = 0;
+static volatile LONG g_cmdExceptionLogged = 0;
 
-// Set to true to (re)enable writing FBConsoleBridge_log.txt to disk in the
-// game directory. Left false by default — the log is still generated and
-// sent over the pipe to the ConsoleWindow UI either way, this flag only
-// controls whether it's also persisted to a file on disk
-// Not "static" — ConsoleOverlay.cpp's overlayLog() shares this same flag
-extern const bool g_enableDiskLog = false;
+// True while FBConsoleBridge_log.txt disk writes are active
+extern bool g_enableDiskLog = false;
+
 static bool    g_suspendedForUnlock = false;
 static bool    g_proxyMode = false;
-
-// Baseline command count captured by the host right before "Unlock All
-// Commands" was clicked, passed in via the flag file's content. Used for
-// the "(was X, +Y unlocked)" summary instead of a live snapshot taken
-// during the frozen restart, which would always read 0
+static volatile bool g_unlockPollStable = false;
 static int     g_baselineCommandCount = 0;
+
+// Sequence ID protocol
+static volatile LONG g_currentCmdSeq = -1;
+
+// Parses "<digits>:<rest>" out of a CMD: packet body (the bytes after the
+// "CMD:" prefix). Returns the parsed seq and points outText at the
+// remainder after the colon. Falls back to seq=-1, outText=body if the body
+// isn't seq-tagged (defensive only — this DLL's paired host always tags)
+static int parseCmdSeqAndText(const char* body, const char*& outText)
+{
+    const char* p = body;
+    if (*p < '0' || *p > '9')
+    {
+        outText = body;
+        return -1;
+    }
+    int seq = 0;
+    while (*p >= '0' && *p <= '9')
+    {
+        seq = seq * 10 + (*p - '0');
+        ++p;
+    }
+    if (*p != ':')
+    {
+        outText = body;
+        return -1;
+    }
+    outText = p + 1;
+    return seq;
+}
 
 static int parseIntA(const char* s)
 {
@@ -170,33 +197,55 @@ static std::string s_diagStr;
 static std::string s_resultStr;
 
 // Pre-READY log queue
-// Lines logged before READY is sent are buffered here and flushed afterward,
-// because the host isn't reading OUTPUT packets until after it sees READY
-
 static bool pipeWriteRaw(const char* data, uint32_t len);
 
 // Logging helpers — pure Win32, no STL, safe from any context
 static void pipeLogLine(const char* msg)
 {
-    // Format: "OUTPUT:[Inject]|<msg>"
-    static const char kTag[] = "[Inject]";
-    static const char kHdr[] = "OUTPUT:";
-    const int hdrLen = 7;
-    const int tagLen = 8;
+    static const char kHdr[] = "OUTPUT:-1:[Inject]|";
+    const int hdrLen = sizeof(kHdr) - 1;
     int msgLen = lstrlenA(msg);
-    int total = hdrLen + tagLen + 1 + msgLen;
+    int total = hdrLen + msgLen;
     if (total >= (int)sizeof(g_replyBuf)) return;
 
     char* p = g_replyBuf;
     CopyMemory(p, kHdr, hdrLen); p += hdrLen;
-    CopyMemory(p, kTag, tagLen); p += tagLen;
-    *p++ = '|';
     CopyMemory(p, msg, msgLen);
     pipeWriteRaw(g_replyBuf, (uint32_t)total);
 }
 
+// Same wire format as pipeLogLine (seq=-1, never scan-scoped) but tagged
+// "[Error]" instead of "[Inject]". The host's tag-based classification in
+// PipeReaderThread::parsePacket() checks ciContains(tag, "error") BEFORE
+// applying the bracket-tag debug rule, so this forces outError=true /
+// outDebug=false — the line always shows in the normal (non-debug) log,
+// rendered in the error colour, regardless of the Debug Log toggle
+static void pipeLogErrorLine(const char* msg)
+{
+    static const char kHdr[] = "OUTPUT:-1:[Error]|";
+    const int hdrLen = sizeof(kHdr) - 1;
+    int msgLen = lstrlenA(msg);
+    int total = hdrLen + msgLen;
+    if (total >= (int)sizeof(g_replyBuf)) return;
+
+    char* p = g_replyBuf;
+    CopyMemory(p, kHdr, hdrLen); p += hdrLen;
+    CopyMemory(p, msg, msgLen);
+    pipeWriteRaw(g_replyBuf, (uint32_t)total);
+}
+
+// Sentinel prefix used only by FrostbiteConsole.cpp's shimExecCmd() to mark
+// its "executeCommand: EXCEPTION..." line (a command crashing inside the
+// game's own executeConsoleCommand) as one that must surface in the normal
+// log, in red, with a restart notice appended
+static const char kCrashMarker[] = "##CMDCRASH##";
+
 static void logToFile(const char* msg)
 {
+    const int  markerLen = sizeof(kCrashMarker) - 1;
+    const bool isCrashLine = (strncmp(msg, kCrashMarker, markerLen) == 0);
+    const char* displayMsg = isCrashLine ? (msg + markerLen) : msg;
+
     // Append to disk log (only when explicitly re-enabled via g_enableDiskLog)
     if (g_enableDiskLog && g_gameDir[0])
     {
@@ -208,14 +257,32 @@ static void logToFile(const char* msg)
         if (hFile != INVALID_HANDLE_VALUE)
         {
             DWORD w = 0;
-            WriteFile(hFile, msg, (DWORD)lstrlenA(msg), &w, nullptr);
+            WriteFile(hFile, displayMsg, (DWORD)lstrlenA(displayMsg), &w, nullptr);
             WriteFile(hFile, "\r\n", 2, &w, nullptr);
             CloseHandle(hFile);
         }
     }
 
     if (g_hPipe == INVALID_HANDLE_VALUE) return;
-    pipeLogLine(msg);
+
+    if (isCrashLine)
+    {
+        char buf[1200];
+        wsprintfA(buf, "%s — restart may be required", displayMsg);
+        pipeLogErrorLine(buf);
+    }
+    else
+    {
+        pipeLogLine(msg);
+    }
+}
+
+// Turns off disk logging for the remainder of this DLL instance
+static void stopDiskLoggingOnceConfirmed()
+{
+    if (!g_enableDiskLog) return; // already off
+    g_enableDiskLog = false;
+    logToFile("[log] total command count confirmed — disk logging stopped for this session");
 }
 
 static void logHex(const char* prefix, DWORD val)
@@ -230,6 +297,21 @@ static void logDec(const char* prefix, DWORD val)
     char tmp[128];
     wsprintfA(tmp, "%s%lu", prefix, val);
     logToFile(tmp);
+}
+
+// Logs "EXCEPTION=0x...cmd='...'" exactly once for the command
+static void logCmdExceptionOnce(const char* cmd, DWORD exceptionCode)
+{
+    if (InterlockedCompareExchange(&g_cmdExceptionLogged, 1, 0) != 0)
+        return; // already logged for this command
+
+    char safeCmd[201];
+    safeCmd[0] = '\0';
+    if (cmd) (void)lstrcpynA(safeCmd, cmd, sizeof(safeCmd));
+
+    char msg[320];
+    wsprintfA(msg, "[shim] execute EXCEPTION=0x%08lX cmd='%s'", exceptionCode, safeCmd);
+    logToFile(msg);
 }
 
 // Pipe helpers — raw buffers only
@@ -295,6 +377,14 @@ static bool pipeWriteStr(const char* msg)
     return pipeWriteRaw(msg, (uint32_t)lstrlenA(msg));
 }
 
+// Writes the seq-tagged RESULT: terminator for the command
+static void pipeWriteResultTerminator(int seq)
+{
+    char buf[32];
+    int len = wsprintfA(buf, "RESULT:%d:", seq);
+    pipeWriteRaw(buf, (uint32_t)len);
+}
+
 // Batch buffer — accumulates lines during LIST/LIST_VARS, flushed once at end
 static char  g_batchBuf[4 * 1024 * 1024]; // 4 MB
 static int   g_batchLen = 0;
@@ -339,9 +429,6 @@ static uint32_t pipeReadRaw(char* buf, uint32_t bufSize)
 // Output handler core — pure Win32, no STL, safe to call from any thread.
 static void __fastcall gameOutputHandler_impl(const char* tag, const char* buf, unsigned int size)
 {
-    // Allow output when: the worker thread is mid-shimExecute (pipe command),
-    // OR the overlay itself is executing a command (proxy mode).
-    // Without this second condition, overlay commands produce no output.
     if (!g_expectingOutput && !g_overlayExecuting) return;
     logToFile("[output] handler fired");
     if (!buf || size == 0 || size > 512 * 1024) return;
@@ -374,13 +461,14 @@ static void __fastcall gameOutputHandler_impl(const char* tag, const char* buf, 
         }
     }
     int tagLen = lstrlenA(safeTag);
-    int total = 7 + tagLen + 1 + n;
 
     static char s_outputBuf[512 * 1024];
+    // Build "OUTPUT:<seq>:" dynamically since its digit count varies
+    int hdrLen = wsprintfA(s_outputBuf, "OUTPUT:%d:", (int)g_currentCmdSeq);
+    int total = hdrLen + tagLen + 1 + n;
     if (total >= (int)sizeof(s_outputBuf)) return;
 
-    char* p = s_outputBuf;
-    CopyMemory(p, "OUTPUT:", 7); p += 7;
+    char* p = s_outputBuf + hdrLen;
     if (tagLen) { CopyMemory(p, safeTag, tagLen); p += tagLen; }
     *p++ = '|';
     CopyMemory(p, buf, n);
@@ -431,9 +519,7 @@ __declspec(noinline) static void cpp_addHandler()
     logToFile("[cpp] calling addOutputHandler");
     // In proxy mode we skip direct registration only when the overlay
     // successfully initialized — its outputHandler is already in the game's
-    // list and will chain to g_pipeOutputHandler. If the overlay did NOT
-    // initialize (e.g. game has its own ingame console, or D3D resolve failed),
-    // no handler would be in the list at all, so we must register directly.
+    // list and will chain to g_pipeOutputHandler
     const bool overlayOwnsSlot = g_proxyMode && ConsoleOverlay::isInitialized();
     if (FrostbiteConsole::ConsoleBridge::instance().use3ArgHandler())
     {
@@ -473,10 +559,7 @@ __declspec(noinline) static void cpp_addHandler()
 
 __declspec(noinline) static void cpp_removeHandler()
 {
-    // In proxy mode, only skip direct removal when the overlay owns the slot.
-    // If the overlay did NOT initialize (no ingame console overlay), we registered
-    // gameOutputHandler directly and must remove it here to avoid stale callbacks.
-    // Always null g_pipeOutputHandler so the stale pipe handle is not written to.
+    // In proxy mode, only skip direct removal when the overlay owns the slot
     if (g_proxyMode)
     {
         ConsoleOverlay::g_pipeOutputHandler = nullptr;
@@ -647,7 +730,7 @@ __declspec(noinline) static int shimExecute(const char* cmd)
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        logHex("[shim] execute EXCEPTION=", GetExceptionCode());
+        logCmdExceptionOnce(cmd, GetExceptionCode());
         lstrcpyA(g_resultBuf, "(exception)");
     }
 
@@ -679,7 +762,135 @@ static uint8_t  s_patch1OrigBytes[2] = {};   // TEST AL,1 original
 static uint8_t* s_patch1Addr = nullptr;
 static uint8_t  s_patch2OrigBytes[6] = {};   // je original
 static uint8_t* s_patch2Addr = nullptr;
+
+// Patch 3 — Settings-object exposure gate. A separate, second hidden-flag
+// check distinct from patch1/patch2's console-command exposure
+// NOPing the je forces the "expose to console" branch below it to always
+// run instead of being skipped when the Settings object was hidden
+static uint8_t  s_patch3OrigBytes[6] = {};   // je original
+static uint8_t* s_patch3Addr = nullptr;
 static bool     s_unlockApplied = false;
+
+// Finds the start of the function containing `addr`. Functions in this
+// binary are padded with a run of INT3 (0xCC) up to their alignment
+// boundary. 3+ consecutive real INT3 bytes essentially never occurs in
+// actual code, so that's the bar
+static uint8_t* findFunctionStart(uint8_t* addr, uint8_t* moduleBase, size_t maxBack)
+{
+    static const int kMinCCRun = 3;
+    uint8_t* limit = (addr - maxBack > moduleBase) ? (addr - maxBack) : moduleBase;
+    uint8_t* best = nullptr;
+    int ccRun = 0;
+    for (uint8_t* p = limit; p < addr; ++p)
+    {
+        if (*p == 0xCC) ++ccRun;
+        else { if (ccRun >= kMinCCRun) best = p; ccRun = 0; }
+    }
+    return best;
+}
+
+// Returns the length of the instruction at `p` if it's either:
+//  - an alignment NOP (90 / 66 90 / 0F 1F [+modrm/SIB/disp]) — seen between
+//    a function's INT3 padding and its real prologue (Battlefront 1), or
+//  - a generic "mov [base+disp], reg" store (88/89, optionally REX-prefixed)
+//    — argument/register spills the compiler emits before the pushes that
+//    aren't the specific r9b spill we track (PVZ spills rdx/rcx this way)
+// We skip over both without caring what they do; returns 0 if neither shape
+static int trySkipInstr(uint8_t* p, uint8_t* limit)
+{
+    if (p < limit && p[0] == 0x90) return 1;
+    if (p + 1 < limit && p[0] == 0x66 && p[1] == 0x90) return 2;
+
+    uint8_t* q = p;
+    size_t prefixLen = 0;
+    if (q < limit && (q[0] == 0x66 || (q[0] & 0xF0) == 0x40)) { prefixLen = 1; ++q; }
+    if (q + 1 >= limit) return 0;
+
+    bool isNop = (q[0] == 0x0F && q + 1 < limit && q[1] == 0x1F);
+    bool isStore = (q[0] == 0x88 || q[0] == 0x89);
+    if (!isNop && !isStore) return 0;
+
+    size_t opLen = isNop ? 2 : 1; // "0F 1F" or single store opcode byte
+    if (q + opLen >= limit) return 0;
+    uint8_t modrm = q[opLen];
+    uint8_t mod = (modrm >> 6) & 3;
+    uint8_t rm = modrm & 7;
+    if (isStore && mod == 3) return 0; // reg-to-reg, not a memory store
+
+    size_t len = prefixLen + opLen + 1; // prefix + opcode(s) + modrm
+    bool hasSIB = (rm == 4);
+    if (hasSIB) { if (p + len >= limit) return 0; len += 1; }
+
+    if (mod == 1) len += 1;
+    else if (mod == 2) len += 4;
+    else if (mod == 0)
+    {
+        bool sibBaseIsBP = hasSIB && (p + len - 1 < limit) && ((p[len - 1] & 7) == 5);
+        if ((!hasSIB && rm == 5) || sibBaseIsBP) len += 4;
+    }
+
+    if (p + len > limit) return 0;
+    return (int)len;
+}
+
+// Derives the rbp-relative displacement where a function spills its 4th
+// arg (r9b) — NOT a fixed constant (confirmed 0x67 vs 0x6F vs 0x7F across
+// games, purely from push-count/lea-rbp differences). Simulates the
+// prologue to solve: dispFromRbp = argSpillOffsetFromRSP0 - rbpOffsetFromRSP0
+static bool computeExpectedGateDisp(uint8_t* funcStart, uint8_t* limit, uint8_t& outDisp)
+{
+    if (!funcStart) return false;
+    uint8_t* p = funcStart;
+    int  rspDelta = 0, raxDelta = 0, argSpillOffsetFromRSP0 = 0;
+    bool haveRaxMirror = false, haveArgSpill = false;
+
+    for (int guard = 0; guard < 96 && p + 8 < limit; ++guard)
+    {
+        // mov rax,rsp — either encoding (8B/C4 or 89/E0; Battlefront 1 uses the latter)
+        if (p[0] == 0x48 && ((p[1] == 0x8B && p[2] == 0xC4) || (p[1] == 0x89 && p[2] == 0xE0)))
+        {
+            haveRaxMirror = true; raxDelta = rspDelta; p += 3; continue;
+        }
+        if (p[0] == 0x44 && p[1] == 0x88 && p[2] == 0x48) // mov [rax+d8], r9b
+        {
+            if (haveRaxMirror) { haveArgSpill = true; argSpillOffsetFromRSP0 = raxDelta + (int8_t)p[3]; }
+            p += 4; continue;
+        }
+        if (p[0] == 0x44 && p[1] == 0x88 && p[2] == 0x4C && p[3] == 0x24) // mov [rsp+d8], r9b
+        {
+            haveArgSpill = true; argSpillOffsetFromRSP0 = rspDelta + (int8_t)p[4];
+            p += 5; continue;
+        }
+        if (p[0] >= 0x50 && p[0] <= 0x57) { rspDelta -= 8; p += 1; continue; } // push reg
+        if (p[0] == 0x41 && p[1] >= 0x50 && p[1] <= 0x57) { rspDelta -= 8; p += 2; continue; } // push r8-r15
+        if (p[0] == 0x48 && p[1] == 0x83 && p[2] == 0xEC) { rspDelta -= (int8_t)p[3]; p += 4; continue; } // sub rsp,imm8
+        if (p[0] == 0x48 && p[1] == 0x81 && p[2] == 0xEC) // sub rsp,imm32
+        {
+            int32_t imm; memcpy(&imm, p + 3, 4);
+            rspDelta -= imm; p += 7; continue;
+        }
+        if (p[0] == 0x48 && p[1] == 0x8D && p[2] == 0x68) // lea rbp,[rax+d8]
+        {
+            if (!haveRaxMirror || !haveArgSpill) return false;
+            int disp = argSpillOffsetFromRSP0 - (raxDelta + (int8_t)p[3]);
+            if (disp < 0 || disp > 255) return false;
+            outDisp = (uint8_t)disp; return true;
+        }
+        if (p[0] == 0x48 && p[1] == 0x8D && p[2] == 0x6C && p[3] == 0x24) // lea rbp,[rsp+d8]
+        {
+            if (!haveArgSpill) return false;
+            int disp = argSpillOffsetFromRSP0 - (rspDelta + (int8_t)p[4]);
+            if (disp < 0 || disp > 255) return false;
+            outDisp = (uint8_t)disp; return true;
+        }
+
+        int skipLen = trySkipInstr(p, limit);
+        if (skipLen > 0) { p += skipLen; continue; }
+
+        return false; // unrecognized instruction — bail rather than mis-simulate
+    }
+    return false;
+}
 
 __declspec(noinline) static int shimApplyUnlock()
 {
@@ -788,6 +999,140 @@ __declspec(noinline) static int shimApplyUnlock()
             logToFile("[unlock] patch2 applied: NOP je");
         }
 
+        // Patch 3 — Settings-object exposure gate
+        {
+            const ptrdiff_t kRadius = 0x200000;
+            uint8_t* scanStart = (found - kRadius > base) ? (found - kRadius) : base;
+            uint8_t* scanEnd = (found + kRadius < modEnd) ? (found + kRadius) : modEnd;
+
+            uint8_t* bestAddr = nullptr;
+            bool      bestIsRbp = false;
+            ptrdiff_t bestDist = 0;
+            int       matchCount3 = 0;
+            uint8_t* lastFuncStartQueriedFor = nullptr;
+            uint8_t* lastFuncStart = nullptr;
+
+            {
+                MEMORY_BASIC_INFORMATION mbi3{};
+                for (uint8_t* cursor = scanStart; cursor < scanEnd; )
+                {
+                    if (!VirtualQuery(cursor, &mbi3, sizeof(mbi3))) break;
+                    uint8_t* rBase = reinterpret_cast<uint8_t*>(mbi3.BaseAddress);
+                    uint8_t* rEnd = rBase + mbi3.RegionSize;
+                    if (rBase < scanStart) rBase = scanStart;
+                    if (rEnd > scanEnd) rEnd = scanEnd;
+
+                    bool isExec = (mbi3.State == MEM_COMMIT) &&
+                        (mbi3.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ |
+                            PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY));
+                    if (isExec)
+                    {
+                        for (uint8_t* p = rBase; p + 12 <= rEnd; ++p)
+                        {
+                            size_t idx = 0;
+                            bool hasRexR = false;
+                            if (p[idx] == 0x44) { hasRexR = true; idx = 1; }
+
+                            uint8_t baseReg = 0xFF, dispByte = 0;
+                            size_t  afterOperand = 0;
+
+                            if (p[idx] == 0x38) // CMP r/m8, r8
+                            {
+                                uint8_t modrm = p[idx + 1];
+                                if (((modrm >> 6) & 3) == 1 && (modrm & 7) != 4)
+                                {
+                                    afterOperand = idx + 3;
+                                    baseReg = modrm & 7;
+                                    dispByte = p[idx + 2];
+                                }
+                            }
+                            else if (!hasRexR && p[idx] == 0x80) // CMP r/m8, imm8 (/7)
+                            {
+                                uint8_t modrm = p[idx + 1];
+                                if (((modrm >> 6) & 3) == 1 && ((modrm >> 3) & 7) == 7 && (modrm & 7) != 4)
+                                {
+                                    afterOperand = idx + 4;
+                                    baseReg = modrm & 7;
+                                    dispByte = p[idx + 2];
+                                }
+                            }
+                            if (baseReg == 0xFF) continue;
+
+                            uint8_t* funcStart = (p == lastFuncStartQueriedFor)
+                                ? lastFuncStart : findFunctionStart(p, base, 0x4000);
+                            lastFuncStartQueriedFor = p;
+                            lastFuncStart = funcStart;
+
+                            uint8_t predictedDisp = 0;
+                            if (!funcStart || !computeExpectedGateDisp(funcStart, rEnd, predictedDisp)) continue;
+                            if (dispByte != predictedDisp) continue;
+                            if (p[afterOperand] != 0x0F || p[afterOperand + 1] != 0x84) continue;
+
+                            int32_t rel32 = 0;
+                            memcpy(&rel32, p + afterOperand + 2, 4);
+                            if (rel32 < 0x20 || rel32 > 0x3000) continue;
+
+                            uint8_t* jeAddr = p + afterOperand;
+                            uint8_t* skipStart = jeAddr + 6;
+                            uint8_t* skipEnd = skipStart + rel32;
+
+                            int callCount = 0;
+                            for (uint8_t* q = skipStart; q + 5 <= skipEnd && q + 5 <= rEnd; ++q)
+                            {
+                                if (q[0] == 0xE8)
+                                {
+                                    int32_t callRel = 0;
+                                    memcpy(&callRel, q + 1, 4);
+                                    uint8_t* callTarget = q + 5 + callRel;
+                                    if (callTarget >= base && callTarget < modEnd) { ++callCount; q += 4; }
+                                }
+                            }
+                            if (callCount < 2) continue;
+
+                            ++matchCount3;
+                            bool isRbp = (baseReg == 5);
+                            ptrdiff_t dist = jeAddr > found ? (jeAddr - found) : (found - jeAddr);
+
+                            bool better = !bestAddr
+                                || (isRbp && !bestIsRbp)
+                                || (isRbp == bestIsRbp && dist < bestDist);
+                            if (better) { bestAddr = jeAddr; bestIsRbp = isRbp; bestDist = dist; }
+                        }
+                    }
+                    if (rEnd <= cursor) break;
+                    cursor = rEnd;
+                }
+            }
+
+            if (!bestAddr)
+            {
+                logToFile("[unlock] patch3: no gate found - some settings will not be useable");
+            }
+            else
+            {
+                static char pickMsg[128];
+                wsprintfA(pickMsg, "[unlock] patch3: %d gate(s) seen, selected %p (rbp=%d, dist=%Id from anchor %p)",
+                    matchCount3, bestAddr, (int)bestIsRbp, bestDist, found);
+                logToFile(pickMsg);
+
+                s_patch3Addr = bestAddr;
+                DWORD oldProt3 = 0;
+                if (VirtualProtect(s_patch3Addr, 6, PAGE_EXECUTE_READWRITE, &oldProt3))
+                {
+                    memcpy(s_patch3OrigBytes, s_patch3Addr, 6);
+                    memset(s_patch3Addr, 0x90, 6);
+                    VirtualProtect(s_patch3Addr, 6, oldProt3, &oldProt3);
+                    FlushInstructionCache(GetCurrentProcess(), s_patch3Addr, 6);
+                    logToFile("[unlock] patch3 applied: NOP je");
+                }
+                else
+                {
+                    logToFile("[unlock] VirtualProtect failed (patch3)");
+                    s_patch3Addr = nullptr;
+                }
+            }
+        }
+
         s_unlockApplied = true;
         logToFile("[unlock] all patches applied — console commands unlocked");
         return 1;
@@ -831,6 +1176,20 @@ __declspec(noinline) static int shimRevertUnlock()
             }
         }
 
+        // Revert patch 3: restore je (Settings exposure gate)
+        if (s_patch3Addr)
+        {
+            DWORD oldProt3 = 0;
+            if (VirtualProtect(s_patch3Addr, 6, PAGE_EXECUTE_READWRITE, &oldProt3))
+            {
+                memcpy(s_patch3Addr, s_patch3OrigBytes, 6);
+                VirtualProtect(s_patch3Addr, 6, oldProt3, &oldProt3);
+                FlushInstructionCache(GetCurrentProcess(), s_patch3Addr, 6);
+                logToFile("[unlock] patch3 reverted: je restored (Settings exposure)");
+            }
+            s_patch3Addr = nullptr;
+        }
+
         s_unlockApplied = false;
         logToFile("[unlock] all patches reverted");
         return 1;
@@ -840,6 +1199,24 @@ __declspec(noinline) static int shimRevertUnlock()
         logHex("[unlock] revert EXCEPTION=", GetExceptionCode());
         return 0;
     }
+}
+
+// Vectored exception handler — installed process-wide (see DllMain) so a
+// crash caused by executing a console command is logged with that command's
+// name even when the crash happens on a thread other than the one currently
+// sitting inside shimExecute's own __try/__except (e.g. dispatched onto the
+// engine's render/main thread)
+static LONG WINAPI cmdExceptionVectoredHandler(EXCEPTION_POINTERS* info)
+{
+    if (g_expectingOutput &&
+        g_execThreadId != 0 &&
+        GetCurrentThreadId() == g_execThreadId)
+    {
+        DWORD code = (info && info->ExceptionRecord)
+            ? info->ExceptionRecord->ExceptionCode : 0;
+        logCmdExceptionOnce(g_currentCmdText, code);
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
 }
 
 // Worker thread — no __try, no STL
@@ -898,9 +1275,8 @@ static DWORD WINAPI workerThread(LPVOID)
     }
 
     // Create named pipe (inject mode only)
-    // Proxy mode skips the pipe entirely — no host process is present
-    // g_hPipe stays INVALID_HANDLE_VALUE so all pipeWriteRaw calls are no-ops,
-    // and pipeReadRaw returns 0 immediately so the command loop exits at once
+    FrostbiteConsole::setLogCallback([](const char* line) { logToFile(line); });
+
     if (!g_proxyMode)
     {
         logToFile("[worker] creating pipe");
@@ -929,7 +1305,7 @@ static DWORD WINAPI workerThread(LPVOID)
             }
         }
         logToFile("[worker] host connected");
-        FrostbiteConsole::setLogCallback([](const char* line) { logToFile(line); });
+        // Callback already set above — no need to set it again here
     }
     else
     {
@@ -989,255 +1365,280 @@ static DWORD WINAPI workerThread(LPVOID)
 
                     logToFile("[proxy pipe] host connected");
                     g_hPipe = hPipe;
-                FrostbiteConsole::setLogCallback([](const char* line) { logToFile(line); });
+                    FrostbiteConsole::setLogCallback([](const char* line) { logToFile(line); });
 
-                // Register output handler so game output flows to the pipe
-                if (FrostbiteConsole::isReady())
-                {
-                    logToFile("[proxy pipe] registering output handler");
-                    shimAddHandler();
-                }
-
-                // Send READY with the live method count — addresses already
-                // resolved by the worker thread's init, nothing to re-scan
-                {
-                    int cmdCount = shimGetMethods();
-                    static char readyBuf[64];
-                    wsprintfA(readyBuf, "READY:%d", cmdCount);
-                    pipeWriteStr(readyBuf);
-                    logToFile(readyBuf);
-                }
-
-                // Command loop — identical to the main worker loop
-                logToFile("[proxy pipe] entering command loop");
-                static char proxyReadBuf[64 * 1024];
-                while (InterlockedCompareExchange(&g_running, 1, 1) == 1)
-                {
-                    uint32_t pktLen = 0;
+                    // Register output handler so game output flows to the pipe
+                    if (FrostbiteConsole::isReady())
                     {
-                        DWORD r = 0;
-                        if (!ReadFile(hPipe, &pktLen, 4, &r, nullptr) || r != 4) break;
-                        if (pktLen == 0 || pktLen >= sizeof(proxyReadBuf)) break;
-                        if (!ReadFile(hPipe, proxyReadBuf, pktLen, &r, nullptr)) break;
-                        proxyReadBuf[r] = '\0';
-                        pktLen = r;
+                        logToFile("[proxy pipe] registering output handler");
+                        shimAddHandler();
                     }
 
-                    if (pktLen <= 4 ||
-                        proxyReadBuf[0] != 'C' || proxyReadBuf[1] != 'M' ||
-                        proxyReadBuf[2] != 'D' || proxyReadBuf[3] != ':')
+                    // Send READY with the live method count
                     {
-                        logToFile("[proxy pipe] unknown packet, ignoring");
-                        continue;
+                        int cmdCount = shimGetMethods();
+                        static char readyBuf[64];
+                        wsprintfA(readyBuf, "READY:%d", cmdCount);
+                        pipeWriteStr(readyBuf);
                     }
 
-                    const char* cmd = proxyReadBuf + 4;
-
-                    if (lstrcmpA(cmd, "__LIST__") == 0)
+                    // If the unlock poll already stabilized before this host
+                    // connected (e.g. attaching well after game launch), that
+                    // one-time UNLOCK_STABLE:1 packet already went out with
+                    // nobody listening. Re-send it now so a late attach still
+                    // gets a deterministic, correct signal instead of the host
+                    // having no way to know whether it should keep waiting
+                    if (g_unlockPollStable)
                     {
-                        logToFile("[proxy pipe] handling __LIST__");
-                        batchBegin();
-                        batchAppend("METHODS:0", 9);
+                        logToFile("[proxy pipe] unlock already stable — resending signal for late attach");
+                        static const char kStableMsg[] = "UNLOCK_STABLE:1";
+                        pipeWriteRaw(kStableMsg, (uint32_t)(sizeof(kStableMsg) - 1));
+                    }
 
-                        int count = 0;
-                        const FrostbiteConsole::ConsoleMethod* const* methods =
-                            FrostbiteConsole::getMethods(count);
-
-                        if (count == 0)
+                    // Command loop — identical to the main worker loop
+                    logToFile("[proxy pipe] entering command loop");
+                    static char proxyReadBuf[64 * 1024];
+                    while (InterlockedCompareExchange(&g_running, 1, 1) == 1)
+                    {
+                        uint32_t pktLen = 0;
                         {
-                            logToFile("[proxy pipe] getMethods=0, waiting 2s and retrying");
-                            Sleep(2000);
-                            methods = FrostbiteConsole::getMethods(count);
+                            DWORD r = 0;
+                            if (!ReadFile(hPipe, &pktLen, 4, &r, nullptr) || r != 4) break;
+                            if (pktLen == 0 || pktLen >= sizeof(proxyReadBuf)) break;
+                            if (!ReadFile(hPipe, proxyReadBuf, pktLen, &r, nullptr)) break;
+                            proxyReadBuf[r] = '\0';
+                            pktLen = r;
                         }
 
-                        if (methods && count > 0 && count < 100000)
+                        if (pktLen <= 4 ||
+                            proxyReadBuf[0] != 'C' || proxyReadBuf[1] != 'M' ||
+                            proxyReadBuf[2] != 'D' || proxyReadBuf[3] != ':')
                         {
-                            static char lineBuf[512];
-                            for (int i = 0; i < count; ++i)
+                            logToFile("[proxy pipe] unknown packet, ignoring");
+                            continue;
+                        }
+
+                        const char* cmd = nullptr;
+                        int seq = parseCmdSeqAndText(proxyReadBuf + 4, cmd);
+                        g_currentCmdSeq = seq;
+
+                        if (lstrcmpA(cmd, "__LIST__") == 0)
+                        {
+                            logToFile("[proxy pipe] handling __LIST__");
+                            batchBegin();
+                            batchAppend("METHODS:0", 9);
+
+                            int count = 0;
+                            const FrostbiteConsole::ConsoleMethod* const* methods =
+                                FrostbiteConsole::getMethods(count);
+
+                            if (count == 0)
                             {
-                                const FrostbiteConsole::ConsoleMethod* m = methods[i];
-                                uintptr_t mAddr = reinterpret_cast<uintptr_t>(m);
-                                if (mAddr < 0x10000 || mAddr > 0x7FFFFFFFFFFF) continue;
-                                const uint8_t* raw = reinterpret_cast<const uint8_t*>(m);
-                                uint64_t namePtr = 0;
-                                if (!FrostbiteConsole::safeRead64(
-                                    const_cast<uint8_t*>(raw + 0x08), &namePtr)) continue;
-                                if (namePtr < 0x10000ULL) continue;
-                                MEMORY_BASIC_INFORMATION _mbi{};
-                                if (!VirtualQuery(reinterpret_cast<void*>(
-                                    static_cast<uintptr_t>(namePtr)),
-                                    &_mbi, sizeof(_mbi)) ||
-                                    _mbi.State != MEM_COMMIT ||
-                                    (_mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD))) continue;
-                                const char* name = reinterpret_cast<const char*>(
-                                    static_cast<uintptr_t>(namePtr));
-                                uint8_t c0u = static_cast<uint8_t>(name[0]);
-                                if (!isalpha(c0u) && c0u != '_') continue;
-                                if (name[1] == '\0') continue;
-                                bool nameValid = true;
-                                int nameLen = 0;
-                                for (int ni = 0; ni < 128; ++ni) {
-                                    uint8_t c = static_cast<uint8_t>(name[ni]);
-                                    if (c == 0) break;
-                                    if (c < 0x20 || c > 0x7E) { nameValid = false; break; }
-                                    nameLen++;
-                                }
-                                if (!nameValid || nameLen < 2) continue;
-                                static char safeName[128];
-                                (void)lstrcpynA(safeName, name, sizeof(safeName));
-                                uint64_t groupPtr = 0;
-                                FrostbiteConsole::safeRead64(
-                                    const_cast<uint8_t*>(raw + 0x10), &groupPtr);
-                                // Read description at +0x18 (may be null or unreadable)
-                                static char safeDesc[256];
-                                safeDesc[0] = '\0';
+                                logToFile("[proxy pipe] getMethods=0, waiting 2s and retrying");
+                                Sleep(2000);
+                                methods = FrostbiteConsole::getMethods(count);
+                            }
+
+                            if (methods && count > 0 && count < 100000)
+                            {
+                                static char lineBuf[512];
+                                for (int i = 0; i < count; ++i)
                                 {
-                                    uint64_t descPtr = 0;
-                                    if (FrostbiteConsole::safeRead64(
-                                        const_cast<uint8_t*>(raw + 0x18), &descPtr) &&
-                                        descPtr >= 0x10000ULL)
+                                    const FrostbiteConsole::ConsoleMethod* m = methods[i];
+                                    uintptr_t mAddr = reinterpret_cast<uintptr_t>(m);
+                                    if (mAddr < 0x10000 || mAddr > 0x7FFFFFFFFFFF) continue;
+                                    const uint8_t* raw = reinterpret_cast<const uint8_t*>(m);
+                                    uint64_t namePtr = 0;
+                                    if (!FrostbiteConsole::safeRead64(
+                                        const_cast<uint8_t*>(raw + 0x08), &namePtr)) continue;
+                                    if (namePtr < 0x10000ULL) continue;
+                                    MEMORY_BASIC_INFORMATION _mbi{};
+                                    if (!VirtualQuery(reinterpret_cast<void*>(
+                                        static_cast<uintptr_t>(namePtr)),
+                                        &_mbi, sizeof(_mbi)) ||
+                                        _mbi.State != MEM_COMMIT ||
+                                        (_mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD))) continue;
+                                    const char* name = reinterpret_cast<const char*>(
+                                        static_cast<uintptr_t>(namePtr));
+                                    uint8_t c0u = static_cast<uint8_t>(name[0]);
+                                    if (!isalpha(c0u) && c0u != '_') continue;
+                                    if (name[1] == '\0') continue;
+                                    bool nameValid = true;
+                                    int nameLen = 0;
+                                    for (int ni = 0; ni < 128; ++ni) {
+                                        uint8_t c = static_cast<uint8_t>(name[ni]);
+                                        if (c == 0) break;
+                                        if (c < 0x20 || c > 0x7E) { nameValid = false; break; }
+                                        nameLen++;
+                                    }
+                                    if (!nameValid || nameLen < 2) continue;
+                                    static char safeName[128];
+                                    (void)lstrcpynA(safeName, name, sizeof(safeName));
+                                    uint64_t groupPtr = 0;
+                                    FrostbiteConsole::safeRead64(
+                                        const_cast<uint8_t*>(raw + 0x10), &groupPtr);
+                                    // Read description at +0x18 (may be null or unreadable)
+                                    static char safeDesc[256];
+                                    safeDesc[0] = '\0';
                                     {
-                                        MEMORY_BASIC_INFORMATION _descMbi{};
-                                        if (VirtualQuery(reinterpret_cast<void*>(
-                                            static_cast<uintptr_t>(descPtr)),
-                                            &_descMbi, sizeof(_descMbi)) &&
-                                            _descMbi.State == MEM_COMMIT &&
-                                            !(_descMbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
+                                        uint64_t descPtr = 0;
+                                        if (FrostbiteConsole::safeRead64(
+                                            const_cast<uint8_t*>(raw + 0x18), &descPtr) &&
+                                            descPtr >= 0x10000ULL)
                                         {
-                                            const char* dp = reinterpret_cast<const char*>(
-                                                static_cast<uintptr_t>(descPtr));
-                                            // Validate: printable ASCII only, max 255 chars
-                                            bool descOk = true;
-                                            int dlen = 0;
-                                            for (int di = 0; di < 255; ++di) {
-                                                uint8_t dc = static_cast<uint8_t>(dp[di]);
-                                                if (dc == 0) break;
-                                                if (dc < 0x20 || dc > 0x7E) { descOk = false; break; }
-                                                dlen++;
+                                            MEMORY_BASIC_INFORMATION _descMbi{};
+                                            if (VirtualQuery(reinterpret_cast<void*>(
+                                                static_cast<uintptr_t>(descPtr)),
+                                                &_descMbi, sizeof(_descMbi)) &&
+                                                _descMbi.State == MEM_COMMIT &&
+                                                !(_descMbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
+                                            {
+                                                const char* dp = reinterpret_cast<const char*>(
+                                                    static_cast<uintptr_t>(descPtr));
+                                                // Validate: printable ASCII only, max 255 chars
+                                                bool descOk = true;
+                                                int dlen = 0;
+                                                for (int di = 0; di < 255; ++di) {
+                                                    uint8_t dc = static_cast<uint8_t>(dp[di]);
+                                                    if (dc == 0) break;
+                                                    if (dc < 0x20 || dc > 0x7E) { descOk = false; break; }
+                                                    dlen++;
+                                                }
+                                                if (descOk && dlen > 0)
+                                                    (void)lstrcpynA(safeDesc, dp, sizeof(safeDesc));
                                             }
-                                            if (descOk && dlen > 0)
-                                                (void)lstrcpynA(safeDesc, dp, sizeof(safeDesc));
                                         }
                                     }
-                                }
 
-                                int len = 0;
-                                if (groupPtr >= 0x10000ULL)
-                                {
-                                    MEMORY_BASIC_INFORMATION _grpMbi{};
-                                    if (VirtualQuery(reinterpret_cast<void*>(
-                                        static_cast<uintptr_t>(groupPtr)),
-                                        &_grpMbi, sizeof(_grpMbi)) &&
-                                        _grpMbi.State == MEM_COMMIT &&
-                                        !(_grpMbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
+                                    int len = 0;
+                                    if (groupPtr >= 0x10000ULL)
                                     {
+                                        MEMORY_BASIC_INFORMATION _grpMbi{};
+                                        if (VirtualQuery(reinterpret_cast<void*>(
+                                            static_cast<uintptr_t>(groupPtr)),
+                                            &_grpMbi, sizeof(_grpMbi)) &&
+                                            _grpMbi.State == MEM_COMMIT &&
+                                            !(_grpMbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
+                                        {
+                                            const char* grp = reinterpret_cast<const char*>(
+                                                static_cast<uintptr_t>(groupPtr));
+                                            uint8_t gc0 = static_cast<uint8_t>(grp[0]);
+                                            if (isalpha(gc0) || gc0 == '_')
+                                                len = safeDesc[0]
+                                                ? _snprintf_s(lineBuf, sizeof(lineBuf),
+                                                    _TRUNCATE, "METHOD:%s.%s\t%s", grp, safeName, safeDesc)
+                                                : _snprintf_s(lineBuf, sizeof(lineBuf),
+                                                    _TRUNCATE, "METHOD:%s.%s", grp, safeName);
+                                        }
+                                    }
+                                    if (len <= 0)
+                                        len = safeDesc[0]
+                                        ? _snprintf_s(lineBuf, sizeof(lineBuf),
+                                            _TRUNCATE, "METHOD:%s\t%s", safeName, safeDesc)
+                                        : _snprintf_s(lineBuf, sizeof(lineBuf),
+                                            _TRUNCATE, "METHOD:%s", safeName);
+                                    if (len > 0)
+                                        batchAppend(lineBuf, len);
+                                }
+                            }
+
+                            // Instance methods
+                            {
+                                int instCount = 0, instStride = 0;
+                                const uint8_t* instBase = reinterpret_cast<const uint8_t*>(
+                                    FrostbiteConsole::ConsoleBridge::instance()
+                                    .getInstanceMethodsBase(instCount, instStride));
+                                for (int i = 0; instBase && i < instCount; ++i) {
+                                    const uint8_t* elem = instBase + i * instStride;
+                                    uint64_t namePtr = 0, groupPtr = 0;
+                                    if (!FrostbiteConsole::safeRead64(
+                                        const_cast<uint8_t*>(elem + 0x00), &namePtr)) continue;
+                                    if (namePtr < 0x10000ULL) continue;
+                                    MEMORY_BASIC_INFORMATION _mbi2{};
+                                    if (!VirtualQuery(reinterpret_cast<void*>(
+                                        static_cast<uintptr_t>(namePtr)), &_mbi2, sizeof(_mbi2)) ||
+                                        _mbi2.State != MEM_COMMIT ||
+                                        (_mbi2.Protect & (PAGE_NOACCESS | PAGE_GUARD))) continue;
+                                    const char* name = reinterpret_cast<const char*>(
+                                        static_cast<uintptr_t>(namePtr));
+                                    uint8_t c0 = static_cast<uint8_t>(name[0]);
+                                    if (!isalpha(c0) && c0 != '_') continue;
+                                    if (name[1] == '\0') continue;
+                                    FrostbiteConsole::safeRead64(
+                                        const_cast<uint8_t*>(elem + 0x08), &groupPtr);
+                                    static char instLine[512];
+                                    if (groupPtr >= 0x10000ULL) {
                                         const char* grp = reinterpret_cast<const char*>(
                                             static_cast<uintptr_t>(groupPtr));
-                                        uint8_t gc0 = static_cast<uint8_t>(grp[0]);
-                                        if (isalpha(gc0) || gc0 == '_')
-                                            len = safeDesc[0]
-                                            ? _snprintf_s(lineBuf, sizeof(lineBuf),
-                                                _TRUNCATE, "METHOD:%s.%s\t%s", grp, safeName, safeDesc)
-                                            : _snprintf_s(lineBuf, sizeof(lineBuf),
-                                                _TRUNCATE, "METHOD:%s.%s", grp, safeName);
+                                        _snprintf_s(instLine, sizeof(instLine), _TRUNCATE,
+                                            "METHOD:%s.%s", grp, name);
                                     }
+                                    else {
+                                        _snprintf_s(instLine, sizeof(instLine), _TRUNCATE,
+                                            "METHOD:%s", name);
+                                    }
+                                    batchAppend(instLine, lstrlenA(instLine));
                                 }
-                                if (len <= 0)
-                                    len = safeDesc[0]
-                                    ? _snprintf_s(lineBuf, sizeof(lineBuf),
-                                        _TRUNCATE, "METHOD:%s\t%s", safeName, safeDesc)
-                                    : _snprintf_s(lineBuf, sizeof(lineBuf),
-                                        _TRUNCATE, "METHOD:%s", safeName);
-                                if (len > 0)
-                                    batchAppend(lineBuf, len);
                             }
-                        }
-
-                        // Instance methods
-                        {
-                            int instCount = 0, instStride = 0;
-                            const uint8_t* instBase = reinterpret_cast<const uint8_t*>(
-                                FrostbiteConsole::ConsoleBridge::instance()
-                                .getInstanceMethodsBase(instCount, instStride));
-                            for (int i = 0; instBase && i < instCount; ++i) {
-                                const uint8_t* elem = instBase + i * instStride;
-                                uint64_t namePtr = 0, groupPtr = 0;
-                                if (!FrostbiteConsole::safeRead64(
-                                    const_cast<uint8_t*>(elem + 0x00), &namePtr)) continue;
-                                if (namePtr < 0x10000ULL) continue;
-                                MEMORY_BASIC_INFORMATION _mbi2{};
-                                if (!VirtualQuery(reinterpret_cast<void*>(
-                                    static_cast<uintptr_t>(namePtr)), &_mbi2, sizeof(_mbi2)) ||
-                                    _mbi2.State != MEM_COMMIT ||
-                                    (_mbi2.Protect & (PAGE_NOACCESS | PAGE_GUARD))) continue;
-                                const char* name = reinterpret_cast<const char*>(
-                                    static_cast<uintptr_t>(namePtr));
-                                uint8_t c0 = static_cast<uint8_t>(name[0]);
-                                if (!isalpha(c0) && c0 != '_') continue;
-                                if (name[1] == '\0') continue;
-                                FrostbiteConsole::safeRead64(
-                                    const_cast<uint8_t*>(elem + 0x08), &groupPtr);
-                                static char instLine[512];
-                                if (groupPtr >= 0x10000ULL) {
-                                    const char* grp = reinterpret_cast<const char*>(
-                                        static_cast<uintptr_t>(groupPtr));
-                                    _snprintf_s(instLine, sizeof(instLine), _TRUNCATE,
-                                        "METHOD:%s.%s", grp, name);
-                                }
-                                else {
-                                    _snprintf_s(instLine, sizeof(instLine), _TRUNCATE,
-                                        "METHOD:%s", name);
-                                }
-                                batchAppend(instLine, lstrlenA(instLine));
+                            {
+                                char resTerm[32];
+                                int resLen = wsprintfA(resTerm, "RESULT:%d:", seq);
+                                batchAppend(resTerm, resLen);
                             }
+                            batchFlush();
+                            logToFile("[proxy pipe] list done");
                         }
-                        batchAppend("RESULT:", 7);
-                        batchFlush();
-                        logToFile("[proxy pipe] list done");
-                    }
-                    else if (lstrcmpA(cmd, "__LIST_VARS__") == 0)
-                    {
-                        logToFile("[proxy pipe] handling __LIST_VARS__");
-                        batchBegin();
-                        batchAppend("VARS:0", 6);
-                        __try { cpp_listVars(); }
-                        __except (EXCEPTION_EXECUTE_HANDLER)
+                        else if (lstrcmpA(cmd, "__LIST_VARS__") == 0)
                         {
-                            logHex("[proxy pipe] LIST_VARS exception=", GetExceptionCode());
+                            logToFile("[proxy pipe] handling __LIST_VARS__");
+                            batchBegin();
+                            batchAppend("VARS:0", 6);
+                            __try { cpp_listVars(); }
+                            __except (EXCEPTION_EXECUTE_HANDLER)
+                            {
+                                logHex("[proxy pipe] LIST_VARS exception=", GetExceptionCode());
+                            }
+                            {
+                                char resTerm[32];
+                                int resLen = wsprintfA(resTerm, "RESULT:%d:", seq);
+                                batchAppend(resTerm, resLen);
+                            }
+                            batchFlush();
+                            logToFile("[proxy pipe] list vars done");
+                            stopDiskLoggingOnceConfirmed();
                         }
-                        batchAppend("RESULT:", 7);
-                        batchFlush();
-                        logToFile("[proxy pipe] list vars done");
+                        else
+                        {
+                            logToFile("[proxy pipe] executing:");
+                            logToFile(cmd);
+                            static char s_proxyExecCmd[64 * 1024];
+                            (void)lstrcpynA(s_proxyExecCmd, cmd, sizeof(s_proxyExecCmd));
+                            lstrcpynA(g_currentCmdText, s_proxyExecCmd, sizeof(g_currentCmdText));
+                            g_cmdExceptionLogged = 0;
+                            g_execThreadId = GetCurrentThreadId();
+                            g_expectingOutput = true;
+                            shimExecute(s_proxyExecCmd);
+                            g_expectingOutput = false;
+                            g_execThreadId = 0;
+                            pipeWriteResultTerminator(seq);
+                            logToFile("[proxy pipe] cmd done");
+                        }
                     }
-                    else
-                    {
-                        logToFile("[proxy pipe] executing:");
-                        logToFile(cmd);
-                        static char s_proxyExecCmd[64 * 1024];
-                        (void)lstrcpynA(s_proxyExecCmd, cmd, sizeof(s_proxyExecCmd));
-                        g_expectingOutput = true;
-                        shimExecute(s_proxyExecCmd);
-                        g_expectingOutput = false;
-                        static const char resultEnd[] = "RESULT:";
-                        pipeWriteRaw(resultEnd, 7);
-                        logToFile("[proxy pipe] cmd done");
-                    }
-                }
 
-                logToFile("[proxy pipe] command loop exited");
-                // Unregister the output handler before closing the pipe so that
-                // pipeWriteRaw is not called with an invalid handle, and so we
-                // can cleanly re-register it when the next host connects (line 930)
-                if (FrostbiteConsole::isReady())
-                {
-                    logToFile("[proxy pipe] removing output handler before re-arm");
-                    shimRemoveHandler();
-                }
-                DisconnectNamedPipe(hPipe);
-                CloseHandle(hPipe);
-                hPipe = INVALID_HANDLE_VALUE;
-                g_hPipe = INVALID_HANDLE_VALUE;
-                logToFile("[proxy pipe] host detached — re-arming pipe for next attach");
+                    logToFile("[proxy pipe] command loop exited");
+                    // Unregister the output handler before closing the pipe so that
+                    // pipeWriteRaw is not called with an invalid handle, and so we
+                    // can cleanly re-register it when the next host connects (line 930)
+                    if (FrostbiteConsole::isReady())
+                    {
+                        logToFile("[proxy pipe] removing output handler before re-arm");
+                        shimRemoveHandler();
+                    }
+                    DisconnectNamedPipe(hPipe);
+                    CloseHandle(hPipe);
+                    hPipe = INVALID_HANDLE_VALUE;
+                    g_hPipe = INVALID_HANDLE_VALUE;
+                    logToFile("[proxy pipe] host detached — re-arming pipe for next attach");
                 }
 
                 logToFile("[proxy pipe] listener thread exiting (g_running=0)");
@@ -1268,132 +1669,156 @@ static DWORD WINAPI workerThread(LPVOID)
         else
         {
 
-        // Fast path: scan only for the 8-byte patch pattern directly
-        // This is orders of magnitude faster than running init() and does not
-        // depend on any string anchor or prologue scan completing first
-        // We poll every 10ms until the pattern is found, then immediately
-        // freeze all threads and apply the patches
-        static const uint8_t kPattern[] = {
-            0x66, 0xC1, 0xE8, 0x0D,  // shr ax, 0Dh
-            0xA8, 0x01,               // test al, 1
-            0x0F, 0x84               // je (rel32 follows)
-        };
-        static const int kPatternLen = sizeof(kPattern);
-
-        logToFile("[worker] unlock path: scanning for patch pattern directly");
-
-        HMODULE mods[1] = {};
-        DWORD needed = 0;
-        EnumProcessModules(GetCurrentProcess(), mods, sizeof(mods), &needed);
-        MODULEINFO mi{};
-        GetModuleInformation(GetCurrentProcess(), mods[0], &mi, sizeof(mi));
-        uint8_t* modBase = reinterpret_cast<uint8_t*>(mi.lpBaseOfDll);
-        size_t   modSize = static_cast<size_t>(mi.SizeOfImage);
-
-        DWORD selfTid = GetCurrentThreadId();
-
-        // Scan helper — one full pass over executable regions
-        auto scanOnce = [&]() -> bool {
-            MEMORY_BASIC_INFORMATION pmbi{};
-            uintptr_t cursor = reinterpret_cast<uintptr_t>(modBase);
-            uintptr_t modEnd = cursor + modSize;
-            while (cursor < modEnd)
-            {
-                if (!VirtualQuery(reinterpret_cast<void*>(cursor), &pmbi, sizeof(pmbi)))
-                    break;
-                uintptr_t rEnd = reinterpret_cast<uintptr_t>(pmbi.BaseAddress) + pmbi.RegionSize;
-                if (rEnd > modEnd) rEnd = modEnd;
-                bool isExec = (pmbi.State == MEM_COMMIT) &&
-                    (pmbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ |
-                        PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY));
-                if (isExec)
-                {
-                    uint8_t* region = reinterpret_cast<uint8_t*>(pmbi.BaseAddress);
-                    size_t   rsize = static_cast<size_t>(rEnd - reinterpret_cast<uintptr_t>(pmbi.BaseAddress));
-                    for (size_t i = 0; i + kPatternLen + 4 <= rsize; ++i)
-                        if (memcmp(region + i, kPattern, kPatternLen) == 0)
-                            return true;
-                }
-                if (rEnd <= cursor) break;
-                cursor = rEnd;
-            }
-            return false;
+            // Fast path: scan only for the 8-byte patch pattern directly
+            // This is orders of magnitude faster than running init() and does not
+            // depend on any string anchor or prologue scan completing first
+            // We poll every 10ms until the pattern is found, then immediately
+            // freeze all threads and apply the patches
+            static const uint8_t kPattern[] = {
+                0x66, 0xC1, 0xE8, 0x0D,  // shr ax, 0Dh
+                0xA8, 0x01,               // test al, 1
+                0x0F, 0x84               // je (rel32 follows)
             };
+            static const int kPatternLen = sizeof(kPattern);
 
-        auto freezeThreads = [&]() {
-            HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-            if (hSnap != INVALID_HANDLE_VALUE)
-            {
-                THREADENTRY32 te{};
-                te.dwSize = sizeof(te);
-                if (Thread32First(hSnap, &te))
+            logToFile("[worker] unlock path: scanning for patch pattern directly");
+
+            HMODULE mods[1] = {};
+            DWORD needed = 0;
+            EnumProcessModules(GetCurrentProcess(), mods, sizeof(mods), &needed);
+            MODULEINFO mi{};
+            GetModuleInformation(GetCurrentProcess(), mods[0], &mi, sizeof(mi));
+            uint8_t* modBase = reinterpret_cast<uint8_t*>(mi.lpBaseOfDll);
+            size_t   modSize = static_cast<size_t>(mi.SizeOfImage);
+
+            DWORD selfTid = GetCurrentThreadId();
+
+            // Scan helper — one full pass over executable regions
+            auto scanOnce = [&]() -> bool {
+                MEMORY_BASIC_INFORMATION pmbi{};
+                uintptr_t cursor = reinterpret_cast<uintptr_t>(modBase);
+                uintptr_t modEnd = cursor + modSize;
+                while (cursor < modEnd)
                 {
-                    do {
-                        if (te.th32ThreadID == selfTid) continue;
-                        if (te.th32OwnerProcessID != GetCurrentProcessId()) continue;
-                        HANDLE hT = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID);
-                        if (hT) { SuspendThread(hT); CloseHandle(hT); }
-                    } while (Thread32Next(hSnap, &te));
+                    if (!VirtualQuery(reinterpret_cast<void*>(cursor), &pmbi, sizeof(pmbi)))
+                        break;
+                    uintptr_t rEnd = reinterpret_cast<uintptr_t>(pmbi.BaseAddress) + pmbi.RegionSize;
+                    if (rEnd > modEnd) rEnd = modEnd;
+                    bool isExec = (pmbi.State == MEM_COMMIT) &&
+                        (pmbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ |
+                            PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY));
+                    if (isExec)
+                    {
+                        uint8_t* region = reinterpret_cast<uint8_t*>(pmbi.BaseAddress);
+                        size_t   rsize = static_cast<size_t>(rEnd - reinterpret_cast<uintptr_t>(pmbi.BaseAddress));
+                        for (size_t i = 0; i + kPatternLen + 4 <= rsize; ++i)
+                            if (memcmp(region + i, kPattern, kPatternLen) == 0)
+                                return true;
+                    }
+                    if (rEnd <= cursor) break;
+                    cursor = rEnd;
                 }
-                CloseHandle(hSnap);
-            }
-            };
+                return false;
+                };
 
-        auto thawThreads = [&]() {
-            HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-            if (hSnap != INVALID_HANDLE_VALUE)
-            {
-                THREADENTRY32 te{};
-                te.dwSize = sizeof(te);
-                if (Thread32First(hSnap, &te))
+            auto freezeThreads = [&]() {
+                HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+                if (hSnap != INVALID_HANDLE_VALUE)
                 {
-                    do {
-                        if (te.th32ThreadID == selfTid) continue;
-                        if (te.th32OwnerProcessID != GetCurrentProcessId()) continue;
-                        HANDLE hT = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID);
-                        if (hT) { ResumeThread(hT); CloseHandle(hT); }
-                    } while (Thread32Next(hSnap, &te));
+                    THREADENTRY32 te{};
+                    te.dwSize = sizeof(te);
+                    if (Thread32First(hSnap, &te))
+                    {
+                        do {
+                            if (te.th32ThreadID == selfTid) continue;
+                            if (te.th32OwnerProcessID != GetCurrentProcessId()) continue;
+                            HANDLE hT = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID);
+                            if (hT) { SuspendThread(hT); CloseHandle(hT); }
+                        } while (Thread32Next(hSnap, &te));
+                    }
+                    CloseHandle(hSnap);
                 }
-                CloseHandle(hSnap);
-            }
-            };
+                };
 
-        // Threads are already frozen from the early-freeze block at worker entry
-        // Pulse-scan: thaw briefly to let the loader advance, re-freeze, scan
-        // Exits immediately on first match — no unnecessary delay
-        bool patternFound = false;
-        logToFile("[worker] unlock path: scanning for patch pattern (frozen, with pulses)");
-        for (int attempt = 0; attempt < 300 && !patternFound; ++attempt)
-        {
-            patternFound = scanOnce();
-            if (!patternFound)
+            auto thawThreads = [&]() {
+                HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+                if (hSnap != INVALID_HANDLE_VALUE)
+                {
+                    THREADENTRY32 te{};
+                    te.dwSize = sizeof(te);
+                    if (Thread32First(hSnap, &te))
+                    {
+                        do {
+                            if (te.th32ThreadID == selfTid) continue;
+                            if (te.th32OwnerProcessID != GetCurrentProcessId()) continue;
+                            HANDLE hT = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID);
+                            if (hT) { ResumeThread(hT); CloseHandle(hT); }
+                        } while (Thread32Next(hSnap, &te));
+                    }
+                    CloseHandle(hSnap);
+                }
+                };
+
+            // Threads are already frozen from the early-freeze block at worker entry
+            // Pulse-scan: thaw briefly to let the loader advance, re-freeze, scan
+            // Exits immediately on first match — no unnecessary delay
+            bool patternFound = false;
+            logToFile("[worker] unlock path: scanning for patch pattern (frozen, with pulses)");
+            for (int attempt = 0; attempt < 300 && !patternFound; ++attempt)
             {
-                static char pulseMsg[64];
-                wsprintfA(pulseMsg, "[worker] pattern not found attempt %d, pulsing", attempt + 1);
-                logToFile(pulseMsg);
-                thawThreads();
-                Sleep(10);
-                freezeThreads();
+                patternFound = scanOnce();
+                if (!patternFound)
+                {
+                    static char pulseMsg[64];
+                    wsprintfA(pulseMsg, "[worker] pattern not found attempt %d, pulsing", attempt + 1);
+                    logToFile(pulseMsg);
+                    thawThreads();
+                    Sleep(10);
+                    freezeThreads();
+                }
             }
-        }
 
-        if (patternFound)
-            logToFile("[worker] all threads frozen for pattern scan");
-        else
-            logToFile("[worker] pattern not found after 300 attempts — proceeding");
+            if (patternFound)
+                logToFile("[worker] all threads frozen for pattern scan");
+            else
+                logToFile("[worker] pattern not found after 300 attempts — proceeding");
 
-        if (patternFound)
-        {
-            logToFile("[worker] patch pattern found — applying patches");
-
-            int unlockResult = shimApplyUnlock();
-            static char unlockMsg[64];
-            wsprintfA(unlockMsg, "[worker] shimApplyUnlock result=%d", unlockResult);
-            logToFile(unlockMsg);
-
-            if (unlockResult != 1)
+            if (patternFound)
             {
-                logToFile("[worker] shimApplyUnlock failed — resuming threads");
+                logToFile("[worker] patch pattern found — applying patches");
+
+                int unlockResult = shimApplyUnlock();
+                static char unlockMsg[64];
+                wsprintfA(unlockMsg, "[worker] shimApplyUnlock result=%d", unlockResult);
+                logToFile(unlockMsg);
+
+                if (unlockResult != 1)
+                {
+                    logToFile("[worker] shimApplyUnlock failed — resuming threads");
+                    HANDLE hSnap2 = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+                    if (hSnap2 != INVALID_HANDLE_VALUE)
+                    {
+                        THREADENTRY32 te{};
+                        te.dwSize = sizeof(te);
+                        if (Thread32First(hSnap2, &te))
+                        {
+                            do {
+                                if (te.th32ThreadID == selfTid) continue;
+                                if (te.th32OwnerProcessID != GetCurrentProcessId()) continue;
+                                HANDLE hT = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID);
+                                if (hT) { ResumeThread(hT); CloseHandle(hT); }
+                            } while (Thread32Next(hSnap2, &te));
+                        }
+                        CloseHandle(hSnap2);
+                    }
+                    g_suspendedForUnlock = false;
+                }
+                // Threads remain frozen until post-READY resume block.
+            }
+            else
+            {
+                logToFile("[worker] patch pattern not found within timeout — resuming threads and proceeding without unlock");
+                // Pattern never appeared; thaw now since we won't reach the post-READY resume block
                 HANDLE hSnap2 = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
                 if (hSnap2 != INVALID_HANDLE_VALUE)
                 {
@@ -1412,37 +1837,13 @@ static DWORD WINAPI workerThread(LPVOID)
                 }
                 g_suspendedForUnlock = false;
             }
-            // Threads remain frozen until post-READY resume block.
-        }
-        else
-        {
-            logToFile("[worker] patch pattern not found within timeout — resuming threads and proceeding without unlock");
-            // Pattern never appeared; thaw now since we won't reach the post-READY resume block
-            HANDLE hSnap2 = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-            if (hSnap2 != INVALID_HANDLE_VALUE)
-            {
-                THREADENTRY32 te{};
-                te.dwSize = sizeof(te);
-                if (Thread32First(hSnap2, &te))
-                {
-                    do {
-                        if (te.th32ThreadID == selfTid) continue;
-                        if (te.th32OwnerProcessID != GetCurrentProcessId()) continue;
-                        HANDLE hT = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID);
-                        if (hT) { ResumeThread(hT); CloseHandle(hT); }
-                    } while (Thread32Next(hSnap2, &te));
-                }
-                CloseHandle(hSnap2);
-            }
-            g_suspendedForUnlock = false;
-        }
 
-        // Skip full init pre-resume — consoleMethods won't be populated while
-        // threads are frozen so the scan is wasted. Just mark initResult=1
-        // so the worker proceeds to the resume block. The real init runs
-        // post-resume where consoleMethods is actually live
-        initResult = 1;
-        diagBuf[0] = '\0';
+            // Skip full init pre-resume — consoleMethods won't be populated while
+            // threads are frozen so the scan is wasted. Just mark initResult=1
+            // so the worker proceeds to the resume block. The real init runs
+            // post-resume where consoleMethods is actually live
+            initResult = 1;
+            diagBuf[0] = '\0';
 
         } // end else (scan block)
 
@@ -1756,20 +2157,28 @@ static DWORD WINAPI workerThread(LPVOID)
             // text above) avoids depending on exact wording and sidesteps
             // the tag-based debug/result classification that text line
             // goes through on the host
+            //
+            // Flip the "already stable" flag BEFORE writing the packet, not
+            // after — a host connecting on another thread right around this
+            // moment should see this as true rather than momentarily false,
+            // since the proxy pipe listener's own re-send (see below) is
+            // the only other opportunity that host will ever get
+            g_unlockPollStable = true;
             static const char kStableMsg[] = "UNLOCK_STABLE:1";
             pipeWriteRaw(kStableMsg, (uint32_t)(sizeof(kStableMsg) - 1));
             return 0;
-            }, & s_pollCtx, 0, nullptr);
+            }, &s_pollCtx, 0, nullptr);
 
         if (hPollThread) CloseHandle(hPollThread);
     }
 
     // Register output handler
+    FrostbiteConsole::setLogCallback(nullptr);
     {
-        FrostbiteConsole::setLogCallback(nullptr);
         static char readyBuf[64];
         wsprintfA(readyBuf, "READY:0");
-        pipeWriteStr(readyBuf);
+        if (!g_proxyMode)
+            pipeWriteStr(readyBuf);
         logToFile(readyBuf);
     }
 
@@ -1784,8 +2193,8 @@ static DWORD WINAPI workerThread(LPVOID)
     }
 
     // ConsoleOverlay init — run on a background thread so READY: and the
-        // command loop (including __LIST__ / __LIST_VARS__) are not blocked
-        // waiting for D3D resolution, which can take up to 10 seconds
+    // command loop (including __LIST__ / __LIST_VARS__) are not blocked
+    // waiting for D3D resolution, which can take up to 10 seconds
     HANDLE hOverlayInitThread = CreateThread(nullptr, 0, [](LPVOID) -> DWORD
         {
             for (int overlayAttempt = 0; overlayAttempt < 10; ++overlayAttempt)
@@ -1818,369 +2227,388 @@ static DWORD WINAPI workerThread(LPVOID)
         }, nullptr, 0, nullptr);
     if (hOverlayInitThread) CloseHandle(hOverlayInitThread);
 
-    bool firstConnect = true;
-    do
+    // In proxy mode, all pipe I/O for the session is owned exclusively by
+    // the dedicated background "[proxy pipe]" listener thread spawned above
+    if (!g_proxyMode)
     {
-        if (!firstConnect && !g_proxyMode)
+        bool firstConnect = true;
+        do
         {
-            // Clean up the old pipe instance before re-arming.
-            // Shut down the overlay FIRST so its Present hook stops calling
-            // g_pipeOutputHandler before we deregister the output handler.
-            __try { ConsoleOverlay::shutdown(); }
-            __except (EXCEPTION_EXECUTE_HANDLER) {}
-            logToFile("[worker] overlay shut down for re-arm");
-
-            if (FrostbiteConsole::isReady())
+            if (!firstConnect && !g_proxyMode)
             {
-                logToFile("[worker] removing output handler before re-arm");
-                shimRemoveHandler();
-            }
-            DisconnectNamedPipe(g_hPipe);
-            CloseHandle(g_hPipe);
-            g_hPipe = INVALID_HANDLE_VALUE;
-            logToFile("[worker] host detached — re-arming pipe for next attach");
+                // Clean up the old pipe instance before re-arming
+                // Shut down the overlay FIRST so its Present hook stops calling
+                // g_pipeOutputHandler before we deregister the output handler
+                __try { ConsoleOverlay::shutdown(); }
+                __except (EXCEPTION_EXECUTE_HANDLER) {}
+                logToFile("[worker] overlay shut down for re-arm");
 
-            bool pipeReady = false;
+                if (FrostbiteConsole::isReady())
+                {
+                    logToFile("[worker] removing output handler before re-arm");
+                    shimRemoveHandler();
+                }
+                DisconnectNamedPipe(g_hPipe);
+                CloseHandle(g_hPipe);
+                g_hPipe = INVALID_HANDLE_VALUE;
+                logToFile("[worker] host detached — re-arming pipe for next attach");
+
+                bool pipeReady = false;
+                while (InterlockedCompareExchange(&g_running, 1, 1) == 1)
+                {
+                    g_hPipe = CreateNamedPipeA(
+                        "\\\\.\\pipe\\FBConsoleBridge",
+                        PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+                        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+                        1, 65536, 65536, 5000, nullptr);
+
+                    if (g_hPipe == INVALID_HANDLE_VALUE)
+                    {
+                        DWORD gle = GetLastError();
+                        logDec("[worker] re-arm CreateNamedPipe failed GLE=", gle);
+                        if (gle == ERROR_PIPE_BUSY || gle == ERROR_ACCESS_DENIED)
+                        {
+                            logToFile("[worker] pipe not released yet, retrying in 500ms");
+                            Sleep(500);
+                            continue;
+                        }
+                        logToFile("[worker] unrecoverable pipe error — thread exiting");
+                        goto worker_exit;
+                    }
+
+                    logToFile("[worker] re-armed pipe, waiting for host");
+                    if (!ConnectNamedPipe(g_hPipe, nullptr))
+                    {
+                        DWORD gle = GetLastError();
+                        if (gle != ERROR_PIPE_CONNECTED)
+                        {
+                            logDec("[worker] re-arm ConnectNamedPipe failed GLE=", gle);
+                            CloseHandle(g_hPipe);
+                            g_hPipe = INVALID_HANDLE_VALUE;
+                            Sleep(200);
+                            continue;
+                        }
+                    }
+                    logToFile("[worker] host reconnected");
+                    pipeReady = true;
+                    break;
+                }
+
+                if (!pipeReady)
+                    goto worker_exit;
+
+                FrostbiteConsole::setLogCallback([](const char* line) { logToFile(line); });
+                if (FrostbiteConsole::isReady())
+                {
+                    logToFile("[worker] re-registering output handler for new session");
+                    shimAddHandler();
+                }
+                {
+                    int cmdCount = shimGetMethods();
+                    static char readyBuf[64];
+                    wsprintfA(readyBuf, "READY:%d", cmdCount);
+                    pipeWriteStr(readyBuf);
+                }
+
+                // Re-initialize the overlay for the new session — background thread
+                // so the command loop is not blocked waiting for D3D resolution
+                HANDLE hOverlayReInitThread = CreateThread(nullptr, 0, [](LPVOID) -> DWORD
+                    {
+                        for (int overlayAttempt = 0; overlayAttempt < 10; ++overlayAttempt)
+                        {
+                            if (overlayAttempt > 0)
+                            {
+                                Sleep(1000);
+                                static char retryMsg[64];
+                                wsprintfA(retryMsg, "[worker] retrying ConsoleOverlay re-init (attempt %d/10)", overlayAttempt + 1);
+                                logToFile(retryMsg);
+                            }
+                            logToFile("[worker] re-initializing ConsoleOverlay for new session");
+                            bool overlayOk = false;
+                            __try
+                            {
+                                ConsoleOverlay::initialize();
+                                logToFile("[worker] ConsoleOverlay re-initialized OK");
+                                overlayOk = true;
+                            }
+                            __except (EXCEPTION_EXECUTE_HANDLER)
+                            {
+                                char overlayErr[64];
+                                wsprintfA(overlayErr, "[worker] ConsoleOverlay::initialize EXCEPTION=0x%08lX",
+                                    GetExceptionCode());
+                                logToFile(overlayErr);
+                            }
+                            if (overlayOk) break;
+                        }
+                        return 0;
+                    }, nullptr, 0, nullptr);
+                if (hOverlayReInitThread) CloseHandle(hOverlayReInitThread);
+            }
+            firstConnect = false;
+
+            logToFile("[worker] entering command loop");
+
             while (InterlockedCompareExchange(&g_running, 1, 1) == 1)
             {
-                g_hPipe = CreateNamedPipeA(
-                    "\\\\.\\pipe\\FBConsoleBridge",
-                    PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-                    PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-                    1, 65536, 65536, 5000, nullptr);
-
-                if (g_hPipe == INVALID_HANDLE_VALUE)
+                uint32_t pktLen = pipeReadRaw(g_readBuf, sizeof(g_readBuf));
+                if (pktLen == 0)
                 {
-                    DWORD gle = GetLastError();
-                    logDec("[worker] re-arm CreateNamedPipe failed GLE=", gle);
-                    if (gle == ERROR_PIPE_BUSY || gle == ERROR_ACCESS_DENIED)
-                    {
-                        logToFile("[worker] pipe not released yet, retrying in 500ms");
-                        Sleep(500);
-                        continue;
-                    }
-                    logToFile("[worker] unrecoverable pipe error — thread exiting");
-                    goto worker_exit;
+                    logDec("[worker] pipeRead returned 0 GLE=", GetLastError());
+                    break;
                 }
 
-                logToFile("[worker] re-armed pipe, waiting for host");
-                if (!ConnectNamedPipe(g_hPipe, nullptr))
                 {
-                    DWORD gle = GetLastError();
-                    if (gle != ERROR_PIPE_CONNECTED)
-                    {
-                        logDec("[worker] re-arm ConnectNamedPipe failed GLE=", gle);
-                        CloseHandle(g_hPipe);
-                        g_hPipe = INVALID_HANDLE_VALUE;
-                        Sleep(200);
-                        continue;
-                    }
+                    static char preview[129];
+                    int cl = pktLen < 128 ? (int)pktLen : 128;
+                    CopyMemory(preview, g_readBuf, cl);
+                    preview[cl] = '\0';
+                    logToFile("[worker] pkt:");
                 }
-                logToFile("[worker] host reconnected");
-                pipeReady = true;
-                break;
-            }
 
-            if (!pipeReady)
-                goto worker_exit;
-
-            FrostbiteConsole::setLogCallback([](const char* line) { logToFile(line); });
-            if (FrostbiteConsole::isReady())
-            {
-                logToFile("[worker] re-registering output handler for new session");
-                shimAddHandler();
-            }
-            {
-                int cmdCount = shimGetMethods();
-                static char readyBuf[64];
-                wsprintfA(readyBuf, "READY:%d", cmdCount);
-                pipeWriteStr(readyBuf);
-                logToFile(readyBuf);
-            }
-
-            // Re-initialize the overlay for the new session — background thread
-                        // so the command loop is not blocked waiting for D3D resolution
-            HANDLE hOverlayReInitThread = CreateThread(nullptr, 0, [](LPVOID) -> DWORD
+                if (pktLen <= 4 ||
+                    g_readBuf[0] != 'C' || g_readBuf[1] != 'M' ||
+                    g_readBuf[2] != 'D' || g_readBuf[3] != ':')
                 {
-                    for (int overlayAttempt = 0; overlayAttempt < 10; ++overlayAttempt)
-                    {
-                        if (overlayAttempt > 0)
-                        {
-                            Sleep(1000);
-                            static char retryMsg[64];
-                            wsprintfA(retryMsg, "[worker] retrying ConsoleOverlay re-init (attempt %d/10)", overlayAttempt + 1);
-                            logToFile(retryMsg);
-                        }
-                        logToFile("[worker] re-initializing ConsoleOverlay for new session");
-                        bool overlayOk = false;
-                        __try
-                        {
-                            ConsoleOverlay::initialize();
-                            logToFile("[worker] ConsoleOverlay re-initialized OK");
-                            overlayOk = true;
-                        }
-                        __except (EXCEPTION_EXECUTE_HANDLER)
-                        {
-                            char overlayErr[64];
-                            wsprintfA(overlayErr, "[worker] ConsoleOverlay::initialize EXCEPTION=0x%08lX",
-                                GetExceptionCode());
-                            logToFile(overlayErr);
-                        }
-                        if (overlayOk) break;
-                    }
-                    return 0;
-                }, nullptr, 0, nullptr);
-            if (hOverlayReInitThread) CloseHandle(hOverlayReInitThread);
-        }
-        firstConnect = false;
-
-        logToFile("[worker] entering command loop");
-
-        while (InterlockedCompareExchange(&g_running, 1, 1) == 1)
-        {
-            uint32_t pktLen = pipeReadRaw(g_readBuf, sizeof(g_readBuf));
-            if (pktLen == 0)
-            {
-                logDec("[worker] pipeRead returned 0 GLE=", GetLastError());
-                break;
-            }
-
-            {
-                static char preview[129];
-                int cl = pktLen < 128 ? (int)pktLen : 128;
-                CopyMemory(preview, g_readBuf, cl);
-                preview[cl] = '\0';
-                logToFile("[worker] pkt:");
-        }
-
-        if (pktLen <= 4 ||
-            g_readBuf[0] != 'C' || g_readBuf[1] != 'M' ||
-            g_readBuf[2] != 'D' || g_readBuf[3] != ':')
-        {
-            logToFile("[worker] unknown packet, ignoring");
-            continue;
-        }
-
-        const char* cmd = g_readBuf + 4;
-
-        if (lstrcmpA(cmd, "__LIST__") == 0)
-        {
-            logToFile("[worker] handling __LIST__");
-            batchBegin();
-            batchAppend("METHODS:0", 9);
-
-            // Enumerate directly from the resolved vector — no game lock held
-            int count = 0;
-            const FrostbiteConsole::ConsoleMethod* const* methods =
-                FrostbiteConsole::getMethods(count);
-
-            if (count == 0)
-            {
-                logToFile("[worker] getMethods returned 0, waiting 2s and retrying");
-                Sleep(2000);
-                methods = FrostbiteConsole::getMethods(count);
-                {
-                    static char retryBuf[64];
-                    wsprintfA(retryBuf, "[worker] retry getMethods count=%d", count);
-                    logToFile(retryBuf);
+                    logToFile("[worker] unknown packet, ignoring");
+                    continue;
                 }
-            }
 
-            if (methods && count > 0 && count < 100000)
-            {
-                // stride is not needed — name is always a raw const char* at +0x08
+                const char* cmd = nullptr;
+                int seq = parseCmdSeqAndText(g_readBuf + 4, cmd);
+                g_currentCmdSeq = seq; // stays set until the NEXT command parses
+                // here — see g_currentCmdSeq's comment
 
-                static char lineBuf[512];
-                for (int i = 0; i < count; ++i)
+                if (lstrcmpA(cmd, "__LIST__") == 0)
                 {
-                    const FrostbiteConsole::ConsoleMethod* m = methods[i];
-                    uintptr_t mAddr = reinterpret_cast<uintptr_t>(m);
-                    if (mAddr < 0x10000 || mAddr > 0x7FFFFFFFFFFF) continue;
+                    logToFile("[worker] handling __LIST__");
+                    batchBegin();
+                    batchAppend("METHODS:0", 9);
 
-                    // Real ConsoleMethod layout (matches Console.h exactly):
-                    //   +0x00  pfn         (void*)       — .text pointer
-                    //   +0x08  name        (const char*) — .rdata pointer
-                    //   +0x10  groupName   (const char*) — .rdata pointer, may be null
-                    //   +0x18  description (const char*) — .rdata pointer, may be null
-                    const uint8_t* raw = reinterpret_cast<const uint8_t*>(m);
+                    // Enumerate directly from the resolved vector — no game lock held
+                    int count = 0;
+                    const FrostbiteConsole::ConsoleMethod* const* methods =
+                        FrostbiteConsole::getMethods(count);
 
-                    // name is a raw const char* at +0x08
-                    // May point into any module, heap, or arena — not just the exe
-                    uint64_t namePtr = 0;
-                    if (!FrostbiteConsole::safeRead64(
-                        const_cast<uint8_t*>(raw + 0x08), &namePtr)) continue;
-                    if (namePtr < 0x10000ULL) continue;
-                    // Verify readable.
-                    MEMORY_BASIC_INFORMATION _nameMbi{};
-                    if (!VirtualQuery(reinterpret_cast<void*>(static_cast<uintptr_t>(namePtr)),
-                        &_nameMbi, sizeof(_nameMbi)) ||
-                        _nameMbi.State != MEM_COMMIT ||
-                        (_nameMbi.Protect & (PAGE_NOACCESS | PAGE_GUARD))) continue;
-                    const char* name = reinterpret_cast<const char*>(static_cast<uintptr_t>(namePtr));
-
-                    // Name must start with a letter or underscore, be at least 2 chars,
-                    // and contain only printable ASCII (no parens, no hex digits as names)
-                    uint8_t c0u = static_cast<uint8_t>(name[0]);
-                    if (!isalpha(c0u) && c0u != '_') continue;
-                    if (name[1] == '\0') continue;
-                    bool nameValid = true;
-                    int nameLen = 0;
-                    for (int ni = 0; ni < 128; ++ni) {
-                        uint8_t c = static_cast<uint8_t>(name[ni]);
-                        if (c == 0) break;
-                        if (c < 0x20 || c > 0x7E) { nameValid = false; break; }
-                        nameLen++;
-                    }
-                    if (!nameValid || nameLen < 2) continue;
-
-                    static char safeName[128];
-                    (void)lstrcpynA(safeName, name, sizeof(safeName));
-
-                    // Read groupName at +0x10 (may be null)
-                    uint64_t groupPtr = 0;
-                    FrostbiteConsole::safeRead64(
-                        const_cast<uint8_t*>(raw + 0x10), &groupPtr);
-
-                    // Read description at +0x18 (may be null or unreadable)
-                    static char safeDesc[256];
-                    safeDesc[0] = '\0';
+                    if (count == 0)
                     {
-                        uint64_t descPtr = 0;
-                        if (FrostbiteConsole::safeRead64(
-                            const_cast<uint8_t*>(raw + 0x18), &descPtr) &&
-                            descPtr >= 0x10000ULL)
+                        logToFile("[worker] getMethods returned 0, waiting 2s and retrying");
+                        Sleep(2000);
+                        methods = FrostbiteConsole::getMethods(count);
                         {
-                            MEMORY_BASIC_INFORMATION _descMbi{};
-                            if (VirtualQuery(reinterpret_cast<void*>(
-                                static_cast<uintptr_t>(descPtr)),
-                                &_descMbi, sizeof(_descMbi)) &&
-                                _descMbi.State == MEM_COMMIT &&
-                                !(_descMbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
-                            {
-                                const char* dp = reinterpret_cast<const char*>(
-                                    static_cast<uintptr_t>(descPtr));
-                                bool descOk = true;
-                                int dlen = 0;
-                                for (int di = 0; di < 255; ++di) {
-                                    uint8_t dc = static_cast<uint8_t>(dp[di]);
-                                    if (dc == 0) break;
-                                    if (dc < 0x20 || dc > 0x7E) { descOk = false; break; }
-                                    dlen++;
-                                }
-                                if (descOk && dlen > 0)
-                                    (void)lstrcpynA(safeDesc, dp, sizeof(safeDesc));
+                            static char retryBuf[64];
+                            wsprintfA(retryBuf, "[worker] retry getMethods count=%d", count);
+                            logToFile(retryBuf);
+                        }
+                    }
+
+                    if (methods && count > 0 && count < 100000)
+                    {
+                        // stride is not needed — name is always a raw const char* at +0x08
+
+                        static char lineBuf[512];
+                        for (int i = 0; i < count; ++i)
+                        {
+                            const FrostbiteConsole::ConsoleMethod* m = methods[i];
+                            uintptr_t mAddr = reinterpret_cast<uintptr_t>(m);
+                            if (mAddr < 0x10000 || mAddr > 0x7FFFFFFFFFFF) continue;
+
+                            // Real ConsoleMethod layout (matches Console.h exactly):
+                            //   +0x00  pfn         (void*)       — .text pointer
+                            //   +0x08  name        (const char*) — .rdata pointer
+                            //   +0x10  groupName   (const char*) — .rdata pointer, may be null
+                            //   +0x18  description (const char*) — .rdata pointer, may be null
+                            const uint8_t* raw = reinterpret_cast<const uint8_t*>(m);
+
+                            // name is a raw const char* at +0x08
+                            // May point into any module, heap, or arena — not just the exe
+                            uint64_t namePtr = 0;
+                            if (!FrostbiteConsole::safeRead64(
+                                const_cast<uint8_t*>(raw + 0x08), &namePtr)) continue;
+                            if (namePtr < 0x10000ULL) continue;
+                            // Verify readable.
+                            MEMORY_BASIC_INFORMATION _nameMbi{};
+                            if (!VirtualQuery(reinterpret_cast<void*>(static_cast<uintptr_t>(namePtr)),
+                                &_nameMbi, sizeof(_nameMbi)) ||
+                                _nameMbi.State != MEM_COMMIT ||
+                                (_nameMbi.Protect & (PAGE_NOACCESS | PAGE_GUARD))) continue;
+                            const char* name = reinterpret_cast<const char*>(static_cast<uintptr_t>(namePtr));
+
+                            // Name must start with a letter or underscore, be at least 2 chars,
+                            // and contain only printable ASCII (no parens, no hex digits as names)
+                            uint8_t c0u = static_cast<uint8_t>(name[0]);
+                            if (!isalpha(c0u) && c0u != '_') continue;
+                            if (name[1] == '\0') continue;
+                            bool nameValid = true;
+                            int nameLen = 0;
+                            for (int ni = 0; ni < 128; ++ni) {
+                                uint8_t c = static_cast<uint8_t>(name[ni]);
+                                if (c == 0) break;
+                                if (c < 0x20 || c > 0x7E) { nameValid = false; break; }
+                                nameLen++;
                             }
-                        }
-                    }
+                            if (!nameValid || nameLen < 2) continue;
 
-                    int len = 0;
-                    if (groupPtr >= 0x10000ULL)
-                    {
-                        MEMORY_BASIC_INFORMATION _grpMbi{};
-                        if (VirtualQuery(reinterpret_cast<void*>(
-                            static_cast<uintptr_t>(groupPtr)),
-                            &_grpMbi, sizeof(_grpMbi)) &&
-                            _grpMbi.State == MEM_COMMIT &&
-                            !(_grpMbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
-                        {
-                            const char* grp = reinterpret_cast<const char*>(
-                                static_cast<uintptr_t>(groupPtr));
-                            uint8_t gc0 = static_cast<uint8_t>(grp[0]);
-                            if (isalpha(gc0) || gc0 == '_')
+                            static char safeName[128];
+                            (void)lstrcpynA(safeName, name, sizeof(safeName));
+
+                            // Read groupName at +0x10 (may be null)
+                            uint64_t groupPtr = 0;
+                            FrostbiteConsole::safeRead64(
+                                const_cast<uint8_t*>(raw + 0x10), &groupPtr);
+
+                            // Read description at +0x18 (may be null or unreadable)
+                            static char safeDesc[256];
+                            safeDesc[0] = '\0';
+                            {
+                                uint64_t descPtr = 0;
+                                if (FrostbiteConsole::safeRead64(
+                                    const_cast<uint8_t*>(raw + 0x18), &descPtr) &&
+                                    descPtr >= 0x10000ULL)
+                                {
+                                    MEMORY_BASIC_INFORMATION _descMbi{};
+                                    if (VirtualQuery(reinterpret_cast<void*>(
+                                        static_cast<uintptr_t>(descPtr)),
+                                        &_descMbi, sizeof(_descMbi)) &&
+                                        _descMbi.State == MEM_COMMIT &&
+                                        !(_descMbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
+                                    {
+                                        const char* dp = reinterpret_cast<const char*>(
+                                            static_cast<uintptr_t>(descPtr));
+                                        bool descOk = true;
+                                        int dlen = 0;
+                                        for (int di = 0; di < 255; ++di) {
+                                            uint8_t dc = static_cast<uint8_t>(dp[di]);
+                                            if (dc == 0) break;
+                                            if (dc < 0x20 || dc > 0x7E) { descOk = false; break; }
+                                            dlen++;
+                                        }
+                                        if (descOk && dlen > 0)
+                                            (void)lstrcpynA(safeDesc, dp, sizeof(safeDesc));
+                                    }
+                                }
+                            }
+
+                            int len = 0;
+                            if (groupPtr >= 0x10000ULL)
+                            {
+                                MEMORY_BASIC_INFORMATION _grpMbi{};
+                                if (VirtualQuery(reinterpret_cast<void*>(
+                                    static_cast<uintptr_t>(groupPtr)),
+                                    &_grpMbi, sizeof(_grpMbi)) &&
+                                    _grpMbi.State == MEM_COMMIT &&
+                                    !(_grpMbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
+                                {
+                                    const char* grp = reinterpret_cast<const char*>(
+                                        static_cast<uintptr_t>(groupPtr));
+                                    uint8_t gc0 = static_cast<uint8_t>(grp[0]);
+                                    if (isalpha(gc0) || gc0 == '_')
+                                        len = safeDesc[0]
+                                        ? _snprintf_s(lineBuf, sizeof(lineBuf),
+                                            _TRUNCATE, "METHOD:%s.%s\t%s", grp, safeName, safeDesc)
+                                        : _snprintf_s(lineBuf, sizeof(lineBuf),
+                                            _TRUNCATE, "METHOD:%s.%s", grp, safeName);
+                                }
+                            }
+                            if (len <= 0)
                                 len = safeDesc[0]
                                 ? _snprintf_s(lineBuf, sizeof(lineBuf),
-                                    _TRUNCATE, "METHOD:%s.%s\t%s", grp, safeName, safeDesc)
+                                    _TRUNCATE, "METHOD:%s\t%s", safeName, safeDesc)
                                 : _snprintf_s(lineBuf, sizeof(lineBuf),
-                                    _TRUNCATE, "METHOD:%s.%s", grp, safeName);
+                                    _TRUNCATE, "METHOD:%s", safeName);
+                            if (len > 0)
+                                batchAppend(lineBuf, len);
                         }
                     }
-                    if (len <= 0)
-                        len = safeDesc[0]
-                        ? _snprintf_s(lineBuf, sizeof(lineBuf),
-                            _TRUNCATE, "METHOD:%s\t%s", safeName, safeDesc)
-                        : _snprintf_s(lineBuf, sizeof(lineBuf),
-                            _TRUNCATE, "METHOD:%s", safeName);
-                    if (len > 0)
-                        batchAppend(lineBuf, len);
+
+                    // Instance methods (WorldRender, audio, etc.)
+                    {
+                        int instCount = 0, instStride = 0;
+                        const uint8_t* instBase = reinterpret_cast<const uint8_t*>(
+                            FrostbiteConsole::ConsoleBridge::instance()
+                            .getInstanceMethodsBase(instCount, instStride));
+                        for (int i = 0; instBase && i < instCount; ++i) {
+                            const uint8_t* elem = instBase + i * instStride;
+                            uint64_t namePtr = 0, groupPtr = 0;
+                            if (!FrostbiteConsole::safeRead64(
+                                const_cast<uint8_t*>(elem + 0x00), &namePtr)) continue;
+                            if (namePtr < 0x10000ULL) continue;
+                            MEMORY_BASIC_INFORMATION _mbi{};
+                            if (!VirtualQuery(reinterpret_cast<void*>(
+                                static_cast<uintptr_t>(namePtr)), &_mbi, sizeof(_mbi)) ||
+                                _mbi.State != MEM_COMMIT ||
+                                (_mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD))) continue;
+                            const char* name = reinterpret_cast<const char*>(
+                                static_cast<uintptr_t>(namePtr));
+                            uint8_t c0 = static_cast<uint8_t>(name[0]);
+                            if (!isalpha(c0) && c0 != '_') continue;
+                            if (name[1] == '\0') continue;
+                            FrostbiteConsole::safeRead64(
+                                const_cast<uint8_t*>(elem + 0x08), &groupPtr);
+                            static char instLine[512];
+                            if (groupPtr >= 0x10000ULL) {
+                                const char* grp = reinterpret_cast<const char*>(
+                                    static_cast<uintptr_t>(groupPtr));
+                                _snprintf_s(instLine, sizeof(instLine), _TRUNCATE,
+                                    "METHOD:%s.%s", grp, name);
+                            }
+                            else {
+                                _snprintf_s(instLine, sizeof(instLine), _TRUNCATE,
+                                    "METHOD:%s", name);
+                            }
+                            batchAppend(instLine, lstrlenA(instLine));
+                        }
+                    }
+                    {
+                        char resTerm[32];
+                        int resLen = wsprintfA(resTerm, "RESULT:%d:", seq);
+                        batchAppend(resTerm, resLen);
+                    }
+                    batchFlush();
+                    logToFile("[worker] list done");
+                }
+                else if (lstrcmpA(cmd, "__LIST_VARS__") == 0)
+                {
+                    logToFile("[worker] handling __LIST_VARS__");
+                    batchBegin();
+                    batchAppend("VARS:0", 6);
+                    __try { cpp_listVars(); }
+                    __except (EXCEPTION_EXECUTE_HANDLER)
+                    {
+                        logHex("[worker] LIST_VARS exception=", GetExceptionCode());
+                    }
+                    {
+                        char resTerm[32];
+                        int resLen = wsprintfA(resTerm, "RESULT:%d:", seq);
+                        batchAppend(resTerm, resLen);
+                    }
+                    batchFlush();
+                    logToFile("[worker] list vars done");
+                    stopDiskLoggingOnceConfirmed();
+            }
+                else
+                {
+                    logToFile("[worker] executing:");
+                    logToFile(cmd);
+                    static char s_execCmd[64 * 1024];
+                    (void)lstrcpynA(s_execCmd, cmd, sizeof(s_execCmd));
+                    lstrcpynA(g_currentCmdText, s_execCmd, sizeof(g_currentCmdText));
+                    g_cmdExceptionLogged = 0;
+                    g_execThreadId = GetCurrentThreadId();
+                    g_expectingOutput = true;
+                    shimExecute(s_execCmd);
+                    g_expectingOutput = false;
+                    g_execThreadId = 0;
+                    // gameOutputHandler fires during shimExecute and sends OUTPUT: packets
+                    // Now send the seq-tagged RESULT: terminator
+                    pipeWriteResultTerminator(seq);
+                    logToFile("[worker] cmd done");
                 }
             }
 
-            // Instance methods (WorldRender, audio, etc.)
-            {
-                int instCount = 0, instStride = 0;
-                const uint8_t* instBase = reinterpret_cast<const uint8_t*>(
-                    FrostbiteConsole::ConsoleBridge::instance()
-                    .getInstanceMethodsBase(instCount, instStride));
-                for (int i = 0; instBase && i < instCount; ++i) {
-                    const uint8_t* elem = instBase + i * instStride;
-                    uint64_t namePtr = 0, groupPtr = 0;
-                    if (!FrostbiteConsole::safeRead64(
-                        const_cast<uint8_t*>(elem + 0x00), &namePtr)) continue;
-                    if (namePtr < 0x10000ULL) continue;
-                    MEMORY_BASIC_INFORMATION _mbi{};
-                    if (!VirtualQuery(reinterpret_cast<void*>(
-                        static_cast<uintptr_t>(namePtr)), &_mbi, sizeof(_mbi)) ||
-                        _mbi.State != MEM_COMMIT ||
-                        (_mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD))) continue;
-                    const char* name = reinterpret_cast<const char*>(
-                        static_cast<uintptr_t>(namePtr));
-                    uint8_t c0 = static_cast<uint8_t>(name[0]);
-                    if (!isalpha(c0) && c0 != '_') continue;
-                    if (name[1] == '\0') continue;
-                    FrostbiteConsole::safeRead64(
-                        const_cast<uint8_t*>(elem + 0x08), &groupPtr);
-                    static char instLine[512];
-                    if (groupPtr >= 0x10000ULL) {
-                        const char* grp = reinterpret_cast<const char*>(
-                            static_cast<uintptr_t>(groupPtr));
-                        _snprintf_s(instLine, sizeof(instLine), _TRUNCATE,
-                            "METHOD:%s.%s", grp, name);
-                    }
-                    else {
-                        _snprintf_s(instLine, sizeof(instLine), _TRUNCATE,
-                            "METHOD:%s", name);
-                    }
-                    batchAppend(instLine, lstrlenA(instLine));
-                }
-            }
-            batchAppend("RESULT:", 7);
-            batchFlush();
-            logToFile("[worker] list done");
-        }
-        else if (lstrcmpA(cmd, "__LIST_VARS__") == 0)
-        {
-            logToFile("[worker] handling __LIST_VARS__");
-            batchBegin();
-            batchAppend("VARS:0", 6);
-            __try { cpp_listVars(); }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                logHex("[worker] LIST_VARS exception=", GetExceptionCode());
-            }
-            batchAppend("RESULT:", 7);
-            batchFlush();
-            logToFile("[worker] list vars done");
-        }
-        else
-        {
-            logToFile("[worker] executing:");
-            logToFile(cmd);
-            static char s_execCmd[64 * 1024];
-            (void)lstrcpynA(s_execCmd, cmd, sizeof(s_execCmd));
-            g_expectingOutput = true;
-            shimExecute(s_execCmd);
-            g_expectingOutput = false;
-            // gameOutputHandler fires during shimExecute and sends OUTPUT: packets
-            // Now send the RESULT: terminator so the host knows execution is complete
-            static const char resultEnd[] = "RESULT:";
-            pipeWriteRaw(resultEnd, 7);
-            logToFile("[worker] cmd done");
-        }
-    }
+            logToFile("[worker] loop exited");
 
-    logToFile("[worker] loop exited");
-
-    } while (!g_proxyMode && InterlockedCompareExchange(&g_running, 1, 1) == 1);
+        } while (!g_proxyMode && InterlockedCompareExchange(&g_running, 1, 1) == 1);
+    } // !g_proxyMode
 
 worker_exit:
     // In proxy mode keep the thread alive so the overlay Present hook keeps
@@ -2240,11 +2668,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
         g_hModule = hModule;
         DisableThreadLibraryCalls(hModule);
 
-        // If loaded by our own tool process (not injected into a game),
-        // do nothing — Qt's D3D init loads dxgi.dll from the local output
-        // directory, which picks up our proxy. Without this guard every
-        // Qt startup spawns a worker thread and creates the pipe, causing
-        // ERROR_PIPE_BUSY when the real inject happens
+        // Install first (call order 1) so it sees exceptions before any
+        // other vectored/frame-based handler in the process, including the
+        // engine's own — see cmdExceptionVectoredHandler's comment
+        AddVectoredExceptionHandler(1, cmdExceptionVectoredHandler);
+
         {
             char exePath[MAX_PATH] = {};
             HMODULE mods[1] = {};
@@ -2259,10 +2687,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
 
         findGameDir();
 
-        // Proxy detection: DLL lives in the game directory = loaded as dxgi.dll proxy
-        // In proxy mode we skip the pipe entirely and run unlock+overlay standalone
-        // The InitfsTools.exe early-return above already ensures we never reach here
-        // when loaded by the tool process
+        // Proxy detection
         {
             char dllPath[MAX_PATH] = {};
             GetModuleFileNameA(hModule, dllPath, MAX_PATH);
@@ -2289,6 +2714,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
 
         logToFile("=== FBConsoleBridge DLL_PROCESS_ATTACH ===");
         logToFile(g_gameDir[0] ? g_gameDir : "(gameDir unknown)");
+        // Explicit mode marker
+        logToFile(g_proxyMode
+            ? "[DllMain] mode: PROXY (dxgi.dll loaded from game install dir — always-unlock, no host pipe wait)"
+            : "[DllMain] mode: INJECT (loaded via remote LoadLibraryA into a running process)");
 
         // Startup unlock
         // If the host wrote FBConsole_unlock.flag next to the DLL, apply both
@@ -2297,7 +2726,17 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
         //
         // Patch 1: Nop(0x140235C2E, 6) — Enable All Console Commands
         // Patch 2: Hook registerSettingsGroup to force exposeToConsole=true
+        // 
+        // Proxy mode never uses the restart-flag handshake at all — it's
+        // already unconditionally unlocked via g_suspendedForUnlock=true
+        // in the proxy-detection block above. Checking for/logging about
+        // FBConsole_unlock.flag here only makes sense for the inject flow,
+        // where the host writes that flag before killing/relaunching the
+        // game. Skip the whole check in proxy mode so the log doesn't
+        // print a misleading "no unlock flag — normal launch" line for a
+        // mechanism that was never in play to begin with
         bool flagExists = false;
+        if (!g_proxyMode)
         {
             // Locate the DLL's own directory to find the flag file
             // The DLL sits next to initfstools.exe, not in the game dir
@@ -2358,7 +2797,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
         // before the game's static initializers register any settings groups
         if (g_suspendedForUnlock)
         {
-            logToFile("[DllMain] applying unlock patches immediately at attach");
+            logToFile(g_proxyMode
+                ? "[DllMain] applying unlock patches immediately (proxy mode — always unlocked)"
+                : "[DllMain] applying unlock patches immediately at attach (post-restart unlock flag)");
             int earlyUnlock = shimApplyUnlock();
             static char earlyMsg[64];
             wsprintfA(earlyMsg, "[DllMain] early shimApplyUnlock result=%d", earlyUnlock);

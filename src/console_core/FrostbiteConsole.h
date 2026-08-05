@@ -301,7 +301,7 @@ namespace FrostbiteConsole {
         // Execute a Frostbite console command. Returns the result string
         std::string executeCommand(const char* cmd);
 
-        // Return the s_consoleMethods pointer array.
+        // Return the s_consoleMethods pointer array
         // outCount = number of valid ConsoleMethod* pointers
         const ConsoleMethod* const* getMethods(int& outCount);
 
@@ -326,6 +326,10 @@ namespace FrostbiteConsole {
 
         std::string diagnosticInfo() const { return m_diagInfo; }
 
+        // True if the most recent executeCommand() call crashed inside the
+        // game's own executeConsoleCommand (caught in FrostbiteConsole.cpp)
+        bool lastExecuteCommandCrashed() const { return m_lastExecCrashed; }
+
         void resetForReinit()
         {
             m_initDone = false;
@@ -334,6 +338,7 @@ namespace FrostbiteConsole {
             m_consoleMethodsFromAltGetter = false;
             m_consoleMethodsIsTree = false;
             m_treeMethodCache.clear();
+            m_loggedGetMethodsResolution = false;
         }
 
         // Expose resolved settings manager address and get function for DLLmain
@@ -393,8 +398,18 @@ namespace FrostbiteConsole {
 
         std::string m_diagInfo;
         bool        m_initDone = false;
+        bool        m_lastExecCrashed = false;
         bool        m_consoleMethodsFromStepA = false;
         bool        m_consoleMethodsFromAltGetter = false;  // set only by the alternate getter scan in tryResolveDynamicBF2
+
+        // Set once getMethods() successfully resolves begin/end for the
+        // current resolution — gates the "getMethods: vec=... / begin=...
+        // end=..." trace lines to fire once per resolution instead of on
+        // every single getMethods() call. getMethods() is polled every
+        // 500ms during unlock stabilization (see the poll thread in
+        // dxgi.cpp), so without this gate those two lines repeat on every
+        // poll tick for as long as the poll keeps running
+        bool        m_loggedGetMethodsResolution = false;
 
         // Unbound uses a red-black tree for s_consoleMethods instead of
         // a fixed_vector. When this flag is set, m_consoleMethodsVecAddr points
@@ -433,6 +448,7 @@ namespace FrostbiteConsole {
     inline void addOutputHandler3(OutputHandlerFn3 f) { ConsoleBridge::instance().addOutputHandler3(f); }
     inline void removeOutputHandler3(OutputHandlerFn3 f) { ConsoleBridge::instance().removeOutputHandler3(f); }
     inline std::string diagnosticInfo() { return ConsoleBridge::instance().diagnosticInfo(); }
+    inline bool lastExecuteCommandCrashed() { return ConsoleBridge::instance().lastExecuteCommandCrashed(); }
     inline bool settingsGet(const char* n, char* b, size_t l) { return ConsoleBridge::instance().settingsGet(n, b, l); }
     inline bool settingsSet(const char* n, const char* v) { return ConsoleBridge::instance().settingsSet(n, v); }
     inline void resetForReinit() { ConsoleBridge::instance().resetForReinit(); }

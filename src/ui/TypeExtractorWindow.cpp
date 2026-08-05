@@ -3453,7 +3453,7 @@ QString TypeExtractorWindow::buildTypeText(const UITypeItem& t) const
 // ============================================================
 QString TypeExtractorWindow::buildCommandsText() const
 {
-    // ---- Valid command categories (matches C# validCategories set) ----
+    // ---- Valid command categories ----
     static const QSet<QString> validCategories = {
         "AdTech","Ai","Ai2","AiAwareness","AILocoComp","AimAssist","AiMemory","AISpawnable",
         "AISpawnSystem","AITools","Amp","AmpCommerce","AnimatableMeshProxy","Animation",
@@ -3682,7 +3682,7 @@ QString TypeExtractorWindow::buildCommandsText() const
     QString out;
     QTextStream ts(&out);
     ts << "==========\n";
-    ts << "Initfs Tools v2.10 | Command Dumper\n";
+    ts << "Initfs Tools v2.15 | Command Dumper\n";
     ts << fileName << "\n";
     ts << "Generated: " << QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss") << "\n";
     ts << QString("Total Categories: %1\n").arg(catTypeLines.size());

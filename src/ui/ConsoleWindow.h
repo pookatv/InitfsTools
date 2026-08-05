@@ -51,6 +51,7 @@
 #include <QKeyEvent>
 #include <QShowEvent>
 #include <QTextCharFormat>
+#include <functional>
 
 #ifdef Q_OS_WIN
 #  include <windows.h>
@@ -85,7 +86,9 @@ public:
 
         bool connect();
         void disconnect();
-        bool sendCommand(const std::string& cmd);
+        // seq is embedded as "CMD:<seq>:<cmd>" — the DLL echoes it back on
+        // every OUTPUT:/RESULT: packet this command produces
+        bool sendCommand(const std::string& cmd, unsigned int seq);
         std::string readPacket();
         void startReading(ConsoleWindow* wnd, int silentListDepth = 0);
     };
@@ -95,6 +98,15 @@ public:
 
     // True when a ConsoleWindow is alive (prevents duplicate windows)
     static bool isOpen() { return s_instance != nullptr; }
+
+    // Runs every command in m_commandNames exactly once (in order)
+    void scanAllCommandValues(std::function<void(int, const QString&)> onValue,
+        std::function<void()> onDone,
+        std::function<void(int, const QString&)> onLateValue = nullptr);
+
+    // Aborts any scan started by scanAllCommandValues() without invoking the
+    // stored callbacks. Safe to call even if no scan is running
+    void cancelValueScan();
 
 protected:
     bool eventFilter(QObject* obj, QEvent* e) override;
@@ -113,17 +125,22 @@ private slots:
     void onInjectFinished(bool success, const QString& firstPacket);
     void onToggleUnlock();
 
+    // Fired once per command's guaranteed RESULT: terminator packet. This is
+    // the only signal a live-value scan trusts to advance — see
+    // scanAllCommandValues()/advanceValueScan() for why
+    void onValueScanResultTerminator(int seq);
+
     // Marshalled to the Qt main thread from the game's output handler
     //   isResult — true for the direct return value of executeConsoleCommand
     //   isError  — true when the tag heuristic detects an error/fatal/assert
-    void appendOutputLine(const QString& line, bool isResult, bool isError, bool isDebug = false);
+    void appendOutputLine(const QString& line, bool isResult, bool isError, bool isDebug = false, int seq = -1);
     void onMethodListReceived(const QStringList& methods, const QStringList& descs);
     void onShowCommandList(const QString& link);
 
 private:
     // UI
     void buildUi();
-    void renderLine(const QString& line, bool isResult, bool isError, bool isDebug);
+    void renderLine(const QString& line, bool isResult, bool isError, bool isDebug, const QString& timestamp);
     void rebuildLog();
 
     // Autocomplete
@@ -153,31 +170,63 @@ private:
     QString     m_targetExePath;   // persisted across inject retries
     DWORD       m_gamePid = 0;     // PID we last verified/connected to
 
-    // Set to 2 right before the silent __LIST__ / __LIST_VARS__ pair is sent
-    // on connect; decremented in onMethodListReceived() each time one of them
-    // completes. When it reaches 0, the "N console commands registered" line
-    // is printed using the real, fully-merged command count instead of the
-    // stale count baked into the READY: packet (which is captured before
-    // enumeration has actually run)
     int     m_pendingListAnnouncements = 0;
     QString m_pendingListAnnouncementPrefix;  // "[Inject]" or "[Unlock]"
 
-    // Set true right after an unlock-restart reconnect, before the command
-        // list is requested. The DLL's background poll thread keeps re-checking
-        // the unlocked command count until it stabilizes and only then sends
-        // "Commands after unlock: N" — we wait for that line before firing
-        // __LIST__/__LIST_VARS__, so the "N console commands registered" line
-        // reflects the final unlocked total instead of a transient in-progress
-        // count captured while the game was still mid-registration
+    // Set true right after an unlock-restart reconnect
     bool m_awaitingUnlockListTrigger = false;
 
     // Set true just before the deliberate pipe teardown in onToggleUnlock()
-    // (ahead of killing/restarting the game for the unlock flow), and cleared
-    // once auto-reinject either reconnects successfully or gives up. While
-    // true, PipeReaderThread's "pipe disconnected" handler skips showing the
-    // Attach-To-Process overlay, since that disconnect is expected and not
-    // a real failure — the auto-reinject logic drives the UI state instead
     bool m_suppressDisconnectOverlay = false;
+
+    // ---- Live command-value scanning ----
+    bool     m_valueScanRunning = false;
+    int      m_valueScanIndex = -1;      // index we're currently waiting to
+    // advance past
+    int      m_valueScanBaseSeq = 0;     // seq assigned to index 0 for this
+    // scan — index i is always sent as
+    // seq (m_valueScanBaseSeq + i), so
+    // any OUTPUT:/RESULT: packet maps
+    // straight back to its row via
+    // subtraction, immune to arrival
+    // order or timing
+    int      m_valueScanGeneration = 0;  // bumped on every advance/cancel so
+    // a stale watchdog can't fire late
+    bool     m_valueScanIndexResolved = false; // has the CURRENT index's
+    // terminator/watchdog fired yet —
+    // gates advancement only. Value
+    // capture is independent of this,
+    // so a value arriving after
+    // resolution still lands correctly
+    // instead of being discarded
+    std::function<void(int, const QString&)> m_valueScanOnValue;
+    std::function<void()>                    m_valueScanOnDone;
+    std::function<void(int, const QString&)> m_valueScanOnLateValue;
+    void advanceValueScan();
+
+    // Sequence counter for CMD: packets — every command sent over the pipe
+    // gets the next value, scan or not
+    unsigned int m_nextCmdSeq = 1;
+    unsigned int nextCmdSeq() { return m_nextCmdSeq++; }
+    unsigned int reserveCmdSeqBlock(unsigned int count);
+
+    // ---- Cached live-value scan results (Command List window) ----
+    QVector<QString> m_cachedValues;
+    QVector<bool>    m_cachedHasValue;
+
+    // True once the user has confirmed the "View Live Values" warning
+    bool             m_liveValuesWarningShown = false;
+
+    // True when the row resolved to an "Unknown console command" response
+    QVector<bool>    m_cachedIsUnknown;
+
+    // True when the row's command threw an engine exception
+    QVector<bool>    m_cachedHasException;
+
+    // Dedup guard for "have we captured a content line for this row yet"
+    QVector<bool>    m_cachedContentCaptured;
+    bool             m_valuesCached = false;
+    void invalidateValueCache();
 
     // Command-count label helpers
     void resetCmdCountLabel();               // "0 commands" (disconnected / no data yet)
@@ -199,6 +248,7 @@ private:
         bool    isResult;
         bool    isError;
         bool    isDebug;
+        QString timestamp; // captured once, when the line first arrived
     };
     QVector<LogEntry> m_logEntries;
 
@@ -225,6 +275,7 @@ private:
 
     QLabel* m_lblStatus = nullptr;
     QLabel* m_lblCmdCount = nullptr;
+    QDialog* m_cmdListDialog = nullptr;
 
     QCompleter* m_completer = nullptr;
     QStandardItemModel* m_complModel = nullptr;

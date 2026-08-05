@@ -37,7 +37,7 @@ int main(int argc, char* argv[])
 #endif
         QApplication app(argc, argv);
         app.setApplicationName("InitfsTools");
-        app.setApplicationVersion("2.10");
+        app.setApplicationVersion("2.15");
         app.setOrganizationName("Pooka");
 
         QStringList args;
@@ -55,7 +55,7 @@ int main(int argc, char* argv[])
 
     QApplication app(argc, argv);
     app.setApplicationName("InitfsTools");
-    app.setApplicationVersion("2.10");
+    app.setApplicationVersion("2.15");
     app.setOrganizationName("Pooka");
 
     // Detect system language and install translator - needs more work

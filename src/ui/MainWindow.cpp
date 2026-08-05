@@ -29,6 +29,7 @@
 #include <QJsonParseError>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QDirIterator>
 #include <QDialog>
 #include <QPushButton>
 #include <QFormLayout>
@@ -81,6 +82,7 @@
 #include "TypeExtractorWindow.h"
 #include "ConsoleWindow.h"
 #include "DictionaryWindow.h"
+#include "BuildInfoWindow.h"
 
 #include <fstream>
 #include <sstream>
@@ -237,23 +239,23 @@ static inline long SCIP(QsciScintilla* e, unsigned int msg, long w, const char* 
 // Startup text
 // ============================================================
 const QString MainWindow::k_startupText =
-"# Pooka's InitFS Tools v2.10 Release #\n\n"
+"# Pooka's InitFs Tools v2.15 Release #\n\n"
 "[HOW TO USE]\n\n"
-"InitFS Tools is a powerful tool that allows you to modify an InitFS file. This can be used to do the following:\n"
+"InitFs Tools is a powerful tool that allows you to modify an InitFs file. This can be used to do the following:\n"
 "• Enable new/hidden features in certain games\n"
 "• Understanding and modifying game functions such as the default loaded level\n"
 "• Understanding and modifying graphic settings across multiple platforms\n"
 "• Setting default values such as FOV, difficulty, and many more\n"
 "Need additional help? Click the 'Wiki' button found in the \"Help\" tab to learn more about using this effectively! And read below:\n\n"
 "\"File/Edit Tab + General Info\"\n\n"
-"LOAD INITFS: Click 'Load Initfs' to select an InitFS file (or click the big button)\n"
-"• All InitFS obfuscation types can be loaded\n"
-"• InitFS files from other platforms (PS, XB, etc) can also be loaded\n"
-"• Clicking this button will also automatically create a cached copy of the loaded InitFS file in the /Caches folder (don't delete!)\n\n"
-"INITFS EDITOR: Once an InitFS file has been successfully loaded, there are many things you can do to it:\n"
-"• 'Payload List' - All of the payloads inside the loaded InitFS file are shown in the left panel\n"
+"LOAD INITFS: Click 'Load Initfs' to select an InitFs file (or click the big button)\n"
+"• All InitFs obfuscation types can be loaded\n"
+"• InitFs files from other platforms (PS, XB, etc) can also be loaded\n"
+"• Loading an InitFs will also automatically create a cached copy of the chosen InitFs file in the /Caches folder (don't delete!)\n\n"
+"INITFS EDITOR: Once an InitFs file has been successfully loaded, there are many things you can do to it:\n"
+"• 'Payload List' - All of the payloads inside the loaded InitFs file are shown in the left panel\n"
 "• 'Payload Contents' - Left-click on a payload to view its contents in the right panel\n"
-"• When right-clicking on a payload on the payload list, four options will show up:\n"
+"• When right-clicking on a payload on the payload list, seven options will show up:\n"
 "     - 'Add Payload': Allows you to create a custom payload that can be saved\n"
 "     - 'Import Payload': Allows you to import contents from any file to overwrite the selected payload\n"
 "     - 'Export Payload': Allows you to export the selected payload to a chosen directory in the same file format\n"
@@ -261,26 +263,28 @@ const QString MainWindow::k_startupText =
 "     - 'Copy Payload Name': Allows you to copy the full name of the payload\n"
 "     - 'Revert Payload': Allows you to restore the selected payload back to its default state\n"
 "     - 'Remove Payload': Allows you to delete a payload from the list\n"
-"• Press the 'Ctrl' + 'F' keys to open a dialog to find or replace a specific word in the current payload or across all payloads\n"
+"• Pressing the 'Ctrl' + 'F' keys will open a dialog to find/replace a specific word in the current payload or across all payloads\n"
 "• You can add, delete, or modify any of the text inside the Payload Contents panel, which will be automatically saved in the editor\n"
 "• You can also switch between different views to your liking for both the payload list and payload contents panels\n\n"
-"SAVE INITFS: Click 'Save Initfs' to apply and write any changes to the currently loaded InitFS file\n\n"
+"SAVE INITFS: Click 'Save Initfs' to apply and write any changes to the currently loaded InitFs file\n\n"
 "SAVE INITFS AS: Click 'Save Initfs As' to apply and write any changes to a chosen directory\n"
-"• All InitFS files will be able to read the new changes properly and will launch without issues\n"
+"• All InitFs files will be able to read the new changes properly and will launch without issues\n"
 "• However, the following games are not supported as of right now:\n"
 "     - FC games on PC (check https://discord.gg/yxAbpmNaFX)\n"
 "     - Madden and College Football games on PC (check https://discord.gg/maddenmoddingcommunity and https://discord.gg/cfmc)\n\n"
-"GENERATE RAW INITFS: Click 'Generate Raw Initfs' to write the loaded InitFS file into a readable text document\n"
-"• This document will include every payload in the InitFS file, and all of its contents\n"
+"GENERATE RAW INITFS: Click 'Generate Raw Initfs' to write the loaded InitFs file into a readable text document\n"
+"• This document will include every payload in the InitFs file, and all of its contents\n"
 "• The document will also generate a header that is filled with useful information\n"
 "• Note that this is just for archiving/documenting; no game will ever be able to read a raw file\n\n"
-"RESTORE INITFS: Click 'Restore Initfs' to revert all changes made in the loaded InitFS file\n"
-"• You can either revert all changes made in the current session, or restore the InitFS file entirely from the cache\n\n"
+"CHECK BUILD INFO: Click 'Check Build Info' to see the embedded engine build information for the loaded InitFs file\n"
+"• This works on most other platforms as well (XB360/PS3 is not suppported yet, as well as a handful of newer titles)\n\n"
+"RESTORE INITFS: Click 'Restore Initfs' to revert all changes made in the loaded InitFs file\n"
+"• You can either revert all changes made in the current session, or restore the InitFs file entirely from the cache\n\n"
 "CLOSE INITFS: Click 'Close Initfs' to go back to this very homepage!\n\n"
 "\"Tools Tab\"\n\n"
-"DIFF CHECK: Click 'Diff Check' to compare all contents between one InitFS file and another (must load an InitFS file first!)\n\n"
+"DIFF CHECK: Click 'Diff Check' to compare all contents between one InitFs file and another (must load an InitFs file first!)\n\n"
 "TYPE EXTRACTOR: Click 'Type Extractor' to view all types from an EXE or FrostyEditor SDK, including all commands found in-game\n\n"
-"DICTIONARY: Click 'Dictionary' to open a window specifically designed for viewing commands and comments from multiple InitFS files\n\n"
+"DICTIONARY: Click 'Dictionary' to open a window specifically designed for viewing commands and comments from multiple InitFs files\n\n"
 "REFERENCE LIBRARY: Click 'Reference Library' to browse and view base and custom-made payloads from various titles over the years\n\n"
 "PRESET MANAGER: Click 'Preset Manager' to browse and insert user-saved presets containing sets of commands (also found in /Presets)\n\n"
 "CONSOLE INJECTOR: Click 'Console Injector' to hook into a game's console, unlocks all commands, and execute them remotely/in-game\n\n"
@@ -292,7 +296,7 @@ const QString MainWindow::k_startupText =
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
-    setWindowTitle("Initfs Tools 2.10");
+    setWindowTitle("Initfs Tools 2.15");
     resize(1400, 800);
     setWindowIcon(QIcon(":/app.ico"));
 
@@ -924,6 +928,8 @@ void MainWindow::buildMenuBar()
     m_actSaveAs->setShortcut(QKeySequence("Ctrl+Shift+S"));
     m_actGenRaw = m_menuFile->addAction(QIcon::fromTheme("document-page-setup"), "Generate Raw Initfs");
     m_actGenRaw->setShortcut(QKeySequence("Ctrl+Alt+S"));
+    m_actBuildInfo = m_menuFile->addAction(QIcon::fromTheme("document-print-preview"), "Check Build Info");
+    m_actBuildInfo->setShortcut(QKeySequence("Ctrl+Alt+B"));
     m_menuFile->addSeparator();
     m_actRestore = m_menuFile->addAction(QIcon::fromTheme("system-software-update"), "Restore Initfs");
     m_actRestore->setShortcut(QKeySequence("Ctrl+R"));
@@ -933,6 +939,7 @@ void MainWindow::buildMenuBar()
     m_actSave->setEnabled(false);
     m_actSaveAs->setEnabled(false);
     m_actGenRaw->setEnabled(false);
+    m_actBuildInfo->setEnabled(false);
     m_actRestore->setEnabled(false);
     m_actCloseInitfs->setEnabled(false);
 
@@ -940,6 +947,7 @@ void MainWindow::buildMenuBar()
     connect(m_actSave, &QAction::triggered, this, &MainWindow::onSaveInitfs);
     connect(m_actSaveAs, &QAction::triggered, this, &MainWindow::onSaveInitfsAs);
     connect(m_actGenRaw, &QAction::triggered, this, &MainWindow::onGenerateRaw);
+    connect(m_actBuildInfo, &QAction::triggered, this, &MainWindow::onCheckBuildInfo);
     connect(m_actRestore, &QAction::triggered, this, &MainWindow::onRestoreInitfs);
     connect(m_actCloseInitfs, &QAction::triggered, this, &MainWindow::onCloseInitfs);
 
@@ -1361,7 +1369,7 @@ void MainWindow::buildStatusBar()
     spring->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     sb->addWidget(spring, 1);
 
-    m_sbBrand = new QLabel("Made by Pooka - v2.10", sb);
+    m_sbBrand = new QLabel("Made by Pooka - v2.15", sb);
     m_sbBrand->setObjectName("brandLabel");
     sb->addPermanentWidget(m_sbBrand);
 }
@@ -3368,6 +3376,8 @@ void MainWindow::updateOpenWindowThemes()
             diff->applyTheme(m_darkMode);
         if (auto* con = qobject_cast<ConsoleWindow*>(w))
             con->applyTheme(m_darkMode);
+        if (auto* bi = qobject_cast<BuildInfoWindow*>(w))
+            bi->applyTheme(m_darkMode);
     }
 }
 
@@ -5207,6 +5217,7 @@ bool MainWindow::loadFileFromPath(const QString& path)
         m_actSave->setEnabled(true);
         m_actSaveAs->setEnabled(true);
         m_actGenRaw->setEnabled(true);
+        m_actBuildInfo->setEnabled(true);
         m_actRestore->setEnabled(true);
         m_actCloseInitfs->setEnabled(true);
         m_menuFilter->setEnabled(true);
@@ -5791,7 +5802,7 @@ void MainWindow::onGenerateRaw()
 
         // ---- Write header ----
         out << "==========\n";
-        out << "Initfs Tools v2.10 | Raw Initfs\n";
+        out << "Initfs Tools v2.15 | Raw Initfs\n";
         out << "----------\n";
         out << "Internal Name: " << profileDirectoryName << "\n";
         out << "Code Name (Juice): " << juiceTitleName << "\n";
@@ -6253,6 +6264,7 @@ void MainWindow::unloadCurrentInitfs()
     m_actSave->setEnabled(false);
     m_actSaveAs->setEnabled(false);
     m_actGenRaw->setEnabled(false);
+    m_actBuildInfo->setEnabled(false);
     m_actRestore->setEnabled(false);
     m_actCloseInitfs->setEnabled(false);
     m_menuFilter->setEnabled(false);
@@ -8241,6 +8253,110 @@ void MainWindow::onConsoleInjector()
     m_consoleWindow->activateWindow();
 }
 
+void MainWindow::onCheckBuildInfo()
+{
+    if (!m_buildInfoWindow) {
+        m_buildInfoWindow = new BuildInfoWindow(this, this);
+        m_buildInfoWindow->setAttribute(Qt::WA_DeleteOnClose, false);
+        connect(m_buildInfoWindow, &QObject::destroyed, this, [this]() {
+            m_buildInfoWindow = nullptr;
+            });
+        m_buildInfoWindow->applyTheme(m_darkMode);
+    }
+    m_buildInfoWindow->show();
+    m_buildInfoWindow->raise();
+    m_buildInfoWindow->activateWindow();
+
+    // Try to auto-resolve a BuildInfo-style file from the game directory —
+    // collect every candidate rather than stopping at the first hit, since
+    // titles that ship both a bin/ and x64/ copy previously had the choice
+    // made silently (whichever sorted first); now the user is asked.
+    //
+    // Covers every container type loadDll() knows how to open: Windows
+    // DLLs, PS4 .prx (bare or SCE SELF-wrapped), Switch .nrs, and plain
+    // *.BuildSettings text files — not just Engine.BuildInfo*.dll like
+    // before, which meant .prx/.nrs/.BuildSettings always missed
+    // auto-detection and fell through to the manual picker.
+    static const QStringList kBuildInfoFilters = {
+        "Engine.BuildInfo*.dll",
+        "Engine.BuildInfo*.prx",
+        "Engine.BuildInfo*.nrs",
+        "*.BuildSettings",
+    };
+
+    QStringList candidates;
+    if (!m_loadedFilePath.isEmpty())
+    {
+        QDir d(QFileInfo(m_loadedFilePath).absolutePath());
+        while (!d.isRoot())
+        {
+            if (QDir(d.filePath("Data")).exists())
+            {
+                // Recursively search this whole directory tree for any of
+                // the filters above. A plain top-level + bin/x64 check (the
+                // old approach) worked for PC's fixed layout, but PS4/Switch
+                // dumps commonly nest their BuildInfo file arbitrarily deep
+                // (e.g. under sce_sys/ or a per-title subfolder), so this
+                // walks every subdirectory instead of a fixed small set.
+                QDirIterator it(d.absolutePath(), kBuildInfoFilters,
+                    QDir::Files, QDirIterator::Subdirectories);
+                while (it.hasNext())
+                    candidates.append(it.next());
+
+                if (!candidates.isEmpty())
+                    break;
+            }
+            d.cdUp();
+        }
+    }
+
+    QString resolvedPath;
+    if (candidates.size() == 1)
+    {
+        resolvedPath = candidates.first();
+    }
+    else if (candidates.size() > 1)
+    {
+        bool ok = false;
+        QString chosen = QInputDialog::getItem(
+            this, "Select Build Info File",
+            "Multiple Build Info files were found near the loaded initfs. "
+            "Select which one to inspect:",
+            candidates, 0, false, &ok);
+        if (ok && !chosen.isEmpty())
+            resolvedPath = chosen;
+    }
+
+    if (!resolvedPath.isEmpty())
+    {
+        m_buildInfoWindow->loadDll(resolvedPath);
+        return;
+    }
+
+    // Fall back to a manual file picker
+    QString manualPath = promptForBuildInfoFile();
+    if (!manualPath.isEmpty())
+        m_buildInfoWindow->loadDll(manualPath);
+}
+
+// ============================================================
+// Build Info file prompt (manual fallback)
+// ============================================================
+QString MainWindow::promptForBuildInfoFile()
+{
+    QSettings s("Pooka", "InitfsTools");
+    QString lastDir = s.value("dirs/buildInfoDll").toString();
+
+    QString path = QFileDialog::getOpenFileName(
+        this, "Select BuildInfo File", lastDir,
+        "BuildInfo Files (Engine.BuildInfo*.dll Engine.BuildInfo*.prx Engine.BuildInfo*.nrs *.BuildSettings);;"
+        "BuildSettings Files (*.BuildSettings)");
+    if (path.isEmpty()) return QString();
+
+    s.setValue("dirs/buildInfoDll", QFileInfo(path).absolutePath());
+    return path;
+}
+
 void MainWindow::onDictionary()
 {
     if (!m_dictWindow) {
@@ -8301,7 +8417,7 @@ void MainWindow::onAbout()
     msgBox.setWindowTitle("About");
     msgBox.setIcon(QMessageBox::Information);
     msgBox.setText(
-        "Initfs Tools v2.10<br>"
+        "Initfs Tools v2.15<br>"
         "Made by Pooka and Claude<br>"
         "Written and Optimized in C++<br>"
         "<a href='https://github.com/pookatv/InitfsTools'>https://github.com/pookatv/InitfsTools</a>"
@@ -8318,7 +8434,7 @@ void MainWindow::onFind()
     if (!m_findForm || !m_findForm->isVisible())
     {
         delete m_findForm;
-        m_findForm = new FindWindow(this, this);
+        m_findForm = new FindWindow(this, nullptr);
         m_findForm->applyTheme(m_darkMode);
         m_findForm->show();
     }
@@ -8950,7 +9066,7 @@ void MainWindow::updateFooter()
     if (m_sbEditing)  m_sbEditing->setText(QString("Editing: %1").arg(editing));
     if (m_sbChanged)  m_sbChanged->setText(QString("Size Diff: %1%2").arg(m_changedCharCount > 0 ? "+" : "").arg(m_changedCharCount));
     if (m_sbSelected) m_sbSelected->setText(QString("Selected: %1").arg(getSelectedCharCount()));
-    if (m_sbBrand)    m_sbBrand->setText("Made by Pooka - v2.10");
+    if (m_sbBrand)    m_sbBrand->setText("Made by Pooka - v2.15");
 
     // Loaded File icon: folder icon
     if (m_sbLoadedIcon)

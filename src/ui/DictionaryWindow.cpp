@@ -1131,7 +1131,7 @@ bool DictionaryWindow::exportTxt(const char* path, int pathLen, int maxLineLen) 
 
     // Header
     out << "==========\n";
-    out << "Initfs Tools v2.10 | Dictionary Tool\n";
+    out << "Initfs Tools v2.15 | Dictionary Tool\n";
     out << "Shows " << m_db.commands.size() << " Frostbite console commands.\n";
     out << "Use this as a reference guide - some commands may not work for their titles.\n";
     out << "Format: <Setting> <Values> // (Value: Dev Comment) <Origin>\n";
@@ -1768,7 +1768,7 @@ QString DictionaryWindow::buildDisplayText(
 
     if (!hasCat && !hasGame && !hasYear) {
         lines.append("==========");
-        lines.append("Initfs Tools 2.10");
+        lines.append("Initfs Tools 2.15");
         lines.append(QString("Shows %1 Frostbite console commands in %2 different titles, and %3 graphic setting categories.")
             .arg(m_db.commands.size())
             .arg(m_graphicsMap.size())

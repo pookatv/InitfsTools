@@ -6,6 +6,7 @@
 #include "TypeExtractorWindow.h"
 #include "DictionaryWindow.h"
 #include "ConsoleWindow.h"
+#include "BuildInfoWindow.h"
 
 #include <QApplication>
 #include <QScreen>
@@ -22,8 +23,13 @@ Initializer::Initializer(QWidget* parent)
 {
     setAttribute(Qt::WA_DeleteOnClose);
 
-    // Total steps: MainWindow + 6 tool windows + applyTheme/reposition = 8
-    m_stepCount = 8;
+    // Total steps: MainWindow + 7 tool windows + applyTheme/reposition = 9
+    m_stepCount = 9;
+
+    // Loaded once up front — a null/invalid pixmap here just means
+    // paintEvent falls back to the flat dark fill, so a missing resource
+    // never crashes or blanks the panel
+    m_background = QPixmap(QStringLiteral(":/images/initializer_bg.png"));
 
     buildUi();
 
@@ -49,7 +55,7 @@ void Initializer::buildUi()
     m_lblTitle->adjustSize();
 
     // ---- Version label just below title ----
-    QLabel* lblVersion = new QLabel("v2.10", this);
+    QLabel* lblVersion = new QLabel("v2.15", this);
     QFont verFont("Segoe UI", 13, QFont::Light);
     lblVersion->setFont(verFont);
     lblVersion->setStyleSheet("color: #888888; background: transparent;");
@@ -93,12 +99,42 @@ void Initializer::buildUi()
 }
 
 // ============================================================
-// paintEvent — solid dark background
+// paintEvent — splash photo background + text-legibility gradient
 // ============================================================
 void Initializer::paintEvent(QPaintEvent*)
 {
     QPainter p(this);
-    p.fillRect(rect(), QColor(0x16, 0x16, 0x16));
+    p.setRenderHint(QPainter::SmoothPixmapTransform, true);
+
+    if (!m_background.isNull())
+    {
+        // Scale to cover the full widget
+        QPixmap scaled = m_background.scaled(
+            size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+
+        const int srcX = (scaled.width() - width()) / 2;
+        const int srcY = (scaled.height() - height()) / 2;
+
+        p.drawPixmap(rect(), scaled, QRect(srcX, srcY, width(), height()));
+    }
+    else
+    {
+        // Fallback if the resource failed to load
+        p.fillRect(rect(), QColor(0x16, 0x16, 0x16));
+    }
+
+    // Dark-to-transparent gradient over the left ~60% of the panel
+    QLinearGradient grad(0, 0, width() * 0.65, 0);
+    grad.setColorAt(0.0, QColor(0, 0, 0, 190));
+    grad.setColorAt(1.0, QColor(0, 0, 0, 0));
+    p.fillRect(rect(), grad);
+
+    // Subtle overall darken + bottom vignette so the status bar/progress
+    // bar area at the very bottom also stays legible against a bright photo
+    QLinearGradient bottomGrad(0, height() * 0.6, 0, height());
+    bottomGrad.setColorAt(0.0, QColor(0, 0, 0, 0));
+    bottomGrad.setColorAt(1.0, QColor(0, 0, 0, 160));
+    p.fillRect(rect(), bottomGrad);
 }
 
 // ============================================================
@@ -190,6 +226,15 @@ void Initializer::runNextStep()
         break;
 
     case 8:
+        setStatus("Loading build info inspector...");
+        if (!m_main->m_buildInfoWindow) {
+            m_main->m_buildInfoWindow = new BuildInfoWindow(m_main, m_main);
+            m_main->m_buildInfoWindow->setAttribute(Qt::WA_DeleteOnClose, false);
+            m_main->m_buildInfoWindow->applyTheme(m_main->m_darkMode);
+        }
+        break;
+
+    case 9:
         setStatus("Applying theme...");
         m_main->applyCurrentTheme();
         m_main->repositionLaunchButton();

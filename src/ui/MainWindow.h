@@ -409,6 +409,7 @@ class ReferenceLibWindow;
 class PresetWindow;
 class TypeExtractorWindow;
 class ConsoleWindow;
+class BuildInfoWindow;
 class Initializer;
 class LinkPopup;
 
@@ -498,6 +499,7 @@ private slots:
     void onSaveInitfs();
     void onSaveInitfsAs();
     void onGenerateRaw();
+    void onCheckBuildInfo();
     void onRestoreInitfs();
     void onCloseInitfs();
     void onExit();
@@ -672,6 +674,9 @@ private:
     // ---- AES key prompt ----
     bool promptForAesKey(QByteArray& outKey);
 
+    // ---- Build Info file prompt ----
+    QString promptForBuildInfoFile();
+
     // ---- Search helpers ----
     bool isWholeWord(const QString& text, int index, int length) const;
 
@@ -745,6 +750,7 @@ private:
     QAction* m_actSave = nullptr;
     QAction* m_actSaveAs = nullptr;
     QAction* m_actGenRaw = nullptr;
+    QAction* m_actBuildInfo = nullptr;
     QAction* m_actRestore = nullptr;
     QAction* m_actCloseInitfs = nullptr;
     QAction* m_actExit = nullptr;
@@ -914,6 +920,7 @@ private:
     DictionaryWindow* m_dictWindow = nullptr;
     TypeExtractorWindow* m_typeExtractorWindow = nullptr;
     ConsoleWindow* m_consoleWindow = nullptr;
+    BuildInfoWindow* m_buildInfoWindow = nullptr;
     bool                 m_recentFilesLoaded = false;
 
     // Scintilla style indices

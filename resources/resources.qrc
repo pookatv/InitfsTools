@@ -3,6 +3,14 @@
     <qresource prefix="/">
         <file>app.ico</file>
     </qresource>
+    <qresource prefix="/images">
+        <file>initializer_bg.png</file>
+    </qresource>
+    <qresource prefix="/buildinfo">
+        <file alias="Frost2.png">icons/buildinfo/Frost2.png</file>
+        <file alias="Frost3.png">icons/buildinfo/Frost3.png</file>
+        <file alias="Frost4.png">icons/buildinfo/Frost4.png</file>
+    </qresource>
     <qresource prefix="/platforms">
         <file>icons/platforms/Windows.png</file>
         <file>icons/platforms/PS3.png</file>

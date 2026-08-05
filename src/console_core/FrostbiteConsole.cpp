@@ -2127,7 +2127,8 @@ namespace FrostbiteConsole {
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER) {
-            FC_Log("executeCommand: EXCEPTION 0x%08X cmd='%s'",
+            // "##CMDCRASH##" prefix — detected by logToFile() in dxgi.cpp
+            FC_Log("##CMDCRASH##executeCommand: EXCEPTION 0x%08X cmd='%s'",
                 GetExceptionCode(), cmd ? cmd : "null");
             return false;
         }
@@ -2175,36 +2176,42 @@ __declspec(noinline) static bool shimEnqueueCmd(
         }
     }
 
-    std::string ConsoleBridge::executeCommand(const char* cmd)
-    {
-        if (!cmd) return {};
+std::string ConsoleBridge::executeCommand(const char* cmd)
+{
+    m_lastExecCrashed = false;
 
-        // BF6 queue-based path: enqueue the command and return immediately
-        // The game drains the queue on its own thread; no return value is available
-        if (m_enqueueCmd) {
-            shimEnqueueCmd(m_enqueueCmd, cmd);
-            return {};
-        }
+    if (!cmd) return {};
 
-        if (!m_execCmd) return {};
-
-        EastlString ret{};
-        memset(&ret, 0, sizeof(ret));
-        ret.isBF2Layout = m_bf2StringLayout;
-
-        if (!m_bf2StringLayout) {
-            ret.raw[0x0F] = 15;
-        }
-
-        if (!shimExecCmd(m_execCmd, &ret, cmd))
-            return {};
-
-        char resultBuf[4096];
-        size_t resultSize = 0;
-        shimExtractResult(&ret, resultBuf, sizeof(resultBuf), &resultSize);
-        if (resultSize == 0) return {};
-        return std::string(resultBuf, resultSize);
+    // BF6 queue-based path: enqueue the command and return immediately
+    // The game drains the queue on its own thread; no return value is available
+    // (queue-based dispatch doesn't go through shimExecCmd, so a failure
+    // here never sets m_lastExecCrashed — there's nothing to catch)
+    if (m_enqueueCmd) {
+        shimEnqueueCmd(m_enqueueCmd, cmd);
+        return {};
     }
+
+    if (!m_execCmd) return {};
+
+    EastlString ret{};
+    memset(&ret, 0, sizeof(ret));
+    ret.isBF2Layout = m_bf2StringLayout;
+
+    if (!m_bf2StringLayout) {
+        ret.raw[0x0F] = 15;
+    }
+
+    if (!shimExecCmd(m_execCmd, &ret, cmd)) {
+        m_lastExecCrashed = true;
+        return {};
+    }
+
+    char resultBuf[4096];
+    size_t resultSize = 0;
+    shimExtractResult(&ret, resultBuf, sizeof(resultBuf), &resultSize);
+    if (resultSize == 0) return {};
+    return std::string(resultBuf, resultSize);
+}
 
     // walkConsoleTree — in-order RB-tree traversal
     /*static*/ void ConsoleBridge::walkConsoleTree(uint8_t* node, uint8_t* root,
@@ -2305,8 +2312,8 @@ __declspec(noinline) static bool shimEnqueueCmd(
         }
 
         // Standard fixed_vector path (all other games)
-        // BFN and similar titles leave s_consoleMethods empty and register
-        // all commands via s_instanceMethods instead.  Fall back to it when
+        // Some titles leave s_consoleMethods empty and register
+        // all commands via s_instanceMethods instead. Fall back to it when
         // consoleMethods is absent or empty
         void* vecAddr = m_consoleMethodsVecAddr;
         if (vecAddr) {
@@ -2333,9 +2340,10 @@ __declspec(noinline) static bool shimEnqueueCmd(
         for (int i = 0; i < 8; ++i)
             safeRead64(vec + i * 8, &candidates[i]);
 
-        FC_Log("getMethods: vec=%p +00=%p +08=%p +10=%p +18=%p",
-            vec, (void*)candidates[0], (void*)candidates[1],
-            (void*)candidates[2], (void*)candidates[3]);
+        if (!m_loggedGetMethodsResolution)
+            FC_Log("getMethods: vec=%p +00=%p +08=%p +10=%p +18=%p",
+                vec, (void*)candidates[0], (void*)candidates[1],
+                (void*)candidates[2], (void*)candidates[3]);
 
         uint64_t begin = 0, end_ = 0;
         for (int i = 0; i < 7 && begin == 0; ++i) {
@@ -2347,10 +2355,14 @@ __declspec(noinline) static bool shimEnqueueCmd(
                 if (diff == 0 || diff > 512 * 1024 || diff % 8 != 0) continue;
                 if (!isReadable(reinterpret_cast<void*>(static_cast<uintptr_t>(b)))) continue;
                 begin = b; end_ = e;
-                FC_Log("getMethods: begin=%p end=%p", (void*)b, (void*)e);
+                if (!m_loggedGetMethodsResolution)
+                    FC_Log("getMethods: begin=%p end=%p", (void*)b, (void*)e);
                 break;
             }
         }
+
+        if (begin && end_)
+            m_loggedGetMethodsResolution = true;
 
         if (!begin || !end_) {
             FC_Log("getMethods: could not find valid begin/end");
