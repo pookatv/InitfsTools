@@ -18,6 +18,10 @@ Note: If an InitFs file asks you for an AES key, I will not provide it. A quick 
 <img width="2100" height="1240" src="./docs/assets/showcase.webp" />
 
 ## TODO:
+- Revert the InitFs file automatically after reverting the AC patcher
+- Fix console overlay not properly appearing in newer 2022+ games (Console Injector)
+- Fix unlock all commands logic for newer 2022+ games (Console Injector)
+- Fix command output handling for some games (Console Injector)
 - Fix Dingo mode logic as it's incorrect and needs proper polishing (Type Extractor)
 - Implement PGA Tour support (Type Extractor)
 - Implement Battlefield Hardline support (Type Extractor)
@@ -27,6 +31,9 @@ Note: If an InitFs file asks you for an AES key, I will not provide it. A quick 
 - Finish InitfsTools Wiki (help wanted!)
 - Implement localization support for the UI
 - Implement "GoTo" default commands
+- Implement tab system
+- Implement back/forward arrow system
+- Implement "Add ApplySettings Block" option
 
 ## Credits
 - Pookatv - Project lead
