@@ -1,6 +1,8 @@
 #include <QApplication>
 #include <QFont>
 #include <QStringList>
+#include <QFileInfo>
+#include <QCoreApplication>
 #include "Initializer.h"
 #include "CliRunner.h"
 //#include "language/RuntimeTranslator.h"
@@ -58,14 +60,31 @@ int main(int argc, char* argv[])
     app.setApplicationVersion("2.15");
     app.setOrganizationName("Pooka");
 
+    // Capture a file passed via double-click / "Open with" / drag onto the
+    // exe icon. Every initfs file is literally named starting with
+    // "initfs" (no extension), so match on that the same way the in-app
+    // drag-and-drop handler does.
+    QString startupFilePath;
+    {
+        const QStringList cliArgs = QCoreApplication::arguments();
+        if (cliArgs.size() > 1)
+        {
+            QFileInfo info(cliArgs.at(1));
+            if (info.exists() && info.isFile() &&
+                info.fileName().startsWith("initfs", Qt::CaseInsensitive))
+            {
+                startupFilePath = info.absoluteFilePath();
+            }
+        }
+    }
+
     // Detect system language and install translator - needs more work
     // RuntimeTranslator* translator = RuntimeTranslator::instance();
     // translator->install(&app);
-
     // Translation fetch happens inside Initializer if needed
-
     Initializer* init = new Initializer();
+    if (!startupFilePath.isEmpty())
+        init->setPendingFileToLoad(startupFilePath);
     init->show();
-
     return app.exec();
 }

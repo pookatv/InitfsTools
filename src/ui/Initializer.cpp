@@ -247,7 +247,8 @@ void Initializer::runNextStep()
     if (m_step < m_stepCount) {
         // Post next step to keep the event loop free to repaint
         QTimer::singleShot(0, this, [this] { runNextStep(); });
-    } else {
+    }
+    else {
         // All done — hand off to MainWindow
         m_progress->setValue(m_stepCount);
         setStatus("Ready.");
@@ -255,6 +256,20 @@ void Initializer::runNextStep()
 
         emit finished();
         m_main->show();
+
+        // If a file was passed on the command line (double-click / "Open
+        // with" / drag onto the exe icon), load it now that MainWindow is
+        // fully constructed and visible. Deferred one tick so the window
+        // is actually on screen before any load-progress dialogs pop up.
+        if (!m_pendingFileToLoad.isEmpty())
+        {
+            QString path = m_pendingFileToLoad;
+            MainWindow* mw = m_main;
+            QTimer::singleShot(0, mw, [mw, path]() {
+                mw->loadFileFromPath(path);
+                });
+        }
+
         close();
     }
 }
