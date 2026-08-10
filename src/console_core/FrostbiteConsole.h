@@ -135,14 +135,67 @@ namespace FrostbiteConsole {
     //   total = 32 bytes; size = mpEnd - mpBegin; no SSO
     //
     // The buffer is allocated at 256 bytes so either layout fits safely
-    struct EastlString {
+struct EastlString {
         uint8_t raw[256];
 
-        // Set by executeCommand() before calling the game fn
+        // Set by executeCommand() before calling the game fn — kept only as
+        // a fallback hint now. Some titles (e.g. Veilguard) get flagged as
+        // BF2-family by the output-handler/addHandler ABI probe, but still
+        // return SHORT results via SSO-inline eastl::string storage rather
+        // than the pure 3-pointer heap layout that flag implies. Trusting
+        // it unconditionally caused c_str()/size() to reinterpret inline
+        // ASCII text (e.g. "false") as a heap pointer, crashing on the
+        // resulting garbage address. detectLayout logic below inspects the
+        // actual bytes at runtime instead, and only falls back to this hint
+        // when detection is genuinely ambiguous.
         bool isBF2Layout = false;
 
+    private:
+        // True if `raw` looks like valid inline SSO character data: the
+        // sentinel byte's high bit is clear AND the leading bytes (up to a
+        // NUL or 15 chars) are all printable ASCII. Real heap pointer bytes
+        // essentially never produce several consecutive printable-ASCII
+        // bytes by chance, so this is a reliable discriminator.
+        bool looksLikeInlineSSO() const {
+            if (raw[0x0F] & 0x80) return false; // sentinel says heap-backed
+            for (int i = 0; i < 15; ++i) {
+                uint8_t c = raw[i];
+                if (c == 0) break;
+                if (c < 0x20 || c > 0x7E) return false;
+            }
+            return true; // all-zero (empty string) also counts as valid SSO
+        }
+
+        // True if `raw` looks like a valid 3-pointer heap string: begin <=
+        // end <= capacity, begin is a plausible user-mode pointer, and the
+        // implied size is sane.
+        bool looksLikeHeapLayout() const {
+            const char* begin = *reinterpret_cast<const char* const*>(raw);
+            const char* end   = *reinterpret_cast<const char* const*>(raw + 0x08);
+            const char* cap   = *reinterpret_cast<const char* const*>(raw + 0x10);
+            uintptr_t b = reinterpret_cast<uintptr_t>(begin);
+            uintptr_t e = reinterpret_cast<uintptr_t>(end);
+            uintptr_t c = reinterpret_cast<uintptr_t>(cap);
+            if (b < 0x10000ULL || b > 0x00007FFFFFFFFFFFULL) return false;
+            if (e < b || c < e) return false;
+            if ((e - b) > (64 * 1024 * 1024)) return false;
+            return true;
+        }
+
+        // Resolves the layout for THIS object's current contents, preferring
+        // whichever interpretation is structurally valid. Falls back to the
+        // isBF2Layout hint only when both or neither validate.
+        bool resolvedIsHeapLayout() const {
+            bool sso  = looksLikeInlineSSO();
+            bool heap = looksLikeHeapLayout();
+            if (sso && !heap)  return false;
+            if (heap && !sso)  return true;
+            return isBF2Layout; // ambiguous — trust the hint
+        }
+
+    public:
         const char* c_str() const {
-            if (isBF2Layout) {
+            if (resolvedIsHeapLayout()) {
                 const char* ptr = *reinterpret_cast<const char* const*>(raw);
                 if (!ptr || reinterpret_cast<uintptr_t>(ptr) < 0x10000ULL) return "";
                 return ptr;
@@ -154,7 +207,7 @@ namespace FrostbiteConsole {
         }
 
         size_t size() const {
-            if (isBF2Layout) {
+            if (resolvedIsHeapLayout()) {
                 const char* begin = *reinterpret_cast<const char* const*>(raw);
                 const char* end = *reinterpret_cast<const char* const*>(raw + 0x08);
                 if (!begin || !end || end < begin) return 0;

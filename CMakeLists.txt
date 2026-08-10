@@ -266,7 +266,7 @@ if(MSVC)
         /utf-8
         /EHa
         # Dial back Release optimization aggressiveness to avoid false positives
-        $<$<CONFIG:Release>:/Od>
+        $<$<CONFIG:Release>:/O2>
     )
     set_target_properties(FBConsoleBridge PROPERTIES
         MSVC_RUNTIME_LIBRARY "MultiThreaded"

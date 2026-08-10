@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #define FB_CONSOLE_OVERLAY_DLL_BUILD
+#include <dxgi1_2.h>
 #include <windows.h>
 #include <psapi.h>
 #include <tlhelp32.h>
@@ -24,6 +25,154 @@
 // executable's name and skip this entirely
 
 static HMODULE g_hRealDxgi = nullptr;
+
+// ── Swap-chain capture ────────────────────────────────────────────────────
+// Because this DLL IS dxgi.dll, every CreateDXGIFactory* call the game makes
+// passes through us first. We hook the returned factory's CreateSwapChain /
+// CreateSwapChainForHwnd once, so we capture the real swap chain the instant
+// it's created — instead of scanning gigabytes of process memory afterward
+// and calling QueryInterface on speculative pointers (which was corrupting
+// unrelated heap memory and crashing the game a few seconds later).
+IDXGISwapChain* g_capturedSwapChain = nullptr;   // not static — read by ConsoleOverlay.cpp
+IUnknown* g_capturedSwapChainDevice = nullptr; // not static — read by ConsoleOverlay.cpp
+// The "device" parameter passed to CreateSwapChain/CreateSwapChainForHwnd.
+// For D3D12 titles DXGI REQUIRES this to be the ID3D12CommandQueue the
+// swap chain presents on — capturing it here means the overlay never
+// needs to scan the process address space looking for the queue.
+static CRITICAL_SECTION g_swapChainCaptureCS;
+static bool g_swapChainCaptureCSInit = false;
+
+static void ensureSwapChainCaptureCS()
+{
+    if (!g_swapChainCaptureCSInit)
+    {
+        InitializeCriticalSection(&g_swapChainCaptureCS);
+        g_swapChainCaptureCSInit = true;
+    }
+}
+
+using tCreateSwapChain = HRESULT(__stdcall*)(IDXGIFactory*, IUnknown*,
+    DXGI_SWAP_CHAIN_DESC*, IDXGISwapChain**);
+using tCreateSwapChainForHwnd = HRESULT(__stdcall*)(IDXGIFactory2*, IUnknown*, HWND,
+    const DXGI_SWAP_CHAIN_DESC1*, const DXGI_SWAP_CHAIN_FULLSCREEN_DESC*,
+    IDXGIOutput*, IDXGISwapChain1**);
+
+static tCreateSwapChain        g_origCreateSwapChain = nullptr;
+static tCreateSwapChainForHwnd g_origCreateSwapChainForHwnd = nullptr;
+
+static void captureSwapChain(IDXGISwapChain* sc, IUnknown* device)
+{
+    if (!sc) return;
+    ensureSwapChainCaptureCS();
+    EnterCriticalSection(&g_swapChainCaptureCS);
+    if (g_capturedSwapChain) g_capturedSwapChain->Release();
+    g_capturedSwapChain = sc;
+    g_capturedSwapChain->AddRef();
+
+    if (g_capturedSwapChainDevice) g_capturedSwapChainDevice->Release();
+    g_capturedSwapChainDevice = device;
+    if (g_capturedSwapChainDevice) g_capturedSwapChainDevice->AddRef();
+
+    LeaveCriticalSection(&g_swapChainCaptureCS);
+}
+
+// Called immediately before every real CreateSwapChain/CreateSwapChainForHwnd
+// call, i.e. once per swap chain creation including the very first one
+// (where everything below is a harmless no-op). If a swap chain already
+// exists from a previous creation, this drops OUR outstanding references to
+// it — both the proxy's own AddRef in g_capturedSwapChain and the overlay's
+// D3D12 back-buffer/RTV references — before the real DXGI call runs.
+//
+// This matters because DXGI returns E_ACCESSDENIED from CreateSwapChain*
+// when creating a replacement swap chain for a window/output that still has
+// live references to the swap chain (or its buffers) it's replacing. We used
+// to release g_capturedSwapChain only AFTER a new one was successfully
+// captured, and never released the overlay's back-buffer refs at all outside
+// of ResizeBuffers/shutdown — so on any full swap-chain recreate (e.g. an
+// exclusive-fullscreen/display-mode change, as opposed to a resize) the real
+// call failed before we ever got a chance to swap references.
+static void releaseCapturedSwapChainForRecreate()
+{
+    ConsoleOverlay::releaseSwapChainResourcesForRecreate();
+
+    ensureSwapChainCaptureCS();
+    EnterCriticalSection(&g_swapChainCaptureCS);
+    if (g_capturedSwapChain)
+    {
+        g_capturedSwapChain->Release();
+        g_capturedSwapChain = nullptr;
+    }
+    if (g_capturedSwapChainDevice)
+    {
+        g_capturedSwapChainDevice->Release();
+        g_capturedSwapChainDevice = nullptr;
+    }
+    LeaveCriticalSection(&g_swapChainCaptureCS);
+}
+
+static HRESULT __stdcall hookedCreateSwapChain(IDXGIFactory* self, IUnknown* device,
+    DXGI_SWAP_CHAIN_DESC* desc, IDXGISwapChain** ppSwapChain)
+{
+    releaseCapturedSwapChainForRecreate();
+    HRESULT hr = g_origCreateSwapChain(self, device, desc, ppSwapChain);
+    if (SUCCEEDED(hr) && ppSwapChain && *ppSwapChain)
+        captureSwapChain(*ppSwapChain, device);
+    return hr;
+}
+
+static HRESULT __stdcall hookedCreateSwapChainForHwnd(IDXGIFactory2* self, IUnknown* device,
+    HWND hwnd, const DXGI_SWAP_CHAIN_DESC1* desc,
+    const DXGI_SWAP_CHAIN_FULLSCREEN_DESC* fsDesc,
+    IDXGIOutput* restrictOutput, IDXGISwapChain1** ppSwapChain)
+{
+    releaseCapturedSwapChainForRecreate();
+    HRESULT hr = g_origCreateSwapChainForHwnd(self, device, hwnd, desc, fsDesc,
+        restrictOutput, ppSwapChain);
+    if (SUCCEEDED(hr) && ppSwapChain && *ppSwapChain)
+        captureSwapChain(*ppSwapChain, device); // IDXGISwapChain1* is-a IDXGISwapChain*
+    return hr;
+}
+
+// Patches CreateSwapChain (vtable slot 10 — present on every IDXGIFactory
+// version since it's inherited, never overridden) and, if the factory
+// implements IDXGIFactory2, CreateSwapChainForHwnd (slot 15 — the flip-model
+// path virtually all D3D12 games use). Safe to call multiple times; each
+// hook only installs once.
+static void hookFactorySwapChainCreation(void* factory)
+{
+    if (!factory) return;
+    void** vtable = *reinterpret_cast<void***>(factory);
+
+    if (!g_origCreateSwapChain)
+    {
+        DWORD oldProt = 0;
+        if (VirtualProtect(&vtable[10], sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProt))
+        {
+            g_origCreateSwapChain = reinterpret_cast<tCreateSwapChain>(vtable[10]);
+            vtable[10] = reinterpret_cast<void*>(&hookedCreateSwapChain);
+            VirtualProtect(&vtable[10], sizeof(void*), oldProt, &oldProt);
+            FlushInstructionCache(GetCurrentProcess(), &vtable[10], sizeof(void*));
+        }
+    }
+
+    if (!g_origCreateSwapChainForHwnd)
+    {
+        IDXGIFactory2* fac2 = nullptr;
+        if (SUCCEEDED(reinterpret_cast<IUnknown*>(factory)->QueryInterface(
+            __uuidof(IDXGIFactory2), reinterpret_cast<void**>(&fac2))) && fac2)
+        {
+            DWORD oldProt = 0;
+            if (VirtualProtect(&vtable[15], sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProt))
+            {
+                g_origCreateSwapChainForHwnd = reinterpret_cast<tCreateSwapChainForHwnd>(vtable[15]);
+                vtable[15] = reinterpret_cast<void*>(&hookedCreateSwapChainForHwnd);
+                VirtualProtect(&vtable[15], sizeof(void*), oldProt, &oldProt);
+                FlushInstructionCache(GetCurrentProcess(), &vtable[15], sizeof(void*));
+            }
+            fac2->Release();
+        }
+    }
+}
 
 // Cached function pointers — resolved once in loadRealDxgiDll()
 static HRESULT(__stdcall* g_fn_CreateDXGIFactory)(REFIID, void**) = nullptr;
@@ -68,17 +217,32 @@ extern "C"
 {
     HRESULT __stdcall proxyCreateDXGIFactory(REFIID riid, void** ppFactory)
     {
-        loadRealDxgiDll(); return g_fn_CreateDXGIFactory ? g_fn_CreateDXGIFactory(riid, ppFactory) : E_FAIL;
+        loadRealDxgiDll();
+        if (!g_fn_CreateDXGIFactory) return E_FAIL;
+        HRESULT hr = g_fn_CreateDXGIFactory(riid, ppFactory);
+        if (SUCCEEDED(hr) && ppFactory && *ppFactory)
+            hookFactorySwapChainCreation(*ppFactory);
+        return hr;
     }
 
     HRESULT __stdcall proxyCreateDXGIFactory1(REFIID riid, void** ppFactory)
     {
-        loadRealDxgiDll(); return g_fn_CreateDXGIFactory1 ? g_fn_CreateDXGIFactory1(riid, ppFactory) : E_FAIL;
+        loadRealDxgiDll();
+        if (!g_fn_CreateDXGIFactory1) return E_FAIL;
+        HRESULT hr = g_fn_CreateDXGIFactory1(riid, ppFactory);
+        if (SUCCEEDED(hr) && ppFactory && *ppFactory)
+            hookFactorySwapChainCreation(*ppFactory);
+        return hr;
     }
 
     HRESULT __stdcall proxyCreateDXGIFactory2(UINT flags, REFIID riid, void** ppFactory)
     {
-        loadRealDxgiDll(); return g_fn_CreateDXGIFactory2 ? g_fn_CreateDXGIFactory2(flags, riid, ppFactory) : E_FAIL;
+        loadRealDxgiDll();
+        if (!g_fn_CreateDXGIFactory2) return E_FAIL;
+        HRESULT hr = g_fn_CreateDXGIFactory2(flags, riid, ppFactory);
+        if (SUCCEEDED(hr) && ppFactory && *ppFactory)
+            hookFactorySwapChainCreation(*ppFactory);
+        return hr;
     }
 
     HRESULT __stdcall proxyDXGIGetDebugInterface1(UINT flags, REFIID riid, void** ppDebug)
@@ -138,12 +302,18 @@ static DWORD   g_execThreadId = 0;
 static volatile LONG g_cmdExceptionLogged = 0;
 
 // True while FBConsoleBridge_log.txt disk writes are active
-extern bool g_enableDiskLog = false;
+extern bool g_enableDiskLog = true;
 
 static bool    g_suspendedForUnlock = false;
 static bool    g_proxyMode = false;
 static volatile bool g_unlockPollStable = false;
 static int     g_baselineCommandCount = 0;
+
+// Set once __LIST__ returns a non-empty method count. LIST_VARS is a
+// separate, flakier discovery path (walks the settings-manager hash map
+// instead of s_consoleMethods) — once LIST has proven it works, there's no
+// reason to also pay for the settings-manager walk on every session
+static volatile bool g_listVarsSkippable = false;
 
 // Sequence ID protocol
 static volatile LONG g_currentCmdSeq = -1;
@@ -385,6 +555,45 @@ static void pipeWriteResultTerminator(int seq)
     pipeWriteRaw(buf, (uint32_t)len);
 }
 
+// Suspends every thread in the current process except selfTid. Used to
+// freeze the game while patches are applied or memory is scanned so its
+// state doesn't shift mid-operation. Pair with thawAllThreadsExcept().
+static void freezeAllThreadsExcept(DWORD selfTid)
+{
+    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if (hSnap == INVALID_HANDLE_VALUE) return;
+    THREADENTRY32 te{};
+    te.dwSize = sizeof(te);
+    if (Thread32First(hSnap, &te))
+    {
+        do {
+            if (te.th32ThreadID == selfTid) continue;
+            if (te.th32OwnerProcessID != GetCurrentProcessId()) continue;
+            HANDLE hT = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID);
+            if (hT) { SuspendThread(hT); CloseHandle(hT); }
+        } while (Thread32Next(hSnap, &te));
+    }
+    CloseHandle(hSnap);
+}
+
+static void thawAllThreadsExcept(DWORD selfTid)
+{
+    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if (hSnap == INVALID_HANDLE_VALUE) return;
+    THREADENTRY32 te{};
+    te.dwSize = sizeof(te);
+    if (Thread32First(hSnap, &te))
+    {
+        do {
+            if (te.th32ThreadID == selfTid) continue;
+            if (te.th32OwnerProcessID != GetCurrentProcessId()) continue;
+            HANDLE hT = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID);
+            if (hT) { ResumeThread(hT); CloseHandle(hT); }
+        } while (Thread32Next(hSnap, &te));
+    }
+    CloseHandle(hSnap);
+}
+
 // Batch buffer — accumulates lines during LIST/LIST_VARS, flushed once at end
 static char  g_batchBuf[4 * 1024 * 1024]; // 4 MB
 static int   g_batchLen = 0;
@@ -517,6 +726,54 @@ __declspec(noinline) static void cpp_execute(const char* cmd)
 __declspec(noinline) static void cpp_addHandler()
 {
     logToFile("[cpp] calling addOutputHandler");
+
+    // Prefer direct vector insertion whenever a valid s_outputHandlers
+    // address was resolved. Some titles (e.g. Veilguard) dispatch console
+    // output by iterating s_outputHandlers inline inside
+    // executeConsoleCommand itself, never calling through writeConsoleFunc
+    // at all -- so the hook-based addOutputHandler3 path silently does
+    // nothing on those titles even though it logs "addHandler OK".
+    // Confirmed via x64dbg: s_outputHandlers mpBegin/mpEnd were both 0 at
+    // the point of dispatch, and a breakpoint on writeConsoleFunc's own
+    // entry point never hit during command execution. Direct insertion
+    // writes straight into the vector the game actually reads from, so it
+    // works regardless of whether writeConsoleFunc is ever called.
+    //
+    // IMPORTANT: this branch must respect slot ownership exactly like the
+    // use3ArgHandler()/4-arg branches below do. If ConsoleOverlay has
+    // already taken the slot (it directly-inserts its own handler when
+    // hasVecAddr() is true — see ConsoleOverlay::initialize()), inserting
+    // gameOutputHandler3 here too puts TWO handlers in s_outputHandlers.
+    // ConsoleOverlay::outputHandler also chains to g_pipeOutputHandler
+    // (which we set below to gameOutputHandler3), so every console output
+    // event ends up firing gameOutputHandler3 twice -- once from its own
+    // direct slot, once via the overlay's chain call -- and the pipe (and
+    // therefore ConsoleWindow) sees every OUTPUT: packet duplicated. The
+    // in-game overlay itself never showed this bug because it only appends
+    // to its own response list once, inside outputHandler().
+    if (FrostbiteConsole::ConsoleBridge::instance().hasVecAddr())
+    {
+        uintptr_t fnAddr = (uintptr_t)&gameOutputHandler3;
+        logHex("[cpp] gameOutputHandler3 (direct-insert) hi=", (DWORD)(fnAddr >> 32));
+        logHex("[cpp] gameOutputHandler3 (direct-insert) lo=", (DWORD)(fnAddr & 0xFFFFFFFF));
+
+        const bool overlayOwnsSlot = ConsoleOverlay::isInitialized();
+        if (!overlayOwnsSlot)
+        {
+            logToFile("[cpp] registering gameOutputHandler3 via direct vector insertion");
+            FrostbiteConsole::addOutputHandler(
+                reinterpret_cast<FrostbiteConsole::OutputHandlerFn>(&gameOutputHandler3));
+        }
+        else
+        {
+            logToFile("[cpp] overlay already owns output slot — skipping direct vector "
+                "insertion, overlay's handler will chain to us instead");
+        }
+        ConsoleOverlay::g_pipeOutputHandler =
+            reinterpret_cast<ConsoleOverlay::PipeHandlerFn>(&gameOutputHandler3);
+        return;
+    }
+
     // In proxy mode we skip direct registration only when the overlay
     // successfully initialized — its outputHandler is already in the game's
     // list and will chain to g_pipeOutputHandler
@@ -559,6 +816,24 @@ __declspec(noinline) static void cpp_addHandler()
 
 __declspec(noinline) static void cpp_removeHandler()
 {
+    // Mirror cpp_addHandler(): when a valid s_outputHandlers address was
+    // resolved, we only ever directly-inserted gameOutputHandler3 when the
+    // overlay did NOT already own the slot (see cpp_addHandler()). Removal
+    // must mirror that exactly — otherwise we'd call removeOutputHandler()
+    // on a handler that was never our own direct entry, which either
+    // no-ops uselessly or, worse, can strip the overlay's own registration
+    // if it happens to share the same underlying function pointer value
+    if (FrostbiteConsole::ConsoleBridge::instance().hasVecAddr())
+    {
+        ConsoleOverlay::g_pipeOutputHandler = nullptr;
+        if (!ConsoleOverlay::isInitialized())
+        {
+            FrostbiteConsole::removeOutputHandler(
+                reinterpret_cast<FrostbiteConsole::OutputHandlerFn>(&gameOutputHandler3));
+        }
+        return;
+    }
+
     // In proxy mode, only skip direct removal when the overlay owns the slot
     if (g_proxyMode)
     {
@@ -1219,6 +1494,276 @@ static LONG WINAPI cmdExceptionVectoredHandler(EXCEPTION_POINTERS* info)
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
+// Logs "<prefix> <suffix>" — trims the wsprintfA boilerplate that used to
+// be hand-written at every one of these call sites
+static void logPrefixed(const char* prefix, const char* suffix)
+{
+    char buf[256];
+    wsprintfA(buf, "%s %s", prefix, suffix);
+    logToFile(buf);
+}
+
+// Handles one parsed CMD: packet — __LIST__, __LIST_VARS__, or a raw
+// command to execute — and writes the response via g_hPipe (batchFlush /
+// pipeWriteResultTerminator both already target the global pipe handle,
+// which both the proxy listener and the main worker keep in sync before
+// entering their command loops, so no HANDLE parameter is needed here).
+//
+// Shared by both the proxy-pipe listener thread and the main inject-mode
+// worker thread's command loops. Those used to be ~300 lines of hand-
+// duplicated LIST/LIST_VARS/execute logic apiece; the two bodies were
+// verified identical apart from variable-naming cosmetics and one logging
+// gap (proxy's LIST retry never logged the retry's resulting count — now
+// unified to always log it).
+//
+// logPrefix should be "[worker]" or "[proxy pipe]" to match each mode's
+// existing log wording.
+static void handlePipeCommand(const char* logPrefix, const char* cmd, int seq)
+{
+    if (lstrcmpA(cmd, "__LIST__") == 0)
+    {
+        logPrefixed(logPrefix, "handling __LIST__");
+        batchBegin();
+        batchAppend("METHODS:0", 9);
+
+        // Enumerate directly from the resolved vector — no game lock held
+        int count = 0;
+        const FrostbiteConsole::ConsoleMethod* const* methods =
+            FrostbiteConsole::getMethods(count);
+
+        if (count == 0)
+        {
+            logPrefixed(logPrefix, "getMethods returned 0, waiting 2s and retrying");
+            Sleep(2000);
+            methods = FrostbiteConsole::getMethods(count);
+            {
+                char retryBuf[96];
+                wsprintfA(retryBuf, "%s retry getMethods count=%d", logPrefix, count);
+                logToFile(retryBuf);
+            }
+        }
+
+        if (methods && count > 0 && count < 100000)
+        {
+            g_listVarsSkippable = true; // LIST worked — skip LIST_VARS from now on
+
+            static char lineBuf[512];
+            for (int i = 0; i < count; ++i)
+            {
+                const FrostbiteConsole::ConsoleMethod* m = methods[i];
+                uintptr_t mAddr = reinterpret_cast<uintptr_t>(m);
+                if (mAddr < 0x10000 || mAddr > 0x7FFFFFFFFFFF) continue;
+
+                // Real ConsoleMethod layout (matches Console.h exactly):
+                //   +0x00  pfn         (void*)       — .text pointer
+                //   +0x08  name        (const char*) — .rdata pointer
+                //   +0x10  groupName   (const char*) — .rdata pointer, may be null
+                //   +0x18  description (const char*) — .rdata pointer, may be null
+                const uint8_t* raw = reinterpret_cast<const uint8_t*>(m);
+
+                // name is a raw const char* at +0x08
+                // May point into any module, heap, or arena — not just the exe
+                uint64_t namePtr = 0;
+                if (!FrostbiteConsole::safeRead64(
+                    const_cast<uint8_t*>(raw + 0x08), &namePtr)) continue;
+                if (namePtr < 0x10000ULL) continue;
+                // Verify readable.
+                MEMORY_BASIC_INFORMATION _nameMbi{};
+                if (!VirtualQuery(reinterpret_cast<void*>(static_cast<uintptr_t>(namePtr)),
+                    &_nameMbi, sizeof(_nameMbi)) ||
+                    _nameMbi.State != MEM_COMMIT ||
+                    (_nameMbi.Protect & (PAGE_NOACCESS | PAGE_GUARD))) continue;
+                const char* name = reinterpret_cast<const char*>(static_cast<uintptr_t>(namePtr));
+
+                // Name must start with a letter or underscore, be at least 2 chars,
+                // and contain only printable ASCII (no parens, no hex digits as names)
+                uint8_t c0u = static_cast<uint8_t>(name[0]);
+                if (!isalpha(c0u) && c0u != '_') continue;
+                if (name[1] == '\0') continue;
+                bool nameValid = true;
+                int nameLen = 0;
+                for (int ni = 0; ni < 128; ++ni) {
+                    uint8_t c = static_cast<uint8_t>(name[ni]);
+                    if (c == 0) break;
+                    if (c < 0x20 || c > 0x7E) { nameValid = false; break; }
+                    nameLen++;
+                }
+                if (!nameValid || nameLen < 2) continue;
+
+                static char safeName[128];
+                (void)lstrcpynA(safeName, name, sizeof(safeName));
+
+                // Read groupName at +0x10 (may be null)
+                uint64_t groupPtr = 0;
+                FrostbiteConsole::safeRead64(
+                    const_cast<uint8_t*>(raw + 0x10), &groupPtr);
+
+                // Read description at +0x18 (may be null or unreadable)
+                static char safeDesc[256];
+                safeDesc[0] = '\0';
+                {
+                    uint64_t descPtr = 0;
+                    if (FrostbiteConsole::safeRead64(
+                        const_cast<uint8_t*>(raw + 0x18), &descPtr) &&
+                        descPtr >= 0x10000ULL)
+                    {
+                        MEMORY_BASIC_INFORMATION _descMbi{};
+                        if (VirtualQuery(reinterpret_cast<void*>(
+                            static_cast<uintptr_t>(descPtr)),
+                            &_descMbi, sizeof(_descMbi)) &&
+                            _descMbi.State == MEM_COMMIT &&
+                            !(_descMbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
+                        {
+                            const char* dp = reinterpret_cast<const char*>(
+                                static_cast<uintptr_t>(descPtr));
+                            bool descOk = true;
+                            int dlen = 0;
+                            for (int di = 0; di < 255; ++di) {
+                                uint8_t dc = static_cast<uint8_t>(dp[di]);
+                                if (dc == 0) break;
+                                if (dc < 0x20 || dc > 0x7E) { descOk = false; break; }
+                                dlen++;
+                            }
+                            if (descOk && dlen > 0)
+                                (void)lstrcpynA(safeDesc, dp, sizeof(safeDesc));
+                        }
+                    }
+                }
+
+                int len = 0;
+                if (groupPtr >= 0x10000ULL)
+                {
+                    MEMORY_BASIC_INFORMATION _grpMbi{};
+                    if (VirtualQuery(reinterpret_cast<void*>(
+                        static_cast<uintptr_t>(groupPtr)),
+                        &_grpMbi, sizeof(_grpMbi)) &&
+                        _grpMbi.State == MEM_COMMIT &&
+                        !(_grpMbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
+                    {
+                        const char* grp = reinterpret_cast<const char*>(
+                            static_cast<uintptr_t>(groupPtr));
+                        uint8_t gc0 = static_cast<uint8_t>(grp[0]);
+                        if (isalpha(gc0) || gc0 == '_')
+                            len = safeDesc[0]
+                            ? _snprintf_s(lineBuf, sizeof(lineBuf),
+                                _TRUNCATE, "METHOD:%s.%s\t%s", grp, safeName, safeDesc)
+                            : _snprintf_s(lineBuf, sizeof(lineBuf),
+                                _TRUNCATE, "METHOD:%s.%s", grp, safeName);
+                    }
+                }
+                if (len <= 0)
+                    len = safeDesc[0]
+                    ? _snprintf_s(lineBuf, sizeof(lineBuf),
+                        _TRUNCATE, "METHOD:%s\t%s", safeName, safeDesc)
+                    : _snprintf_s(lineBuf, sizeof(lineBuf),
+                        _TRUNCATE, "METHOD:%s", safeName);
+                if (len > 0)
+                    batchAppend(lineBuf, len);
+            }
+        }
+
+        // Instance methods (WorldRender, audio, etc.)
+        {
+            int instCount = 0, instStride = 0;
+            const uint8_t* instBase = reinterpret_cast<const uint8_t*>(
+                FrostbiteConsole::ConsoleBridge::instance()
+                .getInstanceMethodsBase(instCount, instStride));
+            for (int i = 0; instBase && i < instCount; ++i) {
+                const uint8_t* elem = instBase + i * instStride;
+                uint64_t namePtr = 0, groupPtr = 0;
+                if (!FrostbiteConsole::safeRead64(
+                    const_cast<uint8_t*>(elem + 0x00), &namePtr)) continue;
+                if (namePtr < 0x10000ULL) continue;
+                MEMORY_BASIC_INFORMATION _instMbi{};
+                if (!VirtualQuery(reinterpret_cast<void*>(
+                    static_cast<uintptr_t>(namePtr)), &_instMbi, sizeof(_instMbi)) ||
+                    _instMbi.State != MEM_COMMIT ||
+                    (_instMbi.Protect & (PAGE_NOACCESS | PAGE_GUARD))) continue;
+                const char* name = reinterpret_cast<const char*>(
+                    static_cast<uintptr_t>(namePtr));
+                uint8_t c0 = static_cast<uint8_t>(name[0]);
+                if (!isalpha(c0) && c0 != '_') continue;
+                if (name[1] == '\0') continue;
+                FrostbiteConsole::safeRead64(
+                    const_cast<uint8_t*>(elem + 0x08), &groupPtr);
+                static char instLine[512];
+                if (groupPtr >= 0x10000ULL) {
+                    const char* grp = reinterpret_cast<const char*>(
+                        static_cast<uintptr_t>(groupPtr));
+                    _snprintf_s(instLine, sizeof(instLine), _TRUNCATE,
+                        "METHOD:%s.%s", grp, name);
+                }
+                else {
+                    _snprintf_s(instLine, sizeof(instLine), _TRUNCATE,
+                        "METHOD:%s", name);
+                }
+                batchAppend(instLine, lstrlenA(instLine));
+            }
+        }
+        {
+            char resTerm[32];
+            int resLen = wsprintfA(resTerm, "RESULT:%d:", seq);
+            batchAppend(resTerm, resLen);
+        }
+        batchFlush();
+        logPrefixed(logPrefix, "list done");
+    }
+    else if (lstrcmpA(cmd, "__LIST_VARS__") == 0)
+    {
+        // Don't rely on __LIST__ having already run this session — probe
+        // s_consoleMethods directly (cheap, no game call) so VARS is
+        // skipped regardless of which command the host sends first, and
+        // regardless of whether we're in the proxy or inject/unlock path
+        if (!g_listVarsSkippable && shimGetMethods() > 0)
+            g_listVarsSkippable = true;
+
+        if (g_listVarsSkippable)
+        {
+            logPrefixed(logPrefix, "__LIST_VARS__ skipped (console methods available)");
+            pipeWriteResultTerminator(seq);
+        }
+        else
+        {
+            logPrefixed(logPrefix, "handling __LIST_VARS__");
+            batchBegin();
+            batchAppend("VARS:0", 6);
+            __try { cpp_listVars(); }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                char excPrefix[64];
+                wsprintfA(excPrefix, "%s LIST_VARS exception=", logPrefix);
+                logHex(excPrefix, GetExceptionCode());
+            }
+            {
+                char resTerm[32];
+                int resLen = wsprintfA(resTerm, "RESULT:%d:", seq);
+                batchAppend(resTerm, resLen);
+            }
+            batchFlush();
+            logPrefixed(logPrefix, "list vars done");
+        }
+        stopDiskLoggingOnceConfirmed();
+    }
+    else
+    {
+        logPrefixed(logPrefix, "executing:");
+        logToFile(cmd);
+        static char s_dispatchExecCmd[64 * 1024];
+        (void)lstrcpynA(s_dispatchExecCmd, cmd, sizeof(s_dispatchExecCmd));
+        lstrcpynA(g_currentCmdText, s_dispatchExecCmd, sizeof(g_currentCmdText));
+        g_cmdExceptionLogged = 0;
+        g_execThreadId = GetCurrentThreadId();
+        g_expectingOutput = true;
+        shimExecute(s_dispatchExecCmd);
+        g_expectingOutput = false;
+        g_execThreadId = 0;
+        // gameOutputHandler fires during shimExecute and sends OUTPUT: packets
+        // Now send the seq-tagged RESULT: terminator
+        pipeWriteResultTerminator(seq);
+        logPrefixed(logPrefix, "cmd done");
+    }
+}
+
 // Worker thread — no __try, no STL
 static DWORD WINAPI workerThread(LPVOID)
 {
@@ -1254,23 +1799,7 @@ static DWORD WINAPI workerThread(LPVOID)
 
     if (g_suspendedForUnlock)
     {
-        DWORD selfTid = GetCurrentThreadId();
-        HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-        if (hSnap != INVALID_HANDLE_VALUE)
-        {
-            THREADENTRY32 te{};
-            te.dwSize = sizeof(te);
-            if (Thread32First(hSnap, &te))
-            {
-                do {
-                    if (te.th32ThreadID == selfTid) continue;
-                    if (te.th32OwnerProcessID != GetCurrentProcessId()) continue;
-                    HANDLE hT = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID);
-                    if (hT) { SuspendThread(hT); CloseHandle(hT); }
-                } while (Thread32Next(hSnap, &te));
-            }
-            CloseHandle(hSnap);
-        }
+        freezeAllThreadsExcept(GetCurrentThreadId());
         logToFile("[worker] all threads frozen early (unlock path)");
     }
 
@@ -1422,207 +1951,7 @@ static DWORD WINAPI workerThread(LPVOID)
                         int seq = parseCmdSeqAndText(proxyReadBuf + 4, cmd);
                         g_currentCmdSeq = seq;
 
-                        if (lstrcmpA(cmd, "__LIST__") == 0)
-                        {
-                            logToFile("[proxy pipe] handling __LIST__");
-                            batchBegin();
-                            batchAppend("METHODS:0", 9);
-
-                            int count = 0;
-                            const FrostbiteConsole::ConsoleMethod* const* methods =
-                                FrostbiteConsole::getMethods(count);
-
-                            if (count == 0)
-                            {
-                                logToFile("[proxy pipe] getMethods=0, waiting 2s and retrying");
-                                Sleep(2000);
-                                methods = FrostbiteConsole::getMethods(count);
-                            }
-
-                            if (methods && count > 0 && count < 100000)
-                            {
-                                static char lineBuf[512];
-                                for (int i = 0; i < count; ++i)
-                                {
-                                    const FrostbiteConsole::ConsoleMethod* m = methods[i];
-                                    uintptr_t mAddr = reinterpret_cast<uintptr_t>(m);
-                                    if (mAddr < 0x10000 || mAddr > 0x7FFFFFFFFFFF) continue;
-                                    const uint8_t* raw = reinterpret_cast<const uint8_t*>(m);
-                                    uint64_t namePtr = 0;
-                                    if (!FrostbiteConsole::safeRead64(
-                                        const_cast<uint8_t*>(raw + 0x08), &namePtr)) continue;
-                                    if (namePtr < 0x10000ULL) continue;
-                                    MEMORY_BASIC_INFORMATION _mbi{};
-                                    if (!VirtualQuery(reinterpret_cast<void*>(
-                                        static_cast<uintptr_t>(namePtr)),
-                                        &_mbi, sizeof(_mbi)) ||
-                                        _mbi.State != MEM_COMMIT ||
-                                        (_mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD))) continue;
-                                    const char* name = reinterpret_cast<const char*>(
-                                        static_cast<uintptr_t>(namePtr));
-                                    uint8_t c0u = static_cast<uint8_t>(name[0]);
-                                    if (!isalpha(c0u) && c0u != '_') continue;
-                                    if (name[1] == '\0') continue;
-                                    bool nameValid = true;
-                                    int nameLen = 0;
-                                    for (int ni = 0; ni < 128; ++ni) {
-                                        uint8_t c = static_cast<uint8_t>(name[ni]);
-                                        if (c == 0) break;
-                                        if (c < 0x20 || c > 0x7E) { nameValid = false; break; }
-                                        nameLen++;
-                                    }
-                                    if (!nameValid || nameLen < 2) continue;
-                                    static char safeName[128];
-                                    (void)lstrcpynA(safeName, name, sizeof(safeName));
-                                    uint64_t groupPtr = 0;
-                                    FrostbiteConsole::safeRead64(
-                                        const_cast<uint8_t*>(raw + 0x10), &groupPtr);
-                                    // Read description at +0x18 (may be null or unreadable)
-                                    static char safeDesc[256];
-                                    safeDesc[0] = '\0';
-                                    {
-                                        uint64_t descPtr = 0;
-                                        if (FrostbiteConsole::safeRead64(
-                                            const_cast<uint8_t*>(raw + 0x18), &descPtr) &&
-                                            descPtr >= 0x10000ULL)
-                                        {
-                                            MEMORY_BASIC_INFORMATION _descMbi{};
-                                            if (VirtualQuery(reinterpret_cast<void*>(
-                                                static_cast<uintptr_t>(descPtr)),
-                                                &_descMbi, sizeof(_descMbi)) &&
-                                                _descMbi.State == MEM_COMMIT &&
-                                                !(_descMbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
-                                            {
-                                                const char* dp = reinterpret_cast<const char*>(
-                                                    static_cast<uintptr_t>(descPtr));
-                                                // Validate: printable ASCII only, max 255 chars
-                                                bool descOk = true;
-                                                int dlen = 0;
-                                                for (int di = 0; di < 255; ++di) {
-                                                    uint8_t dc = static_cast<uint8_t>(dp[di]);
-                                                    if (dc == 0) break;
-                                                    if (dc < 0x20 || dc > 0x7E) { descOk = false; break; }
-                                                    dlen++;
-                                                }
-                                                if (descOk && dlen > 0)
-                                                    (void)lstrcpynA(safeDesc, dp, sizeof(safeDesc));
-                                            }
-                                        }
-                                    }
-
-                                    int len = 0;
-                                    if (groupPtr >= 0x10000ULL)
-                                    {
-                                        MEMORY_BASIC_INFORMATION _grpMbi{};
-                                        if (VirtualQuery(reinterpret_cast<void*>(
-                                            static_cast<uintptr_t>(groupPtr)),
-                                            &_grpMbi, sizeof(_grpMbi)) &&
-                                            _grpMbi.State == MEM_COMMIT &&
-                                            !(_grpMbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
-                                        {
-                                            const char* grp = reinterpret_cast<const char*>(
-                                                static_cast<uintptr_t>(groupPtr));
-                                            uint8_t gc0 = static_cast<uint8_t>(grp[0]);
-                                            if (isalpha(gc0) || gc0 == '_')
-                                                len = safeDesc[0]
-                                                ? _snprintf_s(lineBuf, sizeof(lineBuf),
-                                                    _TRUNCATE, "METHOD:%s.%s\t%s", grp, safeName, safeDesc)
-                                                : _snprintf_s(lineBuf, sizeof(lineBuf),
-                                                    _TRUNCATE, "METHOD:%s.%s", grp, safeName);
-                                        }
-                                    }
-                                    if (len <= 0)
-                                        len = safeDesc[0]
-                                        ? _snprintf_s(lineBuf, sizeof(lineBuf),
-                                            _TRUNCATE, "METHOD:%s\t%s", safeName, safeDesc)
-                                        : _snprintf_s(lineBuf, sizeof(lineBuf),
-                                            _TRUNCATE, "METHOD:%s", safeName);
-                                    if (len > 0)
-                                        batchAppend(lineBuf, len);
-                                }
-                            }
-
-                            // Instance methods
-                            {
-                                int instCount = 0, instStride = 0;
-                                const uint8_t* instBase = reinterpret_cast<const uint8_t*>(
-                                    FrostbiteConsole::ConsoleBridge::instance()
-                                    .getInstanceMethodsBase(instCount, instStride));
-                                for (int i = 0; instBase && i < instCount; ++i) {
-                                    const uint8_t* elem = instBase + i * instStride;
-                                    uint64_t namePtr = 0, groupPtr = 0;
-                                    if (!FrostbiteConsole::safeRead64(
-                                        const_cast<uint8_t*>(elem + 0x00), &namePtr)) continue;
-                                    if (namePtr < 0x10000ULL) continue;
-                                    MEMORY_BASIC_INFORMATION _mbi2{};
-                                    if (!VirtualQuery(reinterpret_cast<void*>(
-                                        static_cast<uintptr_t>(namePtr)), &_mbi2, sizeof(_mbi2)) ||
-                                        _mbi2.State != MEM_COMMIT ||
-                                        (_mbi2.Protect & (PAGE_NOACCESS | PAGE_GUARD))) continue;
-                                    const char* name = reinterpret_cast<const char*>(
-                                        static_cast<uintptr_t>(namePtr));
-                                    uint8_t c0 = static_cast<uint8_t>(name[0]);
-                                    if (!isalpha(c0) && c0 != '_') continue;
-                                    if (name[1] == '\0') continue;
-                                    FrostbiteConsole::safeRead64(
-                                        const_cast<uint8_t*>(elem + 0x08), &groupPtr);
-                                    static char instLine[512];
-                                    if (groupPtr >= 0x10000ULL) {
-                                        const char* grp = reinterpret_cast<const char*>(
-                                            static_cast<uintptr_t>(groupPtr));
-                                        _snprintf_s(instLine, sizeof(instLine), _TRUNCATE,
-                                            "METHOD:%s.%s", grp, name);
-                                    }
-                                    else {
-                                        _snprintf_s(instLine, sizeof(instLine), _TRUNCATE,
-                                            "METHOD:%s", name);
-                                    }
-                                    batchAppend(instLine, lstrlenA(instLine));
-                                }
-                            }
-                            {
-                                char resTerm[32];
-                                int resLen = wsprintfA(resTerm, "RESULT:%d:", seq);
-                                batchAppend(resTerm, resLen);
-                            }
-                            batchFlush();
-                            logToFile("[proxy pipe] list done");
-                        }
-                        else if (lstrcmpA(cmd, "__LIST_VARS__") == 0)
-                        {
-                            logToFile("[proxy pipe] handling __LIST_VARS__");
-                            batchBegin();
-                            batchAppend("VARS:0", 6);
-                            __try { cpp_listVars(); }
-                            __except (EXCEPTION_EXECUTE_HANDLER)
-                            {
-                                logHex("[proxy pipe] LIST_VARS exception=", GetExceptionCode());
-                            }
-                            {
-                                char resTerm[32];
-                                int resLen = wsprintfA(resTerm, "RESULT:%d:", seq);
-                                batchAppend(resTerm, resLen);
-                            }
-                            batchFlush();
-                            logToFile("[proxy pipe] list vars done");
-                            stopDiskLoggingOnceConfirmed();
-                        }
-                        else
-                        {
-                            logToFile("[proxy pipe] executing:");
-                            logToFile(cmd);
-                            static char s_proxyExecCmd[64 * 1024];
-                            (void)lstrcpynA(s_proxyExecCmd, cmd, sizeof(s_proxyExecCmd));
-                            lstrcpynA(g_currentCmdText, s_proxyExecCmd, sizeof(g_currentCmdText));
-                            g_cmdExceptionLogged = 0;
-                            g_execThreadId = GetCurrentThreadId();
-                            g_expectingOutput = true;
-                            shimExecute(s_proxyExecCmd);
-                            g_expectingOutput = false;
-                            g_execThreadId = 0;
-                            pipeWriteResultTerminator(seq);
-                            logToFile("[proxy pipe] cmd done");
-                        }
+                        handlePipeCommand("[proxy pipe]", cmd, seq);
                     }
 
                     logToFile("[proxy pipe] command loop exited");
@@ -1721,43 +2050,8 @@ static DWORD WINAPI workerThread(LPVOID)
                 return false;
                 };
 
-            auto freezeThreads = [&]() {
-                HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-                if (hSnap != INVALID_HANDLE_VALUE)
-                {
-                    THREADENTRY32 te{};
-                    te.dwSize = sizeof(te);
-                    if (Thread32First(hSnap, &te))
-                    {
-                        do {
-                            if (te.th32ThreadID == selfTid) continue;
-                            if (te.th32OwnerProcessID != GetCurrentProcessId()) continue;
-                            HANDLE hT = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID);
-                            if (hT) { SuspendThread(hT); CloseHandle(hT); }
-                        } while (Thread32Next(hSnap, &te));
-                    }
-                    CloseHandle(hSnap);
-                }
-                };
-
-            auto thawThreads = [&]() {
-                HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-                if (hSnap != INVALID_HANDLE_VALUE)
-                {
-                    THREADENTRY32 te{};
-                    te.dwSize = sizeof(te);
-                    if (Thread32First(hSnap, &te))
-                    {
-                        do {
-                            if (te.th32ThreadID == selfTid) continue;
-                            if (te.th32OwnerProcessID != GetCurrentProcessId()) continue;
-                            HANDLE hT = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID);
-                            if (hT) { ResumeThread(hT); CloseHandle(hT); }
-                        } while (Thread32Next(hSnap, &te));
-                    }
-                    CloseHandle(hSnap);
-                }
-                };
+            auto freezeThreads = [&]() { freezeAllThreadsExcept(selfTid); };
+            auto thawThreads = [&]() { thawAllThreadsExcept(selfTid); };
 
             // Threads are already frozen from the early-freeze block at worker entry
             // Pulse-scan: thaw briefly to let the loader advance, re-freeze, scan
@@ -1795,22 +2089,7 @@ static DWORD WINAPI workerThread(LPVOID)
                 if (unlockResult != 1)
                 {
                     logToFile("[worker] shimApplyUnlock failed — resuming threads");
-                    HANDLE hSnap2 = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-                    if (hSnap2 != INVALID_HANDLE_VALUE)
-                    {
-                        THREADENTRY32 te{};
-                        te.dwSize = sizeof(te);
-                        if (Thread32First(hSnap2, &te))
-                        {
-                            do {
-                                if (te.th32ThreadID == selfTid) continue;
-                                if (te.th32OwnerProcessID != GetCurrentProcessId()) continue;
-                                HANDLE hT = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID);
-                                if (hT) { ResumeThread(hT); CloseHandle(hT); }
-                            } while (Thread32Next(hSnap2, &te));
-                        }
-                        CloseHandle(hSnap2);
-                    }
+                    thawAllThreadsExcept(selfTid);
                     g_suspendedForUnlock = false;
                 }
                 // Threads remain frozen until post-READY resume block.
@@ -1819,22 +2098,7 @@ static DWORD WINAPI workerThread(LPVOID)
             {
                 logToFile("[worker] patch pattern not found within timeout — resuming threads and proceeding without unlock");
                 // Pattern never appeared; thaw now since we won't reach the post-READY resume block
-                HANDLE hSnap2 = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-                if (hSnap2 != INVALID_HANDLE_VALUE)
-                {
-                    THREADENTRY32 te{};
-                    te.dwSize = sizeof(te);
-                    if (Thread32First(hSnap2, &te))
-                    {
-                        do {
-                            if (te.th32ThreadID == selfTid) continue;
-                            if (te.th32OwnerProcessID != GetCurrentProcessId()) continue;
-                            HANDLE hT = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID);
-                            if (hT) { ResumeThread(hT); CloseHandle(hT); }
-                        } while (Thread32Next(hSnap2, &te));
-                    }
-                    CloseHandle(hSnap2);
-                }
+                thawAllThreadsExcept(selfTid);
                 g_suspendedForUnlock = false;
             }
 
@@ -1859,25 +2123,8 @@ static DWORD WINAPI workerThread(LPVOID)
         DWORD selfTid = GetCurrentThreadId();
 
         // Freeze
-        {
-            HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-            if (hSnap != INVALID_HANDLE_VALUE)
-            {
-                THREADENTRY32 te{};
-                te.dwSize = sizeof(te);
-                if (Thread32First(hSnap, &te))
-                {
-                    do {
-                        if (te.th32ThreadID == selfTid) continue;
-                        if (te.th32OwnerProcessID != GetCurrentProcessId()) continue;
-                        HANDLE hT = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID);
-                        if (hT) { SuspendThread(hT); CloseHandle(hT); }
-                    } while (Thread32Next(hSnap, &te));
-                }
-                CloseHandle(hSnap);
-            }
-            logToFile("[worker] all threads frozen for init scan");
-        }
+        freezeAllThreadsExcept(selfTid);
+        logToFile("[worker] all threads frozen for init scan");
 
         for (int attempt = 0; attempt < 120; ++attempt)
         {
@@ -1907,25 +2154,8 @@ static DWORD WINAPI workerThread(LPVOID)
         }
 
         // Thaw
-        {
-            HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-            if (hSnap != INVALID_HANDLE_VALUE)
-            {
-                THREADENTRY32 te{};
-                te.dwSize = sizeof(te);
-                if (Thread32First(hSnap, &te))
-                {
-                    do {
-                        if (te.th32ThreadID == selfTid) continue;
-                        if (te.th32OwnerProcessID != GetCurrentProcessId()) continue;
-                        HANDLE hT = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID);
-                        if (hT) { ResumeThread(hT); CloseHandle(hT); }
-                    } while (Thread32Next(hSnap, &te));
-                }
-                CloseHandle(hSnap);
-            }
-            logToFile("[worker] all threads resumed after init scan");
-        }
+        thawAllThreadsExcept(selfTid);
+        logToFile("[worker] all threads resumed after init scan");
     }
 
     diagBuf[0] = '\0';
@@ -1985,63 +2215,14 @@ static DWORD WINAPI workerThread(LPVOID)
             wsprintfA(frozenWaitMsg, "[unlock] frozen init attempt %d, consoleMethods still empty", attempt + 1);
             logToFile(frozenWaitMsg);
             // Thaw briefly so static initializers can run, then re-freeze
-            {
-                HANDLE hSnapThaw = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-                if (hSnapThaw != INVALID_HANDLE_VALUE)
-                {
-                    THREADENTRY32 te{};
-                    te.dwSize = sizeof(te);
-                    if (Thread32First(hSnapThaw, &te))
-                    {
-                        do {
-                            if (te.th32ThreadID == selfTid) continue;
-                            if (te.th32OwnerProcessID != GetCurrentProcessId()) continue;
-                            HANDLE hT = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID);
-                            if (hT) { ResumeThread(hT); CloseHandle(hT); }
-                        } while (Thread32Next(hSnapThaw, &te));
-                    }
-                    CloseHandle(hSnapThaw);
-                }
-            }
+            thawAllThreadsExcept(selfTid);
             Sleep(500);
-            {
-                HANDLE hSnapFreeze = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-                if (hSnapFreeze != INVALID_HANDLE_VALUE)
-                {
-                    THREADENTRY32 te{};
-                    te.dwSize = sizeof(te);
-                    if (Thread32First(hSnapFreeze, &te))
-                    {
-                        do {
-                            if (te.th32ThreadID == selfTid) continue;
-                            if (te.th32OwnerProcessID != GetCurrentProcessId()) continue;
-                            HANDLE hT = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID);
-                            if (hT) { SuspendThread(hT); CloseHandle(hT); }
-                        } while (Thread32Next(hSnapFreeze, &te));
-                    }
-                    CloseHandle(hSnapFreeze);
-                }
-            }
+            freezeAllThreadsExcept(selfTid);
         }
 
         // Now resume — either we resolved while frozen, or we need the game
         // to run its static initializers so post-resume init can find the vector
-        HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-        if (hSnap != INVALID_HANDLE_VALUE)
-        {
-            THREADENTRY32 te{};
-            te.dwSize = sizeof(te);
-            if (Thread32First(hSnap, &te))
-            {
-                do {
-                    if (te.th32ThreadID == selfTid) continue;
-                    if (te.th32OwnerProcessID != GetCurrentProcessId()) continue;
-                    HANDLE hT = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID);
-                    if (hT) { ResumeThread(hT); CloseHandle(hT); }
-                } while (Thread32Next(hSnap, &te));
-            }
-            CloseHandle(hSnap);
-        }
+        thawAllThreadsExcept(selfTid);
         logToFile("[worker] all threads resumed — game proceeds with patches active");
 
         // Snapshot the baseline count now (before the background thread reads it)
@@ -2378,231 +2559,7 @@ static DWORD WINAPI workerThread(LPVOID)
                 g_currentCmdSeq = seq; // stays set until the NEXT command parses
                 // here — see g_currentCmdSeq's comment
 
-                if (lstrcmpA(cmd, "__LIST__") == 0)
-                {
-                    logToFile("[worker] handling __LIST__");
-                    batchBegin();
-                    batchAppend("METHODS:0", 9);
-
-                    // Enumerate directly from the resolved vector — no game lock held
-                    int count = 0;
-                    const FrostbiteConsole::ConsoleMethod* const* methods =
-                        FrostbiteConsole::getMethods(count);
-
-                    if (count == 0)
-                    {
-                        logToFile("[worker] getMethods returned 0, waiting 2s and retrying");
-                        Sleep(2000);
-                        methods = FrostbiteConsole::getMethods(count);
-                        {
-                            static char retryBuf[64];
-                            wsprintfA(retryBuf, "[worker] retry getMethods count=%d", count);
-                            logToFile(retryBuf);
-                        }
-                    }
-
-                    if (methods && count > 0 && count < 100000)
-                    {
-                        // stride is not needed — name is always a raw const char* at +0x08
-
-                        static char lineBuf[512];
-                        for (int i = 0; i < count; ++i)
-                        {
-                            const FrostbiteConsole::ConsoleMethod* m = methods[i];
-                            uintptr_t mAddr = reinterpret_cast<uintptr_t>(m);
-                            if (mAddr < 0x10000 || mAddr > 0x7FFFFFFFFFFF) continue;
-
-                            // Real ConsoleMethod layout (matches Console.h exactly):
-                            //   +0x00  pfn         (void*)       — .text pointer
-                            //   +0x08  name        (const char*) — .rdata pointer
-                            //   +0x10  groupName   (const char*) — .rdata pointer, may be null
-                            //   +0x18  description (const char*) — .rdata pointer, may be null
-                            const uint8_t* raw = reinterpret_cast<const uint8_t*>(m);
-
-                            // name is a raw const char* at +0x08
-                            // May point into any module, heap, or arena — not just the exe
-                            uint64_t namePtr = 0;
-                            if (!FrostbiteConsole::safeRead64(
-                                const_cast<uint8_t*>(raw + 0x08), &namePtr)) continue;
-                            if (namePtr < 0x10000ULL) continue;
-                            // Verify readable.
-                            MEMORY_BASIC_INFORMATION _nameMbi{};
-                            if (!VirtualQuery(reinterpret_cast<void*>(static_cast<uintptr_t>(namePtr)),
-                                &_nameMbi, sizeof(_nameMbi)) ||
-                                _nameMbi.State != MEM_COMMIT ||
-                                (_nameMbi.Protect & (PAGE_NOACCESS | PAGE_GUARD))) continue;
-                            const char* name = reinterpret_cast<const char*>(static_cast<uintptr_t>(namePtr));
-
-                            // Name must start with a letter or underscore, be at least 2 chars,
-                            // and contain only printable ASCII (no parens, no hex digits as names)
-                            uint8_t c0u = static_cast<uint8_t>(name[0]);
-                            if (!isalpha(c0u) && c0u != '_') continue;
-                            if (name[1] == '\0') continue;
-                            bool nameValid = true;
-                            int nameLen = 0;
-                            for (int ni = 0; ni < 128; ++ni) {
-                                uint8_t c = static_cast<uint8_t>(name[ni]);
-                                if (c == 0) break;
-                                if (c < 0x20 || c > 0x7E) { nameValid = false; break; }
-                                nameLen++;
-                            }
-                            if (!nameValid || nameLen < 2) continue;
-
-                            static char safeName[128];
-                            (void)lstrcpynA(safeName, name, sizeof(safeName));
-
-                            // Read groupName at +0x10 (may be null)
-                            uint64_t groupPtr = 0;
-                            FrostbiteConsole::safeRead64(
-                                const_cast<uint8_t*>(raw + 0x10), &groupPtr);
-
-                            // Read description at +0x18 (may be null or unreadable)
-                            static char safeDesc[256];
-                            safeDesc[0] = '\0';
-                            {
-                                uint64_t descPtr = 0;
-                                if (FrostbiteConsole::safeRead64(
-                                    const_cast<uint8_t*>(raw + 0x18), &descPtr) &&
-                                    descPtr >= 0x10000ULL)
-                                {
-                                    MEMORY_BASIC_INFORMATION _descMbi{};
-                                    if (VirtualQuery(reinterpret_cast<void*>(
-                                        static_cast<uintptr_t>(descPtr)),
-                                        &_descMbi, sizeof(_descMbi)) &&
-                                        _descMbi.State == MEM_COMMIT &&
-                                        !(_descMbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
-                                    {
-                                        const char* dp = reinterpret_cast<const char*>(
-                                            static_cast<uintptr_t>(descPtr));
-                                        bool descOk = true;
-                                        int dlen = 0;
-                                        for (int di = 0; di < 255; ++di) {
-                                            uint8_t dc = static_cast<uint8_t>(dp[di]);
-                                            if (dc == 0) break;
-                                            if (dc < 0x20 || dc > 0x7E) { descOk = false; break; }
-                                            dlen++;
-                                        }
-                                        if (descOk && dlen > 0)
-                                            (void)lstrcpynA(safeDesc, dp, sizeof(safeDesc));
-                                    }
-                                }
-                            }
-
-                            int len = 0;
-                            if (groupPtr >= 0x10000ULL)
-                            {
-                                MEMORY_BASIC_INFORMATION _grpMbi{};
-                                if (VirtualQuery(reinterpret_cast<void*>(
-                                    static_cast<uintptr_t>(groupPtr)),
-                                    &_grpMbi, sizeof(_grpMbi)) &&
-                                    _grpMbi.State == MEM_COMMIT &&
-                                    !(_grpMbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
-                                {
-                                    const char* grp = reinterpret_cast<const char*>(
-                                        static_cast<uintptr_t>(groupPtr));
-                                    uint8_t gc0 = static_cast<uint8_t>(grp[0]);
-                                    if (isalpha(gc0) || gc0 == '_')
-                                        len = safeDesc[0]
-                                        ? _snprintf_s(lineBuf, sizeof(lineBuf),
-                                            _TRUNCATE, "METHOD:%s.%s\t%s", grp, safeName, safeDesc)
-                                        : _snprintf_s(lineBuf, sizeof(lineBuf),
-                                            _TRUNCATE, "METHOD:%s.%s", grp, safeName);
-                                }
-                            }
-                            if (len <= 0)
-                                len = safeDesc[0]
-                                ? _snprintf_s(lineBuf, sizeof(lineBuf),
-                                    _TRUNCATE, "METHOD:%s\t%s", safeName, safeDesc)
-                                : _snprintf_s(lineBuf, sizeof(lineBuf),
-                                    _TRUNCATE, "METHOD:%s", safeName);
-                            if (len > 0)
-                                batchAppend(lineBuf, len);
-                        }
-                    }
-
-                    // Instance methods (WorldRender, audio, etc.)
-                    {
-                        int instCount = 0, instStride = 0;
-                        const uint8_t* instBase = reinterpret_cast<const uint8_t*>(
-                            FrostbiteConsole::ConsoleBridge::instance()
-                            .getInstanceMethodsBase(instCount, instStride));
-                        for (int i = 0; instBase && i < instCount; ++i) {
-                            const uint8_t* elem = instBase + i * instStride;
-                            uint64_t namePtr = 0, groupPtr = 0;
-                            if (!FrostbiteConsole::safeRead64(
-                                const_cast<uint8_t*>(elem + 0x00), &namePtr)) continue;
-                            if (namePtr < 0x10000ULL) continue;
-                            MEMORY_BASIC_INFORMATION _mbi{};
-                            if (!VirtualQuery(reinterpret_cast<void*>(
-                                static_cast<uintptr_t>(namePtr)), &_mbi, sizeof(_mbi)) ||
-                                _mbi.State != MEM_COMMIT ||
-                                (_mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD))) continue;
-                            const char* name = reinterpret_cast<const char*>(
-                                static_cast<uintptr_t>(namePtr));
-                            uint8_t c0 = static_cast<uint8_t>(name[0]);
-                            if (!isalpha(c0) && c0 != '_') continue;
-                            if (name[1] == '\0') continue;
-                            FrostbiteConsole::safeRead64(
-                                const_cast<uint8_t*>(elem + 0x08), &groupPtr);
-                            static char instLine[512];
-                            if (groupPtr >= 0x10000ULL) {
-                                const char* grp = reinterpret_cast<const char*>(
-                                    static_cast<uintptr_t>(groupPtr));
-                                _snprintf_s(instLine, sizeof(instLine), _TRUNCATE,
-                                    "METHOD:%s.%s", grp, name);
-                            }
-                            else {
-                                _snprintf_s(instLine, sizeof(instLine), _TRUNCATE,
-                                    "METHOD:%s", name);
-                            }
-                            batchAppend(instLine, lstrlenA(instLine));
-                        }
-                    }
-                    {
-                        char resTerm[32];
-                        int resLen = wsprintfA(resTerm, "RESULT:%d:", seq);
-                        batchAppend(resTerm, resLen);
-                    }
-                    batchFlush();
-                    logToFile("[worker] list done");
-                }
-                else if (lstrcmpA(cmd, "__LIST_VARS__") == 0)
-                {
-                    logToFile("[worker] handling __LIST_VARS__");
-                    batchBegin();
-                    batchAppend("VARS:0", 6);
-                    __try { cpp_listVars(); }
-                    __except (EXCEPTION_EXECUTE_HANDLER)
-                    {
-                        logHex("[worker] LIST_VARS exception=", GetExceptionCode());
-                    }
-                    {
-                        char resTerm[32];
-                        int resLen = wsprintfA(resTerm, "RESULT:%d:", seq);
-                        batchAppend(resTerm, resLen);
-                    }
-                    batchFlush();
-                    logToFile("[worker] list vars done");
-                    stopDiskLoggingOnceConfirmed();
-            }
-                else
-                {
-                    logToFile("[worker] executing:");
-                    logToFile(cmd);
-                    static char s_execCmd[64 * 1024];
-                    (void)lstrcpynA(s_execCmd, cmd, sizeof(s_execCmd));
-                    lstrcpynA(g_currentCmdText, s_execCmd, sizeof(g_currentCmdText));
-                    g_cmdExceptionLogged = 0;
-                    g_execThreadId = GetCurrentThreadId();
-                    g_expectingOutput = true;
-                    shimExecute(s_execCmd);
-                    g_expectingOutput = false;
-                    g_execThreadId = 0;
-                    // gameOutputHandler fires during shimExecute and sends OUTPUT: packets
-                    // Now send the seq-tagged RESULT: terminator
-                    pipeWriteResultTerminator(seq);
-                    logToFile("[worker] cmd done");
-                }
+                handlePipeCommand("[worker]", cmd, seq);
             }
 
             logToFile("[worker] loop exited");

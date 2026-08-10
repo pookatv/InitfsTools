@@ -2396,6 +2396,16 @@ std::string ConsoleBridge::executeCommand(const char* cmd)
     }
 
     // addOutputHandler / removeOutputHandler (4-arg)
+        //
+        // Direct-insertion fallback buffer size. s_outputHandlers on titles that
+        // never pre-reserve capacity (mpBegin==mpEnd==mpCap==0 at registration
+        // time -- confirmed via x64dbg on Veilguard) needs real backing storage,
+        // not just an mpEnd bump, since there is no spare room to write into.
+        // 64 slots is far more than any title needs (a handful of overlay/proxy
+        // handlers at most) and this buffer is allocated once and kept for the
+        // life of the process, so the size cost is negligible
+    static constexpr size_t kDirectInsertCapacitySlots = 64;
+
     void ConsoleBridge::addOutputHandler(OutputHandlerFn fn)
     {
         if (!fn) return;
@@ -2419,12 +2429,62 @@ std::string ConsoleBridge::executeCommand(const char* cmd)
         FC_Log("addOutputHandler: game fn not resolved, using direct insertion (stride=%zu fnOff=%zu)",
             m_delegateStride, m_delegateFnOffset);
         void** vec = reinterpret_cast<void**>(m_outputHandlersVecAddr);
+        uint8_t* mpBegin = reinterpret_cast<uint8_t*>(vec[0]);
         uint8_t* mpEnd = reinterpret_cast<uint8_t*>(vec[1]);
         uint8_t* mpCap = reinterpret_cast<uint8_t*>(vec[2]);
-        if (!mpEnd || mpEnd + m_delegateStride > mpCap) {
-            FC_Log("addOutputHandler: vector full or invalid, skipping");
-            return;
+
+        // Dedup: our own registration can be called more than once for the
+        // same fn pointer (e.g. the pipe-side handler re-registering on every
+        // host reconnect in dxgi.cpp, or the overlay registering separately
+        // from the pipe handler). Since the game's dispatch loop calls every
+        // slot unconditionally, an unguarded duplicate insert here causes
+        // every console command's output to fire that handler twice. Scan
+        // existing slots first and bail out if this exact fn is already
+        // registered -- mirrors the "Same handler added multiple times."
+        // guard the real addOutputHandler() enforces on titles that have one.
+        if (mpBegin && mpEnd && mpEnd > mpBegin) {
+            size_t existingCount = static_cast<size_t>(mpEnd - mpBegin) / m_delegateStride;
+            for (size_t i = 0; i < existingCount; ++i) {
+                uint8_t* slot = mpBegin + i * m_delegateStride;
+                void* slotFn = *reinterpret_cast<void**>(slot + m_delegateFnOffset);
+                if (slotFn == reinterpret_cast<void*>(fn)) {
+                    FC_Log("addOutputHandler: fn=%p already registered at slot %zu, skipping duplicate",
+                        (void*)fn, i);
+                    return;
+                }
+            }
         }
+
+        if (!mpEnd || mpEnd + m_delegateStride > mpCap) {
+            size_t existingCount = 0;
+            if (mpBegin && mpEnd && mpEnd > mpBegin)
+                existingCount = static_cast<size_t>(mpEnd - mpBegin) / m_delegateStride;
+
+            size_t newCapacityBytes = kDirectInsertCapacitySlots * m_delegateStride;
+            uint8_t* newBuf = reinterpret_cast<uint8_t*>(
+                VirtualAlloc(nullptr, newCapacityBytes, MEM_COMMIT | MEM_RESERVE,
+                    PAGE_READWRITE));
+            if (!newBuf) {
+                FC_Log("addOutputHandler: VirtualAlloc failed, cannot grow vector");
+                return;
+            }
+            memset(newBuf, 0, newCapacityBytes);
+
+            if (existingCount > 0)
+                memcpy(newBuf, mpBegin, existingCount * m_delegateStride);
+
+            vec[0] = newBuf;
+            vec[1] = newBuf + existingCount * m_delegateStride;
+            vec[2] = newBuf + newCapacityBytes;
+
+            FC_Log("addOutputHandler: grew vector -- new backing=%p capacity=%zu slots "
+                "(copied %zu existing entries, old begin=%p)",
+                (void*)newBuf, kDirectInsertCapacitySlots, existingCount, (void*)mpBegin);
+
+            mpEnd = reinterpret_cast<uint8_t*>(vec[1]);
+            mpCap = reinterpret_cast<uint8_t*>(vec[2]);
+        }
+
         memset(mpEnd, 0, m_delegateStride);
         *reinterpret_cast<void**>(mpEnd + m_delegateFnOffset) = reinterpret_cast<void*>(fn);
         vec[1] = mpEnd + m_delegateStride;

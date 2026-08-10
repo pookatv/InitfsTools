@@ -23,9 +23,17 @@ namespace ConsoleOverlay
 {
     // Call after FrostbiteConsole::isReady() succeeds in the worker thread
     void initialize();
-
     // Call on DLL_PROCESS_DETACH or worker thread exit
     void shutdown();
+    // Called by the DXGI proxy (dxgi.cpp) right BEFORE the game creates a
+    // brand-new swap chain (not a resize) on the same HWND/output. Drops any
+    // D3D12 back-buffer / RTV references we are still holding on the
+    // CURRENT swap chain. DXGI returns E_ACCESSDENIED from the real
+    // CreateSwapChain/CreateSwapChainForHwnd call if any outstanding
+    // reference to the swap chain being replaced (ours or anyone else's)
+    // still exists at the moment of creation. Safe to call at any time,
+    // including before initialize() has ever run (no-op then).
+    void releaseSwapChainResourcesForRecreate();
 
     // Registered with FrostbiteConsole::addOutputHandler (4-arg form)
     // Signature must match OutputHandlerFn exactly

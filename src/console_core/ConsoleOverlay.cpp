@@ -43,10 +43,10 @@
 // Declared in dxgi.cpp — signals that the overlay is mid-execute so the
 // shared output handler does not gate its output behind g_expectingOutput
 extern volatile bool g_overlayExecuting;
-
-// Declared in dxgi.cpp — controls whether logging is persisted to
-// FBConsoleBridge_log.txt on disk. False by default
 extern bool g_enableDiskLog;
+extern IDXGISwapChain* g_capturedSwapChain; // set by the dxgi.cpp proxy hook
+extern IUnknown* g_capturedSwapChainDevice; // set by the dxgi.cpp proxy hook — the
+// D3D12 command queue (or D3D11 device) passed to CreateSwapChain*
 
 // Logging
 static void overlayLog(const char* msg)
@@ -1095,6 +1095,66 @@ static bool resolveD3DFromDXGI(HWND hwnd)
 
     factory->Release();
 
+    // Fast path — resolve directly from the "device" parameter the DXGI
+    // proxy captured at CreateSwapChain/CreateSwapChainForHwnd time (see
+    // dxgi.cpp's hookedCreateSwapChain / hookedCreateSwapChainForHwnd and
+    // g_capturedSwapChainDevice). Per the documented CreateSwapChain*
+    // contract, that parameter IS — or cleanly QueryInterfaces to — the
+    // actual rendering device (D3D11) or direct command queue (D3D12) the
+    // swap chain presents with. There is nothing to guess here, unlike
+    // scanning DxRenderer's fields for a value that merely LOOKS like a
+    // device pointer. When this succeeds it completely bypasses the
+    // heuristic memory scans further down (Pass1/Pass2/Pass4, the engine
+    // sub-object walk).
+    bool forceD3D12Path = false;
+    if (g_capturedSwapChain && g_capturedSwapChainDevice)
+    {
+        ID3D11Device* d11dev = nullptr;
+        if (SUCCEEDED(g_capturedSwapChainDevice->QueryInterface(
+            __uuidof(ID3D11Device), reinterpret_cast<void**>(&d11dev))) && d11dev)
+        {
+            ID3D11DeviceContext* d11ctx = nullptr;
+            d11dev->GetImmediateContext(&d11ctx);
+            if (d11ctx)
+            {
+                overlayLogFmt("resolveD3DFromDXGI: fast path — D3D11 device=%p ctx=%p "
+                    "resolved directly from captured swap-chain device (no scan)",
+                    (void*)d11dev, (void*)d11ctx);
+                g_resolvedSwapChain = g_capturedSwapChain; // borrowed — see earlier fix, do not AddRef/Release
+                g_resolvedDevice = d11dev;
+                g_resolvedContext = d11ctx;
+                d11ctx->Release();
+                d11dev->Release();
+                return true;
+            }
+            d11dev->Release();
+        }
+        else
+        {
+            // Not D3D11 — probe for D3D12. We only check here; the existing
+            // "if (!dr)" branch further below already performs the full
+            // D3D12 setup using g_capturedSwapChain / g_capturedSwapChainDevice
+            // with no scanning at all. Forcing dr to null (right after it's
+            // computed below) skips DxRenderer engine-field/instance
+            // resolution and the D3D11-style Pass1/2/4 scans entirely,
+            // routing straight into that branch — this is what lets a D3D12
+            // title resolve on the very first attempt even when
+            // "RenderDevice"-string-based DxRenderer resolution happens to
+            // succeed for an unrelated subsystem (observed in testing: a
+            // pure D3D12 title where dr still resolved to a real, but
+            // irrelevant, heap object).
+            ID3D12CommandQueue* probeQueue = nullptr;
+            if (SUCCEEDED(g_capturedSwapChainDevice->QueryInterface(
+                __uuidof(ID3D12CommandQueue), reinterpret_cast<void**>(&probeQueue))) && probeQueue)
+            {
+                overlayLog("resolveD3DFromDXGI: fast path — captured swap-chain device is "
+                    "ID3D12CommandQueue, forcing D3D12 path (skipping DxRenderer scan)");
+                probeQueue->Release();
+                forceD3D12Path = true;
+            }
+        }
+    }
+
     uint8_t* dr = nullptr;
     // Engine-field (deferred two-level dereference) takes priority — it is the result
     // of a validated post-call store pattern and is more reliable than the tentative
@@ -1123,6 +1183,18 @@ static bool resolveD3DFromDXGI(HWND hwnd)
     {
         dr = *g_dxRendererInstanceAddr;
     }
+
+    if (forceD3D12Path)
+    {
+        // The fast-path probe above already confirmed this title is D3D12
+        // via the captured swap-chain device — ignore whatever dr
+        // resolveAddresses() happened to find (it can be a real, but
+        // unrelated, heap object; "RenderDevice"-adjacent strings/LEAs
+        // aren't unique to the D3D11 renderer path) and drop straight into
+        // the "if (!dr)" D3D12 branch below.
+        dr = nullptr;
+    }
+
     // Module bounds — needed for the .data scan in the SwapChain fallback
     // and for the D3D12 null-dr scan below
     uint8_t* modBase = nullptr;
@@ -1143,188 +1215,70 @@ static bool resolveD3DFromDXGI(HWND hwnd)
 
     if (!dr)
     {
-        overlayLog("resolveD3DFromDXGI: DxRenderer pointer is null — attempting D3D12 swap-chain scan");
-
-        // D3D12 fallback
-        // D3D12-only Frostbite titles do
-        // not expose a DxRenderer singleton findable by the "RenderDevice" LEA
-        // heuristic. Instead, scan the game module's non-executable data pages
-        // for an IDXGISwapChain whose vtable lives in dxgi.dll, then use
-        // D3D11On12CreateDevice to stand up a D3D11 wrapper device/context on
-        // top of the game's D3D12 command queue. The rest of the overlay (shaders,
-        // font atlas, present hook) is unchanged
-
-        HMODULE hDXGIscan = GetModuleHandleA("dxgi.dll");
-        HMODULE hD3D12scan = GetModuleHandleA("d3d12.dll");
-
         IDXGISwapChain* foundSC = nullptr;
 
-        // D3D12 flip-model swap chains are allocated by DXGI internally —
-        // the pointer is NOT stored in the game module's data pages. Scan the
-        // entire committed process address space instead.
-        // Guard: vtable must be in dxgi.dll, object must QI as IDXGISwapChain3
-        // (flip-model interface always supported by D3D12 swap chains), and the
-        // swap chain must have a back-buffer count >= 2 (rules out dummy objects)
+        // Only ever use the swap chain captured via the DXGI proxy's
+        // CreateSwapChain / CreateSwapChainForHwnd hook (see dxgi.cpp). This
+        // is set the instant the game creates its real swap chain.
+        //
+        // We used to fall back to a full 0x10000..0x00007FFFFFFFFFFF process
+        // address-space scan here, walking every committed page and calling
+        // QueryInterface on anything that merely looked like a COM object.
+        // That scan raced with the game's own CreateSwapChain/CreateSwapChain-
+        // ForHwnd call on the main thread and could touch live DXGI/D3D12
+        // internal state mid-creation — this is what caused the game's own
+        // "createSwapChain(...) failed with E_ACCESSDENIED" dialog. DXGI
+        // treats an output as unavailable if anything else pokes at its
+        // internal factory/adapter/output objects while a swap chain is
+        // being stood up, and a scan that blindly QueryInterfaces every
+        // 8-byte-aligned "pointer-looking" value in the entire address space
+        // is exactly that kind of interference.
+        //
+        // If the capture hasn't happened yet, just bail out — the caller
+        // (ConsoleOverlay::initialize) already retries this function up to
+        // 10 times with a 1s sleep between attempts, which gives the proxy
+        // hook time to fire once the game actually creates its swap chain.
+        if (g_capturedSwapChain)
         {
-            // Prefer IDXGISwapChain3 — all D3D12 flip-model swap chains support it
-            // We fall back to IDXGISwapChain if QI for 3 fails
-            MEMORY_BASIC_INFORMATION mbi2 = {};
-            uint8_t* cursor = reinterpret_cast<uint8_t*>(0x10000);
-            uint8_t* limit = reinterpret_cast<uint8_t*>(0x00007FFFFFFFFFFFllu);
-
-            // Cache dxgi.dll address range so the vtable check is a fast
-            // range compare instead of a GetModuleHandleEx call per pointer
-            uint8_t* dxgiBase = nullptr;
-            uint8_t* dxgiEnd = nullptr;
-            if (hDXGIscan)
-            {
-                MODULEINFO dxgiMI = {};
-                if (GetModuleInformation(GetCurrentProcess(), hDXGIscan, &dxgiMI, sizeof(dxgiMI)))
-                {
-                    dxgiBase = reinterpret_cast<uint8_t*>(dxgiMI.lpBaseOfDll);
-                    dxgiEnd = dxgiBase + dxgiMI.SizeOfImage;
-                }
-            }
-
-            while (cursor < limit && !foundSC)
-            {
-                if (!VirtualQuery(cursor, &mbi2, sizeof(mbi2))) break;
-
-                uint8_t* rBase2 = reinterpret_cast<uint8_t*>(mbi2.BaseAddress);
-                uint8_t* rEnd2 = rBase2 + mbi2.RegionSize;
-
-                // Only scan committed, non-executable, readable private or
-                // mapped pages. Skip image-backed (MEM_IMAGE), guard, noaccess.
-                // MEM_IMAGE pages are DLL/EXE mappings — swap chains are never
-                // stored there, and skipping them cuts scan time significantly
-                bool candidate =
-                    (mbi2.State == MEM_COMMIT) &&
-                    !(mbi2.Protect & (PAGE_NOACCESS | PAGE_GUARD)) &&
-                    !(mbi2.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ |
-                        PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) &&
-                    (mbi2.Type == MEM_PRIVATE || mbi2.Type == MEM_MAPPED);
-
-                if (candidate && rEnd2 > rBase2)
-                {
-                    // Scan page-by-page under __try — GPU-mapped and certain
-                    // DXGI-internal regions report as readable via VirtualQuery
-                    // but fault on access
-                    for (uint8_t* pageBase = rBase2;
-                        pageBase < rEnd2 && !foundSC;
-                        pageBase += 0x1000)
-                    {
-                        uint8_t* pageEnd = pageBase + 0x1000;
-                        if (pageEnd > rEnd2) pageEnd = rEnd2;
-
-                        __try
-                        {
-                            for (uint8_t* p2 = pageBase;
-                                p2 + 8 <= pageEnd && !foundSC;
-                                p2 += 8)
-                            {
-                                uint64_t val2 = 0;
-                                if (!FrostbiteConsole::safeRead64(p2, &val2) || !val2) continue;
-                                if (val2 < 0x10000ULL || val2 > 0x00007FFFFFFFFFFFllu) continue;
-
-                                // Vtable pointer check — fast range compare
-                                // against cached dxgi.dll bounds; falls back to
-                                // GetModuleHandleEx only if bounds are unavailable
-                                uint64_t vtbl2 = 0;
-                                if (!FrostbiteConsole::safeRead64(
-                                    reinterpret_cast<void*>(static_cast<uintptr_t>(val2)),
-                                    &vtbl2) || !vtbl2) continue;
-
-                                uint8_t* vtblPtr = reinterpret_cast<uint8_t*>(
-                                    static_cast<uintptr_t>(vtbl2));
-                                bool inDxgi = false;
-                                if (dxgiBase && vtblPtr >= dxgiBase && vtblPtr < dxgiEnd)
-                                {
-                                    inDxgi = true;
-                                }
-                                else if (!dxgiBase)
-                                {
-                                    HMODULE hModVtbl = nullptr;
-                                    inDxgi = GetModuleHandleExA(
-                                        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                                        GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                                        reinterpret_cast<LPCSTR>(vtblPtr),
-                                        &hModVtbl) && hModVtbl == hDXGIscan;
-                                }
-                                if (!inDxgi) continue;
-
-                                IUnknown* unk2 = reinterpret_cast<IUnknown*>(
-                                    static_cast<uintptr_t>(val2));
-
-                                // Try IDXGISwapChain3 first (D3D12 flip-model)
-                                IDXGISwapChain3* sc3 = nullptr;
-                                if (SUCCEEDED(unk2->QueryInterface(
-                                    __uuidof(IDXGISwapChain3),
-                                    reinterpret_cast<void**>(&sc3))) && sc3)
-                                {
-                                    DXGI_SWAP_CHAIN_DESC scd = {};
-                                    if (SUCCEEDED(sc3->GetDesc(&scd)) &&
-                                        scd.BufferCount >= 2 &&
-                                        scd.OutputWindow != nullptr &&
-                                        IsWindow(scd.OutputWindow))
-                                    {
-                                        overlayLogFmt("resolveD3DFromDXGI: D3D12 scan"
-                                            " found IDXGISwapChain3 at [%p] = %p"
-                                            " bufs=%u hwnd=%p",
-                                            (void*)p2, (void*)sc3,
-                                            scd.BufferCount,
-                                            (void*)scd.OutputWindow);
-                                        foundSC = sc3;
-                                        sc3->Release();
-                                    }
-                                    else
-                                    {
-                                        sc3->Release();
-                                    }
-                                }
-                                else
-                                {
-                                    // Fallback: plain IDXGISwapChain
-                                    IDXGISwapChain* sc2 = nullptr;
-                                    if (SUCCEEDED(unk2->QueryInterface(
-                                        __uuidof(IDXGISwapChain),
-                                        reinterpret_cast<void**>(&sc2))) && sc2)
-                                    {
-                                        DXGI_SWAP_CHAIN_DESC scd = {};
-                                        if (SUCCEEDED(sc2->GetDesc(&scd)) &&
-                                            scd.BufferCount >= 2 &&
-                                            scd.OutputWindow != nullptr &&
-                                            IsWindow(scd.OutputWindow))
-                                        {
-                                            overlayLogFmt("resolveD3DFromDXGI: D3D12 scan"
-                                                " found IDXGISwapChain at [%p] = %p"
-                                                " bufs=%u hwnd=%p",
-                                                (void*)p2, (void*)sc2,
-                                                scd.BufferCount,
-                                                (void*)scd.OutputWindow);
-                                            foundSC = sc2;
-                                            sc2->Release();
-                                        }
-                                        else
-                                        {
-                                            sc2->Release();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        __except (EXCEPTION_EXECUTE_HANDLER) {}
-                    }
-                }
-
-                uintptr_t next2 = reinterpret_cast<uintptr_t>(mbi2.BaseAddress) + mbi2.RegionSize;
-                if (next2 <= reinterpret_cast<uintptr_t>(cursor)) break;
-                cursor = reinterpret_cast<uint8_t*>(next2);
-            }
+            // IMPORTANT: do NOT AddRef here. dxgi.cpp's captureSwapChain()
+            // already keeps g_capturedSwapChain alive with its own reference
+            // for as long as it's the game's active swap chain, and the game
+            // itself holds a reference too (its own m_swapChain member).
+            //
+            // Taking a SECOND, independent AddRef here — and then storing
+            // this pointer into g_resolvedSwapChain/g_swapChain for the rest
+            // of the overlay's lifetime with no matching Release() anywhere
+            // (destroyD3DObjects only nulled the pointer) — permanently
+            // leaked a reference on the swap chain for as long as the
+            // overlay was active. DXGI treats an output as still "claimed"
+            // while any reference to a swap chain on it is outstanding, so
+            // the next time the game itself tried to recreate its swap
+            // chain (e.g. a fullscreen/resolution change — the
+            // "m_renderer->createSwapChain(&swapChainDesc, &fullscreenDesc, ...)"
+            // call in the error dialog), the real dxgi.dll rejected it with
+            // E_ACCESSDENIED because the old swap chain hadn't actually been
+            // allowed to fully release the output.
+            //
+            // We only need a valid pointer for the instant it takes to read
+            // the vtable and install our Present/ResizeBuffers hooks below —
+            // the hooks then operate purely off the "sc" parameter each real
+            // call passes in, never off this global — so a borrowed pointer
+            // is correct here, exactly like the D3D11 identification passes
+            // elsewhere in this file (they Release() immediately after
+            // QueryInterface too).
+            foundSC = g_capturedSwapChain;
+            overlayLog("resolveD3DFromDXGI: using swap chain captured via DXGI proxy hook (borrowed, no extra AddRef)");
+        }
+        else
+        {
+            overlayLog("resolveD3DFromDXGI: DxRenderer pointer is null, no captured swap chain yet — "
+                "waiting for proxy hook (memory scan disabled, it was causing E_ACCESSDENIED on the game's CreateSwapChain)");
+            return false;
         }
 
         if (!foundSC)
         {
-            overlayLog("resolveD3DFromDXGI: D3D12 scan — no IDXGISwapChain found, aborting");
+            overlayLog("resolveD3DFromDXGI: D3D12 path — no IDXGISwapChain found, aborting");
             return false;
         }
 
@@ -1338,147 +1292,56 @@ static bool resolveD3DFromDXGI(HWND hwnd)
         }
         overlayLogFmt("resolveD3DFromDXGI: D3D12 device=%p", (void*)d12dev);
 
-        // Scan the game's data pages for the DIRECT command queue the swap
-        // chain was created with. We identify it by vtable in d3d12.dll and
-        // D3D12_COMMAND_LIST_TYPE_DIRECT reported by GetDesc()
+        // Identify the DIRECT command queue directly from the "device"
+        // parameter DXGI hooked at CreateSwapChain/CreateSwapChainForHwnd
+        // time (see dxgi.cpp's hookedCreateSwapChainForHwnd and
+        // g_capturedSwapChainDevice). For D3D12 swap chains, DXGI REQUIRES
+        // that parameter to be the ID3D12CommandQueue the swap chain
+        // presents on — so we already have it, with zero scanning.
+        //
+        // We used to scan the entire committed process address space
+        // (0x10000..0x00007FFFFFFFFFFF) for anything that QueryInterface'd
+        // as ID3D12CommandQueue. Walking that much live engine/driver memory
+        // while the game is mid-frame, and calling QueryInterface on values
+        // that only coincidentally look like valid COM objects, is unsafe —
+        // this is what was hanging/crashing the game right after
+        // "D3D12 device=..." in the log.
         ID3D12CommandQueue* d12queue = nullptr;
+        if (g_capturedSwapChainDevice)
         {
-            MEMORY_BASIC_INFORMATION mqmbi = {};
-            // Some games stores the command queue pointer inside a
-            // heap-allocated engine object, not inside the game module's .data
-            // section. Scan the full process address space (same strategy used above
-            // for the swap chain) so D3D12-only titles are covered. Other games that
-            // reach this path via the DxRenderer-null branch already have no queue
-            // in the module image anyway, so widening the scan is always correct
-            uint8_t* cursor = reinterpret_cast<uint8_t*>(0x10000);
-            uint8_t* limit = reinterpret_cast<uint8_t*>(0x00007FFFFFFFFFFFllu);
-            for (; cursor < limit && !d12queue; )
+            if (SUCCEEDED(g_capturedSwapChainDevice->QueryInterface(
+                __uuidof(ID3D12CommandQueue),
+                reinterpret_cast<void**>(&d12queue))) && d12queue)
             {
-                if (!VirtualQuery(cursor, &mqmbi, sizeof(mqmbi))) break;
-                uint8_t* rBase3 = reinterpret_cast<uint8_t*>(mqmbi.BaseAddress);
-                uint8_t* rEnd3 = rBase3 + mqmbi.RegionSize;
-
-                bool isData3 = (mqmbi.State == MEM_COMMIT) &&
-                    !(mqmbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)) &&
-                    !(mqmbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ |
-                        PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) &&
-                    (mqmbi.Type == MEM_PRIVATE || mqmbi.Type == MEM_MAPPED);
-
-                if (isData3 && rEnd3 > rBase3)
+                D3D12_COMMAND_QUEUE_DESC qd = d12queue->GetDesc();
+                if (qd.Type != D3D12_COMMAND_LIST_TYPE_DIRECT)
                 {
-                    for (uint8_t* pageBase3 = rBase3;
-                        pageBase3 < rEnd3 && !d12queue;
-                        pageBase3 += 0x1000)
-                    {
-                        uint8_t* pageEnd3 = pageBase3 + 0x1000;
-                        if (pageEnd3 > rEnd3) pageEnd3 = rEnd3;
-                        __try
-                        {
-                            for (uint8_t* p3 = pageBase3; p3 + 8 <= pageEnd3 && !d12queue; p3 += 8)
-                            {
-                                uint64_t val3 = 0;
-                                if (!FrostbiteConsole::safeRead64(p3, &val3) || !val3) continue;
-                                if (val3 < 0x10000ULL || val3 > 0x00007FFFFFFFFFFFllu) continue;
-                                if (val3 >= reinterpret_cast<uintptr_t>(modBase) &&
-                                    val3 < reinterpret_cast<uintptr_t>(modEnd)) continue;
-
-                                // Gate on vtable module membership before any COM call
-                                // Both dereferences and the QI are inside this __try frame
-                                uint64_t vtbl3 = 0;
-                                if (!FrostbiteConsole::safeRead64(
-                                    reinterpret_cast<void*>(static_cast<uintptr_t>(val3)),
-                                    &vtbl3) || !vtbl3) continue;
-
-                                // Fast range check against cached d3d12.dll bounds
-                                {
-                                    static uint8_t* s_d3d12Base = nullptr;
-                                    static uint8_t* s_d3d12End = nullptr;
-                                    if (!s_d3d12Base && hD3D12scan)
-                                    {
-                                        MODULEINFO d12MI = {};
-                                        if (GetModuleInformation(GetCurrentProcess(),
-                                            hD3D12scan, &d12MI, sizeof(d12MI)))
-                                        {
-                                            s_d3d12Base = reinterpret_cast<uint8_t*>(d12MI.lpBaseOfDll);
-                                            s_d3d12End = s_d3d12Base + d12MI.SizeOfImage;
-                                        }
-                                    }
-                                    uint8_t* vtbl3Ptr = reinterpret_cast<uint8_t*>(
-                                        static_cast<uintptr_t>(vtbl3));
-                                    bool inD3D12 = false;
-                                    if (s_d3d12Base && vtbl3Ptr >= s_d3d12Base && vtbl3Ptr < s_d3d12End)
-                                        inD3D12 = true;
-                                    else if (!s_d3d12Base)
-                                    {
-                                        HMODULE hModQ = nullptr;
-                                        inD3D12 = GetModuleHandleExA(
-                                            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                                            GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                                            reinterpret_cast<LPCSTR>(vtbl3Ptr),
-                                            &hModQ) && hModQ == hD3D12scan;
-                                    }
-                                    if (!inD3D12) continue;
-                                }
-
-                                HMODULE hModQ = nullptr;
-                                if (!GetModuleHandleExA(
-                                    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                                    GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                                    reinterpret_cast<LPCSTR>(static_cast<uintptr_t>(vtbl3)),
-                                    &hModQ) || hModQ != hD3D12scan) continue;
-
-                                // Verify the vtable's first slot is itself a committed
-                                // executable address — catches objects whose vtable pointer
-                                // resolved to d3d12.dll by coincidence but is malformed
-                                uint64_t vtblSlot0 = 0;
-                                if (!FrostbiteConsole::safeRead64(
-                                    reinterpret_cast<void*>(static_cast<uintptr_t>(vtbl3)),
-                                    &vtblSlot0) || !vtblSlot0) continue;
-                                {
-                                    MEMORY_BASIC_INFORMATION vtslMbi = {};
-                                    if (!VirtualQuery(reinterpret_cast<void*>(
-                                        static_cast<uintptr_t>(vtblSlot0)), &vtslMbi, sizeof(vtslMbi)))
-                                        continue;
-                                    if (!(vtslMbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ |
-                                        PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)))
-                                        continue;
-                                }
-
-                                IUnknown* unkQ = reinterpret_cast<IUnknown*>(
-                                    static_cast<uintptr_t>(val3));
-                                ID3D12CommandQueue* cq = nullptr;
-                                if (SUCCEEDED(unkQ->QueryInterface(
-                                    __uuidof(ID3D12CommandQueue),
-                                    reinterpret_cast<void**>(&cq))) && cq)
-                                {
-                                    D3D12_COMMAND_QUEUE_DESC qd = cq->GetDesc();
-                                    if (qd.Type == D3D12_COMMAND_LIST_TYPE_DIRECT)
-                                    {
-                                        overlayLogFmt("resolveD3DFromDXGI: D3D12 DIRECT queue"
-                                            " at [%p] = %p", (void*)p3, (void*)cq);
-                                        d12queue = cq;
-                                        // keep this ref — we store it in g_d3d12Queue
-                                    }
-                                    else
-                                    {
-                                        cq->Release();
-                                    }
-                                }
-                            }
-                        }
-                        __except (EXCEPTION_EXECUTE_HANDLER) {}
-                    }
+                    overlayLogFmt("resolveD3DFromDXGI: captured swap-chain device is a "
+                        "command queue but type=%d (not DIRECT) — treating as not found",
+                        (int)qd.Type);
+                    d12queue->Release();
+                    d12queue = nullptr;
                 }
-
-                uintptr_t next3 = reinterpret_cast<uintptr_t>(mqmbi.BaseAddress) + mqmbi.RegionSize;
-                if (next3 <= reinterpret_cast<uintptr_t>(cursor)) break;
-                cursor = reinterpret_cast<uint8_t*>(next3);
+                else
+                {
+                    overlayLogFmt("resolveD3DFromDXGI: DIRECT queue from captured "
+                        "swap-chain device = %p", (void*)d12queue);
+                }
             }
+            else
+            {
+                overlayLog("resolveD3DFromDXGI: captured swap-chain device did not "
+                    "QueryInterface as ID3D12CommandQueue");
+            }
+        }
+        else
+        {
+            overlayLog("resolveD3DFromDXGI: no captured swap-chain device available");
         }
 
         if (!d12queue)
         {
-            overlayLog("resolveD3DFromDXGI: D3D12 scan — no DIRECT command queue found, aborting");
+            overlayLog("resolveD3DFromDXGI: D3D12 — no DIRECT command queue found, aborting");
             d12dev->Release();
             return false;
         }
@@ -4668,7 +4531,47 @@ namespace ConsoleOverlay
         }
 
         // Register output handler
-        if (FrostbiteConsole::ConsoleBridge::instance().use3ArgHandler())
+                //
+                // Prefer direct vector insertion whenever a valid s_outputHandlers
+                // address was resolved. Some titles (e.g. Veilguard) dispatch
+                // console output by iterating s_outputHandlers inline inside
+                // executeConsoleCommand itself, never calling through
+                // writeConsoleFunc at all -- so the hook-based addOutputHandler3
+                // path silently "succeeds" but the game never calls the hooked
+                // function. Confirmed via x64dbg on Veilguard: the dispatch loop
+                // reads s_outputHandlers directly and calls each slot's function
+                // pointer, bypassing writeConsoleFunc entirely. Direct insertion
+                // writes straight into the vector the game actually reads from, so
+                // it works regardless of whether writeConsoleFunc is ever invoked.
+                // See the matching fix in dxgi.cpp's cpp_addHandler(). Duplicate
+                // registration (e.g. this call plus dxgi.cpp's pipe-side handler)
+                // is guarded against inside ConsoleBridge::addOutputHandler() itself.
+        if (FrostbiteConsole::ConsoleBridge::instance().hasVecAddr())
+        {
+            // dxgi.cpp's cpp_addHandler() may have already registered its
+            // pipe-side handler (gameOutputHandler3) directly into
+            // s_outputHandlers, since overlay init runs on a background
+            // thread and can complete well after the worker thread's first
+            // addHandler call. If we now insert our own handler on top of
+            // that, BOTH fire on every console output: gameOutputHandler3
+            // from its own slot, and again through our chain call to
+            // g_pipeOutputHandler (which IS gameOutputHandler3) below —
+            // doubling every OUTPUT: packet the pipe/ConsoleWindow receives.
+            // g_pipeOutputHandler holds that exact function pointer, so we
+            // can remove the stale direct entry before taking the slot
+            // ourselves, without needing to name gameOutputHandler3 here
+            if (ConsoleOverlay::g_pipeOutputHandler)
+            {
+                FrostbiteConsole::removeOutputHandler(
+                    reinterpret_cast<FrostbiteConsole::OutputHandlerFn>(
+                        ConsoleOverlay::g_pipeOutputHandler));
+                overlayLog("initialize: removed pre-existing direct pipe-handler "
+                    "registration before taking over the output slot");
+            }
+            FrostbiteConsole::addOutputHandler(&ConsoleOverlay::outputHandler);
+            overlayLog("initialize: output handler registered (direct vector insertion)");
+        }
+        else if (FrostbiteConsole::ConsoleBridge::instance().use3ArgHandler())
         {
             FrostbiteConsole::addOutputHandler3(&ConsoleOverlay::outputHandler);
             overlayLog("initialize: output handler registered (3-arg path)");
@@ -4717,7 +4620,14 @@ namespace ConsoleOverlay
 
         uninstallDInputHook();
 
-        if (FrostbiteConsole::ConsoleBridge::instance().use3ArgHandler())
+        // Mirror initialize(): if a valid s_outputHandlers address was
+                // resolved we always registered via direct vector insertion
+                // regardless of use3ArgHandler(), so removal must use the matching
+                // direct-vector removal path rather than the writeConsoleFunc-hook
+                // removal path
+        if (FrostbiteConsole::ConsoleBridge::instance().hasVecAddr())
+            FrostbiteConsole::removeOutputHandler(&ConsoleOverlay::outputHandler);
+        else if (FrostbiteConsole::ConsoleBridge::instance().use3ArgHandler())
             FrostbiteConsole::removeOutputHandler3(&ConsoleOverlay::outputHandler);
         else
             FrostbiteConsole::removeOutputHandler(&ConsoleOverlay::outputHandler);
@@ -4753,6 +4663,56 @@ namespace ConsoleOverlay
     bool isInitialized()
     {
         return g_initialized;
+    }
+
+    void releaseSwapChainResourcesForRecreate()
+    {
+        if (!g_initialized) return;
+
+        overlayLog("releaseSwapChainResourcesForRecreate: dropping back-buffer/RTV "
+            "references before game recreates its swap chain");
+
+        std::lock_guard<std::mutex> lock(g_mtx);
+
+        // D3D11 path — release our RTV (and any D3D11On12 wrapped resource)
+        releaseRTV();
+
+        // D3D12 path — release our GetBuffer() references on the OLD swap
+        // chain's back buffers. These are real strong refs; leaving them
+        // outstanding is exactly what causes the real CreateSwapChainForHwnd
+        // call (invoked immediately after this, from dxgi.cpp) to fail with
+        // E_ACCESSDENIED.
+        if (g_isD3D12Mode)
+        {
+            for (UINT i = 0; i < k_maxSwapBuffers; ++i)
+            {
+                if (g_d3d12BackBuffers[i])
+                {
+                    g_d3d12BackBuffers[i]->Release();
+                    g_d3d12BackBuffers[i] = nullptr;
+                }
+                g_d3d12BufferInRTState[i] = false;
+            }
+            g_d3d12BufferCount = 0;
+
+            // Force a full re-acquire (fresh GetBuffer + RTV creation) on the
+            // NEW swap chain. This is safe and lazy: our Present/ResizeBuffers
+            // hooks live on the DXGI vtable itself (shared across all swap
+            // chain instances of the same type), so they keep firing
+            // automatically on the new swap chain without any re-install.
+            // presentHook already checks this flag and calls
+            // createD3D12OverlayResources(sc) using whatever "sc" the real
+            // Present call hands it — which will be the new swap chain.
+            g_d3d12ResourcesReady = false;
+        }
+
+        // Do NOT touch g_resolvedSwapChain / g_swapChain here. They go stale
+        // once the old swap chain is destroyed, but nothing dereferences them
+        // for per-frame work (presentHook/resizeBuffersHook only ever use the
+        // "sc" parameter the real call passes in). They matter only for
+        // uninstallPresentHook() at shutdown, which reads the vtable — and
+        // the vtable pointer itself remains valid because it belongs to the
+        // DXGI implementation's class, not to this specific instance.
     }
 
     void __fastcall outputHandler(void* /*thisDiscarded*/,
