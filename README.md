@@ -17,11 +17,12 @@ Note: If an InitFs file asks you for an AES key, I will not provide it. A quick 
 
 <img width="2100" height="1240" src="./docs/assets/showcase.webp" />
 
-## TODO:
+## TODO (strikethrough lines have been fixed and will be shown in the next update):
 - Revert the InitFs file automatically after reverting the AC patcher
-- Fix console overlay not properly appearing in newer 2022+ games (Console Injector)
+- ~~Fix console overlay not properly appearing in newer 2022+ games (Console Injector)~~
 - Fix unlock all commands logic for newer 2022+ games (Console Injector)
-- Fix command output handling for some games (Console Injector)
+- ~~Fix command output handling for some games (Console Injector)~~
+- Add eventual support for Emulators/Consoles? (Console Injector)
 - Fix Dingo mode logic as it's incorrect and needs proper polishing (Type Extractor)
 - Implement PGA Tour support (Type Extractor)
 - Implement Battlefield Hardline support (Type Extractor)
