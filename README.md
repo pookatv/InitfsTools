@@ -36,6 +36,8 @@ Note: If an InitFs file asks you for an AES key, I will not provide it. A quick 
 - Implement back/forward arrow system
 - Implement "Add ApplySettings Block" option
 
+# Note: I will spend month time on vacation without working on this - feel free to contribute your own changes
+
 ## Credits
 - Pookatv - Project lead
 - Twig6943 - Linux support and build improvements
