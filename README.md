@@ -4,7 +4,7 @@
 The ultimate tool suite for all things InitFs related, 
 featuring multi-format decryption support, a command dictionary, type extractor, diff checker, and more...
 
-https://github.com/pookatv/InitfsTools/releases/tag/v2.15
+Download Now: >> https://github.com/pookatv/InitfsTools/releases/tag/v2.15 <<
 
 Note: If an InitFs file asks you for an AES key, I will not provide it. A quick google search may help.
 
