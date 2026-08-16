@@ -24,6 +24,7 @@ Note: If an InitFs file asks you for an AES key, I will not provide it. A quick 
 - ~~Fix console overlay not properly appearing in newer 2022+ games (Console Injector)~~
 - Fix unlock all commands logic for newer 2022+ games such as NFS Unbound and DAI (Console Injector)
 - ~~Fix command output handling for some games (Console Injector)~~
+- Fix compatibility with ReShade when using proxy mode (Console Injector)
 - Add eventual support for Emulators/Consoles? (Console Injector)
 - Fix Dingo mode logic as it's incorrect and needs proper polishing (Type Extractor)
 - Implement PGA Tour support (Type Extractor)
