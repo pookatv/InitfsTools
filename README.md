@@ -2,7 +2,7 @@
 
 # Frostbite InitFs Tools
 The ultimate tool suite for all things InitFs related, 
-featuring multi-format decryption support, a command dictionary, type extractor, diff checker, and more...
+featuring multi-format decryption support, a command dictionary, type extractor, diff checker, console injector, CLI support, and more...
 
 **Download Now: >> https://github.com/pookatv/InitfsTools/releases/tag/v2.15 <<**
 
