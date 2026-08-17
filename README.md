@@ -22,9 +22,10 @@ Note: If an InitFs file asks you for an AES key, I will not provide it. A quick 
 ## TODO (strikethrough lines have been fixed and included in the next update):
 - Revert the InitFs file automatically after reverting the AC patcher
 - ~~Fix console overlay not properly appearing in newer 2022+ games (Console Injector)~~
-- Fix unlock all commands logic for newer 2022+ games such as NFS Unbound and DAI (Console Injector)
+- Fix unlock all commands logic for newer 2022+ games such as NFS Unbound and DAV (Console Injector)
 - ~~Fix command output handling for some games (Console Injector)~~
 - Fix compatibility with ReShade when using proxy mode (Console Injector)
+- Fix an issue where the same commands may appear twice on the console overlay (Console Injector)
 - Add eventual support for Emulators/Consoles? (Console Injector)
 - Fix Dingo mode logic as it's incorrect and needs proper polishing (Type Extractor)
 - Implement PGA Tour support (Type Extractor)
@@ -56,6 +57,6 @@ The Content, Name, Code, and all assets are licensed under a Creative Commons At
 InitfsTools is an independent, community-developed project with no affiliation, endorsement, or sponsorship from Electronic Arts Inc. or any other rights holder.
 This software exists solely for educational, research, and preservation purposes. It is neither official software nor a product of EA or any publisher. The maintainers assert no ownership over any publisher code/assets - only what is minimally necessary to achieve basic functionality for the purposes described above.
 By using InitfsTools, you accept full responsibility for ensuring your use complies with all applicable laws and with any terms of service or end-user license agreements governing the software you use it with.
-This tool is not responsible for any account suspensions when using this alongside the EAAC.
+This tool is not responsible for any account suspensions when using this alongside the EAAC (if applicable).
 
 See [docs](./docs) for build instructions.
