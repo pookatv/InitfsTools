@@ -33,6 +33,7 @@ Note: If an InitFs file asks you for an AES key, I will not provide it. A quick 
 - Fully implement Dead Space and Need For Speed Heat support for live value reading
 - Finish DictionaryWindow logic to support more dev commands (Dictionary)
 - Fix an issue where the Recent InitFs file text uses the wrong styling
+- Fix an issue where message boxes are using the wrong theme on Windows 10
 - Finish InitfsTools Wiki (help wanted!)
 - Implement localization support for the UI
 - Implement "GoTo" default commands
