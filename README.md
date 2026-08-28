@@ -3,6 +3,8 @@
 # Frostbite InitFs Tools
 The ultimate toolkit for working with InitFs files such as initfs_win32 across the Frostbite Engine - featuring multi-format decryption, a searchable command dictionary, type extraction, diff checking, console injection, full CLI support, and more...
 
+Confirmed working on all device platforms including consoles and all Frostbite Engine games that use an InitFs file
+
 **Download Now: >> https://github.com/pookatv/InitfsTools/releases/tag/v2.15 <<**
 
 Note: If an InitFs file asks you for an AES key, I will not provide it. A quick google search may help.
