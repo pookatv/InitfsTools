@@ -8,7 +8,7 @@ The ultimate toolkit for working with InitFs files such as initfs_win32 across t
 Note: If an InitFs file asks you for an AES key, I will not provide it. A quick google search may help.
 
 ## Features
-- **InitFs Modding** - Load, modify, and save InitFs files across all Frostbite Engine games
+- **InitFs Modding** - Load, modify, and save InitFs files across all Frostbite Engine games and all platforms
 - **Diff Check** - Compare differences between two InitFs files, with export support
 - **Type Extractor** - Extract all types and commands from a game executable or FrostyEditor SDK DLL
 - **Command Dictionary** - Generate and browse a full list of console commands extracted from raw InitFs files
