@@ -1,7 +1,7 @@
 <img width="128" height="128" src="./resources/app.ico" />
 
 # Frostbite InitFs Tools
-The ultimate toolkit for working with InitFs files such as initfs_win32 across the Frostbite Engine - featuring multi-format decryption, a searchable command dictionary, type extraction, diff checking, console injection, full CLI support, and more...
+The ultimate InitFs Editor for working with InitFs files such as initfs_win32 across the Frostbite Engine - featuring multi-format decryption, a searchable command dictionary, type extraction, diff checking, console injection, full CLI support, and more...
 
 Confirmed working on all device platforms including consoles and all Frostbite Engine games that use an InitFs file!
 
