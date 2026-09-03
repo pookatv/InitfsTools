@@ -16,7 +16,7 @@
       },
       "environment": {
         "QML_DEBUG_ARGS": "-qmljsdebugger=file:{6763d892-e28f-4d39-b358-16e0ffabd24a},block",
-        "PATH": "C:/Users/Luca/Documents/_InitfsConverterEXE/C++/Qt_6.10_Backport/bin;$penv{PATH}"
+        "PATH": "<YOUR_QT_BACKPORT_PATH>/bin;$penv{PATH}"
       }
     },
     {
@@ -37,10 +37,10 @@
       "name": "Qt-Default-Dynamic",
       "inherits": "Qt",
       "environment": {
-        "QTDIR": "C:/Users/Luca/Documents/_InitfsConverterEXE/C++/Qt_6.10_Backport"
+        "QTDIR": "<YOUR_QT_BACKPORT_PATH>"
       },
       "cacheVariables": {
-        "QT_PATH": "C:/Users/Luca/Documents/_InitfsConverterEXE/C++/Qt_6.10_Backport"
+        "QT_PATH": "<YOUR_QT_BACKPORT_PATH>"
       },
       "architecture": {
         "strategy": "external",
@@ -117,7 +117,7 @@
       "name": "Qt 6.10 Backport",
       "inherits": "Qt",
       "environment": {
-        "QTDIR": "C:/Users/Luca/Documents/_InitfsConverterEXE/C++/Qt_6.10_Backport"
+        "QTDIR": "<YOUR_QT_BACKPORT_PATH>"
       },
       "architecture": {
         "strategy": "external",
