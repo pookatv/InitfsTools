@@ -38,7 +38,7 @@ Note: If an InitFs file asks you for an AES key, I will not provide it. A quick 
 - Finish InitfsTools Wiki (help wanted!)
 - Implement localization support for the UI
 - Implement "GoTo" default commands
-~~- Implement tab system~~
+- ~~Implement tab system~~
 - Implement "Add ApplySettings Block" option
 
 ## Credits
